@@ -27,6 +27,11 @@ func main() {
 	flag.Parse()
 
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+		logger.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)

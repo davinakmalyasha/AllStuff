@@ -14,7 +14,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -85,6 +87,40 @@ type PushSubscription struct {
 		P256dh string `json:"p256dh"`
 		Auth   string `json:"auth"`
 	} `json:"keys"`
+}
+
+// pushClient is bounded so a hostile subscription endpoint cannot stall the
+// request path or probe internal networks indefinitely.
+var pushClient = &http.Client{Timeout: 10 * time.Second}
+
+// ValidPushEndpoint enforces an https URL on a public host — subscription
+// endpoints are user-supplied, so without this check Send becomes an SSRF
+// primitive (internal services, cloud metadata).
+func ValidPushEndpoint(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return isPublicIP(ip)
+	}
+	// Hostname: resolve and require every address to be public.
+	addrs, err := net.LookupIP(host)
+	if err != nil || len(addrs) == 0 {
+		return false
+	}
+	for _, a := range addrs {
+		if !isPublicIP(a) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPublicIP(ip net.IP) bool {
+	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified())
 }
 
 // Send pushes an encrypted payload to a subscription (best-effort).
@@ -163,7 +199,7 @@ func (k *VAPIDKeypair) Send(sub PushSubscription, subject, title, body string, d
 	req.Header.Set("Content-Encoding", "aes128gcm")
 	req.Header.Set("Authorization", authHeader)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := pushClient.Do(req)
 	if err != nil {
 		return err
 	}

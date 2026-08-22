@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -72,7 +74,9 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 // ---- public API keys (PRD §9.6) ----
 
 // apiKeyOnly guards /api/v2/* with X-API-Key (300 req/min per key) and
-// injects the owning user as the request principal.
+// injects the owning user as the request principal. The declared scopes are
+// enforced: v2 is read-only today, so a "read" scope is required (keys
+// created before scope checks default to ["read"]).
 func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw := r.Header.Get("X-API-Key")
@@ -83,6 +87,10 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 		key, err := s.deps.APIKeys.Valid(r.Context(), raw)
 		if err != nil || key == nil {
 			fail(w, domain.ErrNotAuthenticated)
+			return
+		}
+		if !key.HasScope("read") {
+			fail(w, domain.ErrForbidden)
 			return
 		}
 		_, retry, ok := s.deps.RateLimiter.Allow("apikey:"+key.ID, 300, time.Minute)
@@ -185,19 +193,25 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 		switch {
 		case authPaths[p]:
 			limit, window = 5, time.Minute // PRD §5.9.1: 5/min per IP
-		case p == "/api/v1/search" || p == "/api/v1/suggest":
+		case p == "/api/v1/search" || p == "/api/v1/search/suggest" || p == "/api/v1/users/search":
 			limit, window = 60, time.Minute
 		case p == "/api/v1/auth/2fa/verify":
 			limit, window = 3, 15*time.Minute // PRD §5.9.1: 3 attempts then lockout
-		case p == "/api/v1/media/upload":
+		case p == "/api/v1/media" && r.Method == http.MethodPost:
 			limit, window = 20, time.Hour // media: 20/h per user
 			if u, found := currentUser(r); found {
-				key = u.ID
+				key = "user:" + u.ID
+			}
+		case strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/messages") && r.Method == http.MethodPost:
+			// Chat sends: burst guard per user (ARCHITECTURE §1: 1/s + 60/h).
+			limit, window = 30, time.Minute
+			if u, found := currentUser(r); found {
+				key = "chat:" + u.ID
 			}
 		case engagementPath(p) && r.Method != http.MethodGet:
 			limit, window = 30, time.Minute // engagement writes: 30/min per user
 			if u, found := currentUser(r); found {
-				key = u.ID
+				key = "user:" + u.ID
 			}
 		}
 		remaining, retryAfter, ok := s.deps.RateLimiter.Allow(key, limit, window)
@@ -239,17 +253,24 @@ func (s *Server) withCSRF(next http.Handler) http.Handler {
 
 // ---- conditional caching (PRD §8.8, ARCHITECTURE §1) ----
 
-// withETag buffers successful GET responses and attaches a content hash so
-// clients/proxies can revalidate with If-None-Match (304).
+// etagBufferLimit caps how much of a response is held for hashing; larger
+// payloads (media files, exports) are streamed straight through.
+const etagBufferLimit = 512 << 10 // 512 KiB
+
+// withETag buffers successful JSON GET responses and attaches a content hash
+// so clients/proxies can revalidate with If-None-Match (304). Everything else
+// — errors, non-JSON bodies, oversized payloads, the WebSocket upgrade —
+// passes through untouched.
 func (s *Server) withETag(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/api/v1") {
+		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/api/v1") ||
+			r.URL.Path == "/api/v1/ws" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		rec := &etagRecorder{ResponseWriter: w}
+		rec := newEtagRecorder(w)
 		next.ServeHTTP(rec, r)
-		if rec.status != http.StatusOK || rec.buf == nil {
+		if rec.passthrough || rec.buf == nil {
 			return
 		}
 		sum := sha256.Sum256(rec.buf)
@@ -265,24 +286,79 @@ func (s *Server) withETag(next http.Handler) http.Handler {
 
 type etagRecorder struct {
 	http.ResponseWriter
-	status int
-	buf    []byte
+	status      int
+	buf         []byte
+	passthrough bool
 }
 
-// WriteHeader only records: the real commit happens in withETag after the
-// body is buffered, so the ETag header can be attached first.
+func newEtagRecorder(w http.ResponseWriter) *etagRecorder {
+	return &etagRecorder{ResponseWriter: w}
+}
+
+// bufferable reports whether the response should be held for ETag hashing:
+// only 200 responses whose Content-Type is JSON.
+func (r *etagRecorder) bufferable() bool {
+	if r.status != http.StatusOK && r.status != 0 {
+		return false
+	}
+	ct := r.Header().Get("Content-Type")
+	return strings.HasPrefix(ct, "application/json")
+}
+
+// WriteHeader defers committing only while the response still looks like a
+// small JSON 200; anything else is forwarded immediately and verbatim,
+// including its status code (errors must never be swallowed into a 200).
 func (r *etagRecorder) WriteHeader(code int) {
 	r.status = code
+	if !r.bufferable() || r.passthrough {
+		r.passthrough = true
+		r.ResponseWriter.WriteHeader(code)
+	}
 }
 
 func (r *etagRecorder) Write(b []byte) (int, error) {
-	if r.status == 0 {
+	if r.status == 0 && len(b) > 0 {
 		r.status = http.StatusOK
 	}
-	if r.status == http.StatusOK {
-		r.buf = append(r.buf, b...)
+	if r.passthrough {
+		return r.ResponseWriter.Write(b)
 	}
+	if !r.bufferable() {
+		r.passthrough = true
+		r.ResponseWriter.WriteHeader(r.status)
+		return r.ResponseWriter.Write(b)
+	}
+	if len(r.buf)+len(b) > etagBufferLimit {
+		// Too large to hash: flush what we kept and stream the rest.
+		r.passthrough = true
+		r.ResponseWriter.WriteHeader(r.status)
+		if len(r.buf) > 0 {
+			if _, err := r.ResponseWriter.Write(r.buf); err != nil {
+				return 0, err
+			}
+			r.buf = nil
+		}
+		return r.ResponseWriter.Write(b)
+	}
+	r.buf = append(r.buf, b...)
 	return len(b), nil
+}
+
+// Flush streams buffered data when a handler asks for it (streaming JSON).
+func (r *etagRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack lets WebSocket-style upgrades pass through even if this middleware
+// ends up wrapping them (the /api/v1/ws path is already exempted upstream).
+func (r *etagRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("etagRecorder: underlying ResponseWriter is not a Hijacker")
+	}
+	return hj.Hijack()
 }
 
 // ---- auth (access token → user + session) ----
@@ -346,13 +422,36 @@ func (s *Server) clearSessionCookies(w http.ResponseWriter) {
 	}
 }
 
+// ---- ops metrics guard ----
+
+// metricsGuard keeps /metrics open for local/dev tooling but requires an
+// admin session in prod (it exposes traffic counts and internals).
+func (s *Server) metricsGuard(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		env := strings.ToLower(s.deps.Config.AppEnv)
+		if env != "prod" && env != "production" {
+			next(w, r)
+			return
+		}
+		user, found := currentUser(r)
+		if !found || !user.IsAdmin() {
+			fail(w, domain.ErrNotAuthenticated)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // ---- helpers ----
 
 func (s *Server) clientIP(r *http.Request) string {
 	if s.deps.Config.TrustXForwardedFor {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i > 0 {
-				return strings.TrimSpace(xff[:i])
+			// The rightmost entry was appended by the proxy we control and is
+			// the only hop a client cannot spoof; leftmost entries are
+			// attacker-supplied.
+			if i := strings.LastIndexByte(xff, ','); i >= 0 {
+				return strings.TrimSpace(xff[i+1:])
 			}
 			return strings.TrimSpace(xff)
 		}

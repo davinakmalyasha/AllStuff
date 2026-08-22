@@ -3,24 +3,32 @@ package ws
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // RedisPubSub — minimal RESP pub/sub client for multi-instance WS fan-out
 // (ARCHITECTURE §3, M5). Dependency-free: speaks the wire protocol directly.
+// Supports redis:// and rediss:// (TLS, required by most managed providers).
 // Without a configured REDIS_URL the hub stays single-instance (dev default).
 type RedisPubSub struct {
 	addr     string
 	password string
 	db       int
+	useTLS   bool
 	channel  string
 	logger   *slog.Logger
+
+	mu      sync.Mutex
+	pubConn net.Conn
+	pubBr   *bufio.Reader
 }
 
 func NewRedisPubSub(redisURL, channel string, logger *slog.Logger) (*RedisPubSub, error) {
@@ -40,37 +48,77 @@ func NewRedisPubSub(redisURL, channel string, logger *slog.Logger) (*RedisPubSub
 	if len(u.Path) > 1 {
 		db, _ = strconv.Atoi(strings.TrimPrefix(u.Path, "/"))
 	}
-	return &RedisPubSub{addr: host, password: pass, db: db, channel: channel, logger: logger}, nil
+	return &RedisPubSub{
+		addr: host, password: pass, db: db,
+		useTLS:  strings.EqualFold(u.Scheme, "rediss"),
+		channel: channel, logger: logger,
+	}, nil
 }
 
-// Publish sends a raw frame payload to the channel (fire-and-forget).
-func (r *RedisPubSub) Publish(ctx context.Context, payload string) {
+// dial opens a plain or TLS connection depending on the URL scheme.
+func (r *RedisPubSub) dial() (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", r.addr, 5*time.Second)
 	if err != nil {
-		r.logger.Warn("redis publish dial", "err", err)
-		return
+		return nil, err
 	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	br := bufio.NewReader(conn)
-	if !r.handshake(conn, br) {
-		return
+	if r.useTLS {
+		host, _, _ := net.SplitHostPort(r.addr)
+		conn = tls.Client(conn, &tls.Config{ServerName: host})
+	}
+	return conn, nil
+}
+
+// Publish sends a raw frame payload to the channel (fire-and-forget) over a
+// persistent connection; failed publishes drop the conn so the next call
+// redials.
+func (r *RedisPubSub) Publish(_ context.Context, payload string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pubConn == nil {
+		conn, err := r.dial()
+		if err != nil {
+			r.logger.Warn("redis publish dial", "err", err)
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+		br := bufio.NewReader(conn)
+		if !r.handshake(conn, br) {
+			conn.Close()
+			return
+		}
+		r.pubConn, r.pubBr = conn, br
 	}
 	args := [][]byte{[]byte("PUBLISH"), []byte(r.channel), []byte(payload)}
-	if _, err := conn.Write(respArray(args)); err != nil {
+	_ = r.pubConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, err := r.pubConn.Write(respArray(args)); err != nil {
+		r.dropPubLocked()
 		return
 	}
-	// Consume the integer reply so the connection closes cleanly.
-	_, _ = br.ReadString('\n')
+	// Consume the integer reply so buffered data never accumulates.
+	_ = r.pubConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := readRESP(r.pubBr); err != nil {
+		r.dropPubLocked()
+	}
+}
+
+func (r *RedisPubSub) dropPubLocked() {
+	if r.pubConn != nil {
+		r.pubConn.Close()
+		r.pubConn, r.pubBr = nil, nil
+	}
 }
 
 // Subscribe blocks reading the channel; every message is handed to onMsg.
+// A PING keepalive prevents idle pub/sub connections from being dropped by
+// intermediary timeouts (frames published during a reconnect gap are lost —
+// clients resync via REST).
 func (r *RedisPubSub) Subscribe(ctx context.Context, onMsg func(string)) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		conn, err := net.DialTimeout("tcp", r.addr, 5*time.Second)
+		conn, err := r.dial()
 		if err != nil {
 			r.logger.Warn("redis subscribe dial", "err", err)
 			select {
@@ -92,12 +140,14 @@ func (r *RedisPubSub) Subscribe(ctx context.Context, onMsg func(string)) {
 		}
 		// First reply is the subscription confirmation.
 		_, _ = readRESP(br)
+
+		done := make(chan struct{})
+		go keepalive(ctx, conn, done)
+
 		for {
-			if ctx.Err() != nil {
-				conn.Close()
-				return
-			}
-			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			// Long deadline only reaps half-dead peers; the keepalive PING
+			// keeps healthy connections alive well past it.
+			_ = conn.SetReadDeadline(time.Now().Add(10 * time.Minute))
 			msg, err := readRESP(br)
 			if err != nil {
 				break // reconnect
@@ -110,7 +160,31 @@ func (r *RedisPubSub) Subscribe(ctx context.Context, onMsg func(string)) {
 				}
 			}
 		}
+		close(done)
 		conn.Close()
+	}
+}
+
+func keepalive(ctx context.Context, conn net.Conn, done <-chan struct{}) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	var wmu sync.Mutex
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-done:
+			return
+		case <-t.C:
+			wmu.Lock()
+			_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_, err := conn.Write(respArray([][]byte{[]byte("PING")}))
+			wmu.Unlock()
+			if err != nil {
+				conn.Close() // unblocks the reader → reconnect
+				return
+			}
+		}
 	}
 }
 

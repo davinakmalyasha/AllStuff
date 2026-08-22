@@ -269,10 +269,35 @@ func (s *Server) handleAdminBusinessSuspend(w http.ResponseWriter, r *http.Reque
 		fail(w, domain.ErrValidation.WithField("reason", "A reason is required."))
 		return
 	}
-	if _, err := s.deps.Repos.Exec(r.Context(), `
-		UPDATE businesses SET status = $2, updated_at = now() WHERE id = $1`,
-		r.PathValue("id"), map[string]string{"suspend": "suspended", "restore": "verified"}[action]); err != nil {
+	// Restore returns the business to its pre-suspension status instead of
+	// forcing 'verified' (a suspended draft must not come back verified).
+	restored := "verified"
+	if action == "restore" {
+		var prev string
+		err := s.deps.Repos.QueryRow(r.Context(), `
+			SELECT coalesce(pre_suspend_status, '') FROM businesses WHERE id = $1`,
+			r.PathValue("id")).Scan(&prev)
+		switch {
+		case err == nil && prev != "":
+			restored = prev
+		case err != nil:
+			fail(w, err)
+			return
+		}
+	}
+	tag, err := s.deps.Repos.Exec(r.Context(), `
+		UPDATE businesses SET
+			status = $2,
+			pre_suspend_status = CASE WHEN $3 = 'suspend' THEN status ELSE pre_suspend_status END,
+			updated_at = now()
+		WHERE id = $1`,
+		r.PathValue("id"), map[string]string{"suspend": "suspended", "restore": restored}[action], action)
+	if err != nil {
 		fail(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		fail(w, domain.ErrNotFound)
 		return
 	}
 	_, _ = s.deps.Repos.Exec(r.Context(), `

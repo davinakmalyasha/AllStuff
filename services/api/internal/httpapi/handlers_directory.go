@@ -313,8 +313,17 @@ func parseFloatPtr(s string) (*float64, bool) {
 	return &v, true
 }
 
+// parsePositiveInt parses a positive int with a hard ceiling so absurd
+// values never reach SQL LIMIT clauses.
 func parsePositiveInt(s string, def int) int {
+	return parsePositiveIntMax(s, def, 100)
+}
+
+func parsePositiveIntMax(s string, def, max int) int {
 	if v, err := strconv.Atoi(s); err == nil && v > 0 {
+		if v > max {
+			return max
+		}
 		return v
 	}
 	return def

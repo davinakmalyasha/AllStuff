@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"time"
 
@@ -32,7 +33,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	user, tokens, err := s.deps.Auth.Login(r.Context(), in, nil, r.UserAgent())
+	user, tokens, err := s.deps.Auth.Login(r.Context(), in, clientIPValue(s.clientIP(r)), r.UserAgent())
 	if err != nil {
 		if de := domain.FromError(err); de == domain.Err2FARequired && tokens != nil && tokens.RefreshToken != "" {
 			// 2FA gate: hand the challenge token to the client (PRD §5.9.1).
@@ -52,7 +53,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrSessionInvalid)
 		return
 	}
-	user, tokens, err := s.deps.Auth.Refresh(r.Context(), ck.Value, nil, r.UserAgent())
+	user, tokens, err := s.deps.Auth.Refresh(r.Context(), ck.Value, clientIPValue(s.clientIP(r)), r.UserAgent())
 	if err != nil {
 		fail(w, err)
 		return
@@ -240,4 +241,18 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 func currentUser(r *http.Request) (*domain.User, bool) {
 	u, ok := r.Context().Value(ctxKeyUser).(*domain.User)
 	return u, ok
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func clientIPValue(s string) net.IP {
+	if s == "" {
+		return nil
+	}
+	return net.ParseIP(s)
 }

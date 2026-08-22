@@ -238,6 +238,12 @@ func (s *Server) handleTyping(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
+	// Membership check first: without it any authenticated caller could
+	// broadcast typing frames into arbitrary threads (activity oracle).
+	if err := s.deps.Chat.CheckAccess(r.Context(), user.ID, r.PathValue("id")); err != nil {
+		fail(w, err)
+		return
+	}
 	s.broadcastThread(r.Context(), r.PathValue("id"), Frame{Type: "typing", Payload: map[string]any{
 		"thread_id": r.PathValue("id"), "user_id": user.ID, "is_typing": true,
 	}})
@@ -431,6 +437,12 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Endpoint == "" || in.Keys.P256dh == "" || in.Keys.Auth == "" {
 		fail(w, domain.ErrValidation.WithField("_", "endpoint and keys are required."))
+		return
+	}
+	// User-supplied URL: only public https endpoints are accepted, otherwise
+	// push delivery becomes an SSRF vector against internal services.
+	if !security.ValidPushEndpoint(in.Endpoint) {
+		fail(w, domain.ErrValidation.WithField("endpoint", "Invalid push endpoint."))
 		return
 	}
 	sub := security.PushSubscription{Endpoint: in.Endpoint}

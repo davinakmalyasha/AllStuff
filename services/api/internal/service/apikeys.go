@@ -31,6 +31,20 @@ type APIKey struct {
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
 
+// HasScope reports whether the key grants a scope. Legacy rows with an
+// empty scopes array are treated as full read access.
+func (k *APIKey) HasScope(scope string) bool {
+	if len(k.Scopes) == 0 {
+		return scope == "read"
+	}
+	for _, s := range k.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // Create issues a key; the raw value is returned exactly once.
 func (k *APIKeys) Create(ctx context.Context, userID, name string) (*APIKey, string, error) {
 	name = strings.TrimSpace(name)

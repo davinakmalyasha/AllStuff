@@ -42,16 +42,25 @@ func (o *OAuth) AuthURL(state string) string {
 	return "https://accounts.google.com/o/oauth2/v2/auth?" + params.Encode()
 }
 
+// oauthClient bounds all outbound OAuth calls.
+var oauthClient = &http.Client{Timeout: 10 * time.Second}
+
 // Exchange swaps the code for user info and returns the platform user
 // (auto-creating an OAuth account if needed).
 func (o *OAuth) Exchange(ctx context.Context, code string) (*domain.User, error) {
-	tokenResp, err := http.PostForm("https://oauth2.googleapis.com/token", url.Values{
-		"code":          {code},
-		"client_id":     {o.cfg.GoogleOAuthClientID},
-		"client_secret": {o.cfg.GoogleOAuthSecret},
-		"redirect_uri":  {o.cfg.PublicURL + "/auth/oauth/google/callback"},
-		"grant_type":    {"authorization_code"},
-	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://oauth2.googleapis.com/token", strings.NewReader(url.Values{
+			"code":          {code},
+			"client_id":     {o.cfg.GoogleOAuthClientID},
+			"client_secret": {o.cfg.GoogleOAuthSecret},
+			"redirect_uri":  {o.cfg.PublicURL + "/auth/oauth/google/callback"},
+			"grant_type":    {"authorization_code"},
+		}.Encode()))
+	if err != nil {
+		return nil, domain.ErrTokenInvalid
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenResp, err := oauthClient.Do(req)
 	if err != nil {
 		return nil, domain.ErrTokenInvalid
 	}
@@ -66,10 +75,10 @@ func (o *OAuth) Exchange(ctx context.Context, code string) (*domain.User, error)
 		return nil, domain.ErrTokenInvalid
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+	req, _ = http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://www.googleapis.com/oauth2/v3/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +105,12 @@ func (o *OAuth) Exchange(ctx context.Context, code string) (*domain.User, error)
 	if user != nil {
 		if user.Status == domain.UserStatusBanned {
 			return nil, domain.ErrAccountBanned
+		}
+		// Only auto-link when the local account's email is verified;
+		// otherwise an attacker verifying a Google address could take over
+		// an unverified local account (PRD §5.9.1).
+		if user.EmailVerifiedAt == nil {
+			return nil, domain.ErrValidation.WithField("_", "Verify your email before signing in with Google.")
 		}
 		return user, nil
 	}

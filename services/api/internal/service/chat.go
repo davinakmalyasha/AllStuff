@@ -99,6 +99,13 @@ func (c *Chat) checkAccess(ctx context.Context, threadID, userID string) (*domai
 	return t, nil
 }
 
+// CheckAccess exposes membership verification for handlers that broadcast
+// into a thread without otherwise touching it (e.g. typing).
+func (c *Chat) CheckAccess(ctx context.Context, userID, threadID string) error {
+	_, err := c.checkAccess(ctx, threadID, userID)
+	return err
+}
+
 // ---- sending ----
 
 type SendInput struct {
@@ -521,6 +528,11 @@ func (c *Chat) React(ctx context.Context, userID string, messageID int64, emoji 
 	if err != nil || m == nil {
 		return domain.ErrNotFound
 	}
+	// Membership check: message IDs are sequential and enumerable, so a
+	// missing access check would let any user react inside any thread.
+	if _, err := c.checkAccess(ctx, m.ThreadID, userID); err != nil {
+		return err
+	}
 	if on {
 		if emoji == "" {
 			return domain.ErrValidation.WithField("emoji", "Emoji is required.")
@@ -549,6 +561,11 @@ func (c *Chat) Forward(ctx context.Context, userID, threadID string, messageID i
 	m, err := c.repos.Chat.MessageByID(ctx, messageID)
 	if err != nil || m == nil {
 		return nil, domain.ErrNotFound
+	}
+	// The forwarder must also be a participant of the SOURCE thread —
+	// otherwise guessed IDs leak other threads' message bodies (PRD §5.5.4).
+	if _, err := c.checkAccess(ctx, m.ThreadID, userID); err != nil {
+		return nil, err
 	}
 	if m.DeletedFor == "everyone" {
 		return nil, domain.ErrValidation.WithField("_", "This message was deleted.")

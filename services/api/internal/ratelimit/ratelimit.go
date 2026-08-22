@@ -16,8 +16,13 @@ type bucket struct {
 	start time.Time
 }
 
+// maxBuckets bounds memory: once exceeded, the oldest expired buckets are
+// evicted; if none are expired (extreme burst), new keys are still served by
+// evicting the soonest-to-expire entry.
+const maxBuckets = 100_000
+
 type inMemory struct {
-	mu     sync.Mutex
+	mu      sync.Mutex
 	buckets map[string]*bucket
 }
 
@@ -30,8 +35,17 @@ func (m *inMemory) Allow(key string, limit int, window time.Duration) (int, time
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if len(m.buckets) >= maxBuckets {
+		m.evictLocked(now, window)
+	}
+
 	b, ok := m.buckets[key]
 	if !ok || now.Sub(b.start) >= window {
+		if b == nil && len(m.buckets) >= maxBuckets {
+			// No expired bucket could be reclaimed: drop the one closest to
+			// expiry so unbounded key minting cannot grow memory forever.
+			m.dropOldestLocked()
+		}
 		b = &bucket{count: 1, start: now}
 		m.buckets[key] = b
 		return limit - 1, 0, true
@@ -42,4 +56,30 @@ func (m *inMemory) Allow(key string, limit int, window time.Duration) (int, time
 		return 0, retry, false
 	}
 	return limit - b.count, 0, true
+}
+
+// evictLocked removes buckets whose window has fully elapsed.
+func (m *inMemory) evictLocked(now time.Time, window time.Duration) {
+	for k, b := range m.buckets {
+		if now.Sub(b.start) >= window {
+			delete(m.buckets, k)
+		}
+		if len(m.buckets) < maxBuckets/2 {
+			return
+		}
+	}
+}
+
+func (m *inMemory) dropOldestLocked() {
+	var oldestKey string
+	var oldest time.Time
+	found := false
+	for k, b := range m.buckets {
+		if !found || b.start.Before(oldest) {
+			oldestKey, oldest, found = k, b.start, true
+		}
+	}
+	if found {
+		delete(m.buckets, oldestKey)
+	}
 }

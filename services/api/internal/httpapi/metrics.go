@@ -48,11 +48,54 @@ func (m *syncMap) snapshot() map[string]uint64 {
 
 func (m *Metrics) Observe(method, path string, status int) {
 	m.requestsTotal.Add(1)
-	key := fmt.Sprintf("%s %s", method, path)
+	key := fmt.Sprintf("%s %s", method, normalizePath(path))
 	m.byPath.get(key + "|" + itoa(status)).Add(1)
 	if status >= 500 {
 		m.errorsTotal.Add(1)
 	}
+}
+
+// normalizePath collapses numeric and UUID-like segments so every request to
+// the same route shape shares one metric series.
+func normalizePath(p string) string {
+	segs := strings.Split(p, "/")
+	changed := false
+	for i, seg := range segs {
+		if seg == "" || len(seg) > 64 {
+			continue
+		}
+		if isNumericOrID(seg) {
+			segs[i] = ":id"
+			changed = true
+		}
+	}
+	if !changed {
+		return p
+	}
+	return strings.Join(segs, "/")
+}
+
+func isNumericOrID(s string) bool {
+	numeric := true
+	hexish := strings.Count(s, "-") == 4 && len(s) == 36
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			numeric = false
+			break
+		}
+	}
+	if numeric {
+		return true
+	}
+	if hexish {
+		for _, r := range s {
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-') {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (m *Metrics) RateLimited() { m.rateLimited.Add(1) }

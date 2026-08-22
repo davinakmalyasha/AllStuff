@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"bizverse/api/internal/domain"
 )
@@ -215,7 +216,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if err := s.deps.Auth.ChangePassword(r.Context(), user.ID, in.CurrentPassword, in.NewPassword); err != nil {
+	// Resolve the caller's own session from the refresh cookie so it survives
+	// the "log out everywhere" sweep (PRD §5.9.1 security page semantics).
+	var keepSession string
+	if ck, err := r.Cookie(cookieRefresh); err == nil && ck.Value != "" {
+		if sess, err := s.deps.Repos.Sessions.GetByTokenHash(r.Context(), hashToken(ck.Value)); err == nil && sess != nil {
+			keepSession = sess.ID
+		}
+	}
+	if err := s.deps.Auth.ChangePassword(r.Context(), user.ID, in.CurrentPassword, in.NewPassword, keepSession); err != nil {
 		fail(w, err)
 		return
 	}
@@ -358,15 +367,26 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	owner, _ := s.deps.Repos.Users.GetByID(r.Context(), col.UserID)
+	ownerInfo := map[string]any{"name": "Deleted user", "username": ""}
+	if owner != nil {
+		ownerInfo = map[string]any{"name": owner.Name, "username": owner.Username}
+	}
 	ok(w, map[string]any{
 		"collection": col, "items": items,
-		"owner": map[string]any{"name": owner.Name, "username": owner.Username},
+		"owner": ownerInfo,
 	})
 }
 
 // ---- client-side error reporting (Sentry-style) ----
 
 func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
+	// Unauthenticated endpoint: keep the per-IP budget tight so it cannot be
+	// used to flood the moderation queue.
+	if _, retry, allowed := s.deps.RateLimiter.Allow("clienterr:"+s.clientIP(r), 10, time.Minute); !allowed {
+		w.Header().Set("Retry-After", seconds(retry))
+		fail(w, domain.ErrRateLimited)
+		return
+	}
 	var in struct {
 		Message string `json:"message"`
 		Stack   string `json:"stack"`
@@ -376,6 +396,9 @@ func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	in.Message = truncateRunes(in.Message, 2000)
+	in.Stack = truncateRunes(in.Stack, 8000)
+	in.URL = truncateRunes(in.URL, 500)
 	if in.Message == "" {
 		fail(w, domain.ErrValidation.WithField("message", "Message is required."))
 		return
@@ -389,6 +412,14 @@ func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created(w, map[string]any{"reported": true})
+}
+
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) > max {
+		return string(r[:max])
+	}
+	return s
 }
 
 // ---- account deletion (PRD §5.9.2) ----

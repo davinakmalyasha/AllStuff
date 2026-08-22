@@ -31,6 +31,18 @@ type conn struct {
 	userID string
 	ws     *websocket.Conn
 	send   chan []byte
+	done   chan struct{} // closed once by shutdown(); send is NEVER closed
+	once   sync.Once
+}
+
+// shutdown tears the connection down exactly once. c.send must not be
+// closed: producers race with disconnect and a send on a closed channel
+// panics; draining via done lets the garbage collector reclaim the buffer.
+func (c *conn) shutdown() {
+	c.once.Do(func() {
+		close(c.done)
+		_ = c.ws.Close()
+	})
 }
 
 type Frame struct {
@@ -103,7 +115,7 @@ func (h *Hub) Run(ctx context.Context) {
 	<-ctx.Done()
 	h.mu.Lock()
 	for id, c := range h.conns {
-		_ = c.ws.Close()
+		c.shutdown()
 		delete(h.conns, id)
 	}
 	h.mu.Unlock()
@@ -116,10 +128,10 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, userID string) {
 		h.logger.Warn("ws upgrade", "err", err)
 		return
 	}
-	c := &conn{userID: userID, ws: wsConn, send: make(chan []byte, 64)}
+	c := &conn{userID: userID, ws: wsConn, send: make(chan []byte, 64), done: make(chan struct{})}
 	h.mu.Lock()
 	if old, ok := h.conns[userID]; ok {
-		old.ws.Close()
+		old.shutdown() // last wins (single-conn-per-user model)
 	}
 	h.conns[userID] = c
 	h.mu.Unlock()
@@ -155,16 +167,12 @@ func (h *Hub) writePump(c *conn) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		_ = c.ws.Close()
+		c.shutdown()
 	}()
 	for {
 		select {
-		case msg, ok := <-c.send:
+		case msg := <-c.send:
 			_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if !ok {
-				_ = c.ws.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
 			if err := c.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
@@ -173,6 +181,8 @@ func (h *Hub) writePump(c *conn) {
 			if err := c.ws.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+		case <-c.done:
+			return
 		}
 	}
 }
@@ -183,7 +193,7 @@ func (h *Hub) disconnect(c *conn) {
 		delete(h.conns, c.userID)
 	}
 	h.mu.Unlock()
-	close(c.send)
+	c.shutdown()
 }
 
 func (h *Hub) sendTo(c *conn, f Frame) {

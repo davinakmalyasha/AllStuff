@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"bizverse/api/internal/repo"
 )
@@ -64,7 +65,9 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 		onDisk[r.path+".enc"] = true
 	}
 
-	// Files without rows → delete.
+	// Files without rows → delete, but only after a 24h grace so an
+	// in-flight upload whose row commit lags is never destroyed
+	// (ARCHITECTURE §4).
 	err = filepath.Walk(o.mediaDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -77,7 +80,7 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 		if strings.HasSuffix(rel, "_thumb.jpg") {
 			return nil // thumbnail of a valid row
 		}
-		if !onDisk[rel] {
+		if !onDisk[rel] && time.Since(info.ModTime()) > 24*time.Hour {
 			_ = os.Remove(path)
 		}
 		return nil

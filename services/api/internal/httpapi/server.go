@@ -61,8 +61,8 @@ func (s *Server) routes() {
 	// Health
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/ready", s.handleReady)
-	// Ops metrics (Prometheus text format).
-	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	// Ops metrics (Prometheus text format); admin-only in prod.
+	mux.HandleFunc("GET /metrics", s.metricsGuard(s.handleMetrics))
 
 	// Auth
 	mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
@@ -315,16 +315,23 @@ func (s *Server) Handler() http.Handler {
 	return s.chain(s.mux)
 }
 
-// chain builds the middleware stack (outermost first).
+// chain builds the middleware stack. Each call wraps the accumulated stack,
+// so the FIRST assignment ends up innermost and the request executes in the
+// reverse order of these lines:
+//
+//	recover → accessLog → etag → cors → csrf → auth → rateLimit → admin2FA → routes
+//
+// auth MUST run before rateLimit/admin2FA: both inspect the authenticated
+// user (per-user buckets, 2FA mandate).
 func (s *Server) chain(next http.Handler) http.Handler {
-	next = s.withRecover(next)
-	next = s.withAccessLog(next)
-	next = s.withETag(next)
-	next = s.withCORS(next)
-	next = s.withCSRF(next)
-	next = s.withAuth(next)
-	next = s.withRateLimit(next)
 	next = s.withAdmin2FA(next)
+	next = s.withRateLimit(next)
+	next = s.withAuth(next)
+	next = s.withCSRF(next)
+	next = s.withCORS(next)
+	next = s.withETag(next)
+	next = s.withAccessLog(next)
+	next = s.withRecover(next)
 	return next
 }
 

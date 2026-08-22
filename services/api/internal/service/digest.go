@@ -11,12 +11,16 @@ import (
 
 // Digest — weekly "what's hot" email for opted-in users (PRD §5.7).
 type Digest struct {
-	repos  *repo.Repos
-	email  email.Sender
+	repos   *repo.Repos
+	email   email.Sender
+	baseURL string
 }
 
-func NewDigest(repos *repo.Repos, sender email.Sender) *Digest {
-	return &Digest{repos: repos, email: sender}
+func NewDigest(repos *repo.Repos, sender email.Sender, publicURL string) *Digest {
+	if publicURL == "" {
+		publicURL = "http://localhost:5173"
+	}
+	return &Digest{repos: repos, email: sender, baseURL: publicURL}
 }
 
 // SendWeekly emails the top trending businesses to digest-opted-in users.
@@ -74,7 +78,7 @@ func (d *Digest) recipients(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-func (d *Digest) publicURL() string { return "http://localhost:5173" }
+func (d *Digest) publicURL() string { return d.baseURL }
 
 func esc(s *string) string {
 	if s == nil {

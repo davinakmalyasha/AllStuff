@@ -665,7 +665,7 @@ func (a *Auth) SetNotificationPrefs(ctx context.Context, userID string, prefs ma
 
 // ---- password & email changes (identity-standard) ----
 
-func (a *Auth) ChangePassword(ctx context.Context, userID, current, newPass string) error {
+func (a *Auth) ChangePassword(ctx context.Context, userID, current, newPass, keepSessionID string) error {
 	user, err := a.repos.Users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrNotFound
@@ -684,8 +684,8 @@ func (a *Auth) ChangePassword(ctx context.Context, userID, current, newPass stri
 	if err := a.repos.Users.SetPassword(ctx, userID, hash); err != nil {
 		return err
 	}
-	// Revoke all other sessions; keep the current one.
-	return a.repos.Sessions.RevokeAllExcept(ctx, userID, "")
+	// Revoke all other sessions; keep the caller's own session alive.
+	return a.repos.Sessions.RevokeAllExcept(ctx, userID, keepSessionID)
 }
 
 func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {

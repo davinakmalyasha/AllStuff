@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -64,7 +65,7 @@ func (s *Server) handleBusinessUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in service.BusinessInput
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err := dec.Decode(&in); err != nil {
 		fail(w, domain.ErrValidation.WithField("_", "Request body is invalid."))
 		return
@@ -170,8 +171,10 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
-	// 210MB cap: covers the 200MB chat-video limit (PRD §5.5.2).
-	if err := r.ParseMultipartForm(210 << 20); err != nil {
+	// Hard-cap the whole upload at 211MB (200MB chat-video limit + margin);
+	// only 8MB is held in RAM, the rest spills to temp files.
+	r.Body = http.MaxBytesReader(w, r.Body, 211<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		fail(w, domain.ErrValidation.WithField("file", "Upload too large or malformed."))
 		return
 	}
@@ -193,9 +196,11 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	buf := make([]byte, 210<<20)
-	n, err := file.Read(buf)
-	if err != nil && n == 0 {
+	// Read exactly what was sent (bounded): avoids allocating a fixed 210MB
+	// buffer per request and never truncates on short reads.
+	const maxUpload = 210 << 20
+	data, readErr := io.ReadAll(io.LimitReader(file, maxUpload+1))
+	if len(data) == 0 || (readErr != nil && readErr != io.EOF) {
 		fail(w, domain.ErrValidation.WithField("file", "Could not read upload."))
 		return
 	}
@@ -203,7 +208,7 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	item, err := s.deps.Media.Upload(r.Context(), service.UploadInput{
 		UploaderID: user.ID,
 		Kind:       kind,
-		Data:       buf[:n],
+		Data:       data,
 		FileName:   header.Filename,
 	})
 	if err != nil {

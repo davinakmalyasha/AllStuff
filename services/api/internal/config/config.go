@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -62,9 +64,28 @@ func Load() Config {
 	if pub := os.Getenv("VAPID_PUBLIC_KEY"); pub != "" && os.Getenv("VAPID_PRIVATE_KEY") != "" {
 		if kp, err := security.ParseVAPIDKeypair(pub, os.Getenv("VAPID_PRIVATE_KEY")); err == nil {
 			cfg.VAPID = kp
+		} else {
+			slog.Warn("invalid VAPID keypair; web push disabled", "err", err)
 		}
 	}
 	return cfg
+}
+
+// Validate enforces production safety invariants. It must be called after
+// Load() and abort startup when an unsafe configuration reaches prod.
+func (c Config) Validate() error {
+	const devSecret = "dev-secret-change-me-in-production-0123456789abcdef"
+	if c.AppEnv == "prod" || c.AppEnv == "production" {
+		if c.JWTSecret == "" || c.JWTSecret == devSecret {
+			return errors.New("JWT_SECRET must be set to a strong random value when APP_ENV=prod")
+		}
+		if !c.CookieSecure {
+			slog.Warn("COOKIE_SECURE=false in prod: session cookies will not be marked Secure")
+		}
+	} else if c.JWTSecret == "" || c.JWTSecret == devSecret {
+		slog.Warn("using default JWT secret; set JWT_SECRET before deploying")
+	}
+	return nil
 }
 
 func env(key, fallback string) string {

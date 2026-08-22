@@ -17,7 +17,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 
 	trending := service.NewTrending(repos)
 	currency := service.NewCurrency(repos)
-	digest := service.NewDigest(repos, sender)
+	digest := service.NewDigest(repos, sender, cfg.PublicURL)
 	alerts := service.NewSearchAlerts(repos, sender, cfg)
 	ops := service.NewOps(repos, cfg.MediaDir)
 
@@ -32,6 +32,11 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	// Notification retention: prune past expires_at (default 90 days, PRD §5.7).
 	if _, err := repos.Engagement.PurgeExpired(ctx); err != nil {
 		logger.Warn("notification purge initial", "err", err)
+	}
+	// Account deletion grace (14 days) expiry: hard-purge soft-deleted
+	// users (PRD §5.9.2).
+	if _, err := service.NewAuth(repos, cfg, sender, logger).PurgeExpiredDeletions(ctx); err != nil {
+		logger.Warn("deletion purge initial", "err", err)
 	}
 	// Snapshot retention: keep 14 days of trend_snapshots; orphan media cleanup.
 	if err := ops.PruneSnapshots(ctx); err != nil {
@@ -91,6 +96,11 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 			}
 			if n > 0 {
 				logger.Info("notification purge", "removed", n)
+			}
+			if dn, err := service.NewAuth(repos, cfg, sender, logger).PurgeExpiredDeletions(ctx); err != nil {
+				logger.Warn("deletion purge", "err", err)
+			} else if dn > 0 {
+				logger.Info("deletion purge", "removed", dn)
 			}
 		case <-opsTicker.C:
 			if err := ops.PruneSnapshots(ctx); err != nil {
