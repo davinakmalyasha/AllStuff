@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { BellPlus, MessageSquare, Star } from 'lucide-react'
-import { api, type ProductDTO, type ReviewDTO } from '@/lib/api'
+import { BellPlus, Bookmark, MessageSquare, Star } from 'lucide-react'
+import { api, type CollectionDTO, type ProductDTO, type ReviewDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useAuth } from '@/stores/auth'
@@ -49,6 +49,45 @@ export function ProductModal({
   const shown = matching ?? product.variants?.[0] ?? null
   const price = shown?.price ?? product.base_price
 
+  // Gallery (PRD §5.3.3): cover + additional images, click-to-swap.
+  const gallery = [...new Set([product.cover_image_id, ...(product.image_ids ?? [])].filter(Boolean) as string[])]
+  const [imgIdx, setImgIdx] = useState(0)
+
+  // Rating breakdown (PRD §5.3.3).
+  const dist = [5, 4, 3, 2, 1].map((n) => ({ n, count: reviews.filter((r) => r.rating === n).length }))
+  const maxDist = Math.max(1, ...dist.map((d) => d.count))
+
+  // Save-to-collection picker (PRD §5.3.3 / §6.6 collections).
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const { data: collections } = useQuery({
+    queryKey: ['my-collections'],
+    queryFn: () => api<{ collections: CollectionDTO[] }>('/me/collections'),
+    enabled: pickerOpen && !!user,
+  })
+  const savedQc = useQueryClient()
+  const saveMut = useMutation({
+    mutationFn: (collectionId: string) =>
+      api('/me/collections/items', { method: 'POST', body: { target_type: 'product', target_id: product.id, collection_id: collectionId } }),
+    onSuccess: () => {
+      setPickerOpen(false)
+      toast.success('Saved to collection')
+      void savedQc.invalidateQueries({ queryKey: ['my-state'] })
+    },
+  })
+
+  // "Ask about this" (PRD §5.3.3): open the business thread with a message
+  // that already names the item so the owner has context.
+  const askAbout = async () => {
+    try {
+      const r = await api<{ thread: { id: string } }>('/threads', { method: 'POST', body: { business_id: businessId } })
+      const q = `Hi! I'd like to ask about "${product.name}"` + (price != null ? ` (${formatMoney(price, shown?.currency ?? product.currency, display, rates)})` : '')
+      await api(`/threads/${r.thread.id}/messages`, { method: 'POST', body: { body: q, type: 'text', client_msg_id: crypto.randomUUID() } }).catch(() => undefined)
+      navigate(`/me/messages/${r.thread.id}`)
+    } catch {
+      /* navigation still attempted below on success path only */
+    }
+  }
+
   const createReview = useMutation({
     mutationFn: () =>
       api(`/businesses/${businessId}/reviews`, { method: 'POST', body: { rating, text, product_id: product.id } }),
@@ -84,11 +123,29 @@ export function ProductModal({
     <Modal open onClose={onClose} title={product.name}>
       <div className="space-y-4">
         <div className="flex gap-4">
-          {product.cover_image_id ? (
-            <img src={`/api/v1/media/${product.cover_image_id}/file`} alt="" className="h-28 w-28 shrink-0 rounded-xl object-cover" />
-          ) : (
-            <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-xl bg-surface2 text-2xl font-semibold">{product.name.charAt(0)}</div>
-          )}
+          <div className="shrink-0">
+            {gallery.length > 0 ? (
+              <>
+                <img src={`/api/v1/media/${gallery[Math.min(imgIdx, gallery.length - 1)]}/file`} alt={product.name} className="h-28 w-28 rounded-xl object-cover" />
+                {gallery.length > 1 && (
+                  <div className="mt-1.5 flex gap-1">
+                    {gallery.map((id, i) => (
+                      <button
+                        key={id}
+                        onClick={() => setImgIdx(i)}
+                        aria-label={`Image ${i + 1}`}
+                        className={`h-8 w-8 overflow-hidden rounded-md border ${i === imgIdx ? 'border-accent' : 'border-border opacity-70 hover:opacity-100'}`}
+                      >
+                        <img src={`/api/v1/media/${id}/thumb`} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex h-28 w-28 items-center justify-center rounded-xl bg-surface2 text-2xl font-semibold">{product.name.charAt(0)}</div>
+            )}
+          </div>
           <div className="min-w-0 flex-1">
             {product.description && <p className="text-sm text-ink2">{product.description}</p>}
             <p className="mt-2 font-mono text-sm">
@@ -129,43 +186,79 @@ export function ProductModal({
           </div>
         )}
 
-        {/* Rating summary */}
-        <div className="flex items-center gap-2 border-t border-border pt-3">
-          {avg !== null ? (
-            <>
-              <span className="font-mono text-lg font-semibold">{avg.toFixed(1)}</span>
-              <span className="flex items-center gap-0.5">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star key={n} className={`h-3.5 w-3.5 ${n <= Math.round(avg) ? 'fill-current' : 'text-ink3'}`} />
-                ))}
-              </span>
-              <span className="text-xs text-ink3">{reviews.length} review{reviews.length === 1 ? '' : 's'}</span>
-            </>
-          ) : (
-            <span className="text-xs text-ink3">No reviews yet</span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            {outOfStock && user && (
-              <Button variant="secondary" size="sm" onClick={() => void toggleAlert.mutateAsync(!alertState)} disabled={toggleAlert.isPending}>
-                <BellPlus className="h-3.5 w-3.5" /> {alertState ? 'Alert set' : 'Notify me'}
-              </Button>
-            )}
-            {user && !mine && !isOwner && (
-              <Button variant="secondary" size="sm" onClick={() => setWriting((v) => !v)}>
-                Write review
-              </Button>
-            )}
-            {user && (
-              <Button
-                size="sm"
-                onClick={async () => {
-                  const r = await api<{ thread: { id: string } }>('/threads', { method: 'POST', body: { business_id: businessId } })
-                  navigate(`/me/messages/${r.thread.id}`)
-                }}
-              >
-                <MessageSquare className="h-3.5 w-3.5" /> Ask about this
-              </Button>
-            )}
+        {/* Rating summary + breakdown bars */}
+        <div className="border-t border-border pt-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              {avg !== null ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-lg font-semibold">{avg.toFixed(1)}</span>
+                    <span className="flex items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star key={n} className={`h-3.5 w-3.5 ${n <= Math.round(avg) ? 'fill-current' : 'text-ink3'}`} />
+                      ))}
+                    </span>
+                    <span className="text-xs text-ink3">{reviews.length} review{reviews.length === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="mt-2 space-y-0.5">
+                    {dist.map((d) => (
+                      <div key={d.n} className="flex items-center gap-1.5">
+                        <span className="w-2 text-right font-mono text-[10px] text-ink3">{d.n}</span>
+                        <div className="h-1.5 w-28 overflow-hidden rounded-full bg-surface2">
+                          <div className="h-full rounded-full bg-ink/60" style={{ width: `${(d.count / maxDist) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <span className="text-xs text-ink3">No reviews yet</span>
+              )}
+            </div>
+            <div className="relative ml-auto flex shrink-0 flex-col items-end gap-2">
+              {user && (
+                <>
+                  <Button variant="secondary" size="sm" onClick={() => setPickerOpen((v) => !v)}>
+                    <Bookmark className={`h-3.5 w-3.5 ${pickerOpen ? 'fill-current' : ''}`} /> Save
+                  </Button>
+                  {pickerOpen && (
+                    <div className="absolute right-0 top-9 z-40 w-56 rounded-xl border border-border bg-surface p-3 shadow-cardHover">
+                      <p className="mono-label mb-2">Save to collection</p>
+                      <div className="max-h-44 space-y-1 overflow-y-auto">
+                        {(collections?.collections ?? []).map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => void saveMut.mutateAsync(c.id)}
+                            className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-sm text-ink hover:bg-surface2"
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                        {(collections?.collections ?? []).length === 0 && (
+                          <p className="px-2 py-1 text-xs text-ink3">No collections yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              {outOfStock && user && (
+                <Button variant="secondary" size="sm" onClick={() => void toggleAlert.mutateAsync(!alertState)} disabled={toggleAlert.isPending}>
+                  <BellPlus className="h-3.5 w-3.5" /> {alertState ? 'Alert set' : 'Notify me'}
+                </Button>
+              )}
+              {user && !mine && !isOwner && (
+                <Button variant="secondary" size="sm" onClick={() => setWriting((v) => !v)}>
+                  Write review
+                </Button>
+              )}
+              {user && (
+                <Button size="sm" onClick={() => void askAbout()}>
+                  <MessageSquare className="h-3.5 w-3.5" /> Ask about this
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
