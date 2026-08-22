@@ -1,8 +1,8 @@
--- 0021: remember the pre-suspension business status so admin restore can
--- return a business to what it was (a suspended draft must not come back
--- as verified).
+-- 0022: slug immutability support (PRD §8.2) — records the one permitted
+-- slug change; NULL means the owner has never renamed the URL.
 
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS pre_suspend_status text;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS slug_changed_at timestamptz;
 
 -- Drop dead schema identified in the hardening audit:
 -- chat_attachments was superseded by messages.media_id;

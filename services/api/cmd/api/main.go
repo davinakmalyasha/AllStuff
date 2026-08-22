@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,12 +21,14 @@ import (
 	"bizverse/api/internal/jobs"
 	"bizverse/api/internal/ratelimit"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/security"
 	"bizverse/api/internal/service"
 	"bizverse/api/internal/ws"
 )
 
 func main() {
 	migrateOnly := flag.Bool("migrate", false, "run pending migrations and exit")
+	vapidGen := flag.Bool("vapid", false, "generate a VAPID keypair for web push and exit")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -35,6 +40,22 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	if *vapidGen {
+		kp, err := security.GenerateVAPIDKeypair()
+		if err != nil {
+			logger.Error("vapid keygen", "err", err)
+			os.Exit(1)
+		}
+		der, err := x509.MarshalPKCS8PrivateKey(kp.PrivateKey)
+		if err != nil {
+			logger.Error("vapid marshal", "err", err)
+			os.Exit(1)
+		}
+		fmt.Println("VAPID_PUBLIC_KEY=" + kp.PublicKey)
+		fmt.Println("VAPID_PRIVATE_KEY=" + base64.RawURLEncoding.EncodeToString(der))
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -61,6 +82,9 @@ func main() {
 		From:      cfg.EmailFrom,
 		AppEnv:    cfg.AppEnv,
 		PublicURL: cfg.PublicURL,
+		SMTPAddr:  cfg.SMTPAddr,
+		SMTPUser:  cfg.SMTPUser,
+		SMTPPass:  cfg.SMTPPass,
 	})
 	rateLimiter := ratelimit.NewInMemory()
 	wsOrigins := append(append([]string{}, cfg.WSOrigins...), cfg.CORSOrigins...)

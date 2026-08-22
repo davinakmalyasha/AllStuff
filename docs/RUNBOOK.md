@@ -37,10 +37,10 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
   schtasks /create /tn "bizverse-backup" /tr "powershell -File D:\MyProject\AllStuff\scripts\backup.ps1 -DatabaseUrl ""postgres://...""" /sc daily /st 03:00
   ```
   Keep 14 daily dumps; test a restore into a scratch DB quarterly. For prod prefer managed PITR (RDS/Cloud SQL) plus these dumps.
-- **Metrics:** `GET /metrics` (Prometheus text): request counts by route/status, 5xx, rate-limited, WS connections, goroutines, last trend run. Scrape on `/metrics` with the default auth-optional policy behind your proxy.
-- **Media:** stored in S3-compatible storage (R2); local disk in dev only. Orphan files/rows are cleaned daily by the ops job; verification documents are AES-GCM encrypted at rest when `MEDIA_ENCRYPTION_KEY` (64 hex chars) is set.
-- **Rate limits:** auth 5/min/IP, search 60/min, engagement 30/min/user, media 20/h, 2FA 3/15min, API keys 300/min/key, global 120/min/IP. In-memory per instance — set `REDIS_URL` to enable multi-instance WS fan-out (pub/sub) and share nothing else yet.
-- **Jobs:** trending (10 min), currency (1 h), digest Monday + search alerts + notification purge + snapshot prune + media cleanup (24 h). Check `last_trend_run` in `/health`.
+- **Metrics:** `GET /metrics` (Prometheus text): request counts by route/status, 5xx, rate-limited, WS connections, goroutines, last trend run. Open in dev; in prod (`APP_ENV=prod`) it requires an admin session.
+- **Media:** stored on local disk (`MEDIA_DIR`) — attach a persistent volume in prod (S3/R2 adapter is roadmap). Orphan files/rows are cleaned daily by the ops job with a 24h grace; verification documents are AES-GCM encrypted at rest when `MEDIA_ENCRYPTION_KEY` (64 hex chars) is set.
+- **Rate limits:** auth 5/min/IP, search 60/min, engagement 30/min/user, media 20/h, chat sends 30/min/user, 2FA 3/15min, API keys 300/min/key, global 120/min/IP. In-memory per instance — set `REDIS_URL` to enable multi-instance WS fan-out (pub/sub) and share nothing else yet.
+- **Jobs:** trending + spike anomaly flagging (10 min), currency (1 h), digest Monday + search alerts + notification purge + account-deletion anonymization + snapshot prune + media cleanup (24 h). Check `last_trend_run` in `/health`.
 
 ## Incident response
 

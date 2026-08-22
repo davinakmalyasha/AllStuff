@@ -29,6 +29,12 @@ type Config struct {
 	ResendAPIKey string
 	EmailFrom    string
 
+	// SMTP relay (e.g. Mailpit from the compose stack); when set, dev email
+	// goes through SMTP instead of console logging.
+	SMTPAddr string
+	SMTPUser string
+	SMTPPass string
+
 	MediaDir  string
 	MediaBase string
 
@@ -55,6 +61,9 @@ func Load() Config {
 		RedisURL:           os.Getenv("REDIS_URL"),
 		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
 		EmailFrom:     env("EMAIL_FROM", "no-reply@bizverse.app"),
+		SMTPAddr:      os.Getenv("SMTP_ADDR"),
+		SMTPUser:      os.Getenv("SMTP_USER"),
+		SMTPPass:      os.Getenv("SMTP_PASS"),
 		MediaDir:      env("MEDIA_DIR", "./data/media"),
 		MediaBase:     env("MEDIA_BASE", "http://localhost:8080/api/v1/media"),
 		GoogleOAuthClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),

@@ -25,7 +25,9 @@ export function DiscoverPage() {
   const [minRating, setMinRating] = useState(Number(params.get('min_rating') ?? 0) || 0)
   const [openNow, setOpenNow] = useState(params.get('open_now') === 'true')
   const [verifiedOnly, setVerifiedOnly] = useState(params.get('verified_only') === 'true')
+  const [fullyVerified, setFullyVerified] = useState(params.get('fully_verified') === 'true')
   const [hasChat, setHasChat] = useState(params.get('has_chat') === 'true')
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [submitted, setSubmitted] = useState(q)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -62,16 +64,37 @@ export function DiscoverPage() {
     if (minRating) next.set('min_rating', String(minRating))
     if (openNow) next.set('open_now', 'true')
     if (verifiedOnly) next.set('verified_only', 'true')
+    if (fullyVerified) next.set('fully_verified', 'true')
     if (hasChat) next.set('has_chat', 'true')
-    if (sort !== 'trending') next.set('sort', sort)
+    if (coords) {
+      next.set('lat', String(coords.lat))
+      next.set('lng', String(coords.lng))
+      next.set('sort', 'nearest')
+    } else if (sort !== 'trending') {
+      next.set('sort', sort)
+    }
     setParams(next, { replace: true })
   }
 
+  const nearMe = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not available.')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => toast.error('Could not get your location.'),
+      { timeout: 8000 },
+    )
+  }
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, hasChat, sort],
+    queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
     queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath({
       q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
-      open_now: openNow, verified_only: verifiedOnly, has_chat: hasChat, sort, limit: 24,
+      open_now: openNow, verified_only: verifiedOnly, fully_verified_only: fullyVerified,
+      has_chat: hasChat, sort: coords ? 'nearest' : sort, limit: 24,
+      lat: coords?.lat, lng: coords?.lng, radius_km: coords ? 25 : undefined,
     })),
   })
 
@@ -246,10 +269,19 @@ export function DiscoverPage() {
                 Verified only
               </label>
               <label className="flex items-center gap-2 text-sm text-ink2">
+                <input type="checkbox" checked={fullyVerified} onChange={(e) => setFullyVerified(e.target.checked)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
+                Fully verified
+              </label>
+              <label className="flex items-center gap-2 text-sm text-ink2">
                 <input type="checkbox" checked={hasChat} onChange={(e) => setHasChat(e.target.checked)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
                 Replies to chat
               </label>
-              <Button variant="secondary" size="sm" onClick={apply}>Apply filters</Button>
+              {coords ? (
+                <Button variant="secondary" size="sm" onClick={() => setCoords(null)}>Clear location</Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={nearMe}>📍 Near me</Button>
+              )}
+              <Button size="sm" onClick={apply}>Apply filters</Button>
             </div>
           </div>
         </div>

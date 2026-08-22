@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/smtp"
+	"strings"
 	"time"
 )
 
-// Sender is the email abstraction. Dev: logs the email (incl. links) to the
-// API console. Prod: Resend REST API (PRD D6, §10.1).
+// Sender is the email abstraction. Dev (no driver): logs the email (incl.
+// links) to the API console. EMAIL_DRIVER=smtp: local/dev SMTP relay such as
+// Mailpit. Prod: Resend REST API (PRD D6, §10.1).
 type Sender interface {
 	Send(to, subject, html string) error
 }
@@ -21,6 +24,12 @@ type ResendConfig struct {
 	From     string
 	AppEnv   string
 	PublicURL string
+
+	// SMTPDriver: when Addr is non-empty, mail goes through SMTP instead of
+	// the console log (dev) or Resend (prod). Ideal with Mailpit in compose.
+	SMTPAddr   string // host:port
+	SMTPUser   string
+	SMTPPass   string
 }
 
 type resendSender struct {
@@ -53,6 +62,42 @@ func (r *resendSender) Send(to, subject, html string) error {
 	return nil
 }
 
+type smtpSender struct {
+	cfg ResendConfig
+}
+
+// Send delivers via plain SMTP (Mailpit and internal relays; no TLS here by
+// design — use Resend for internet-facing delivery).
+func (s *smtpSender) Send(to, subject, html string) error {
+	addr := s.cfg.SMTPAddr
+	from := s.cfg.From
+	if i := strings.Index(from, "@"); i > 0 {
+		// Mailpit accepts any envelope; keep the local part for realism.
+		_ = from[:i]
+	}
+	msg := buildMessage(from, to, subject, html)
+	var auth smtp.Auth
+	if s.cfg.SMTPUser != "" {
+		host := addr
+		if i := strings.Index(addr, ":"); i > 0 {
+			host = addr[:i]
+		}
+		auth = smtp.PlainAuth("", s.cfg.SMTPUser, s.cfg.SMTPPass, host)
+	}
+	return smtp.SendMail(addr, auth, from, []string{to}, msg)
+}
+
+func buildMessage(from, to, subject, html string) []byte {
+	var b strings.Builder
+	b.WriteString("From: " + from + "\r\n")
+	b.WriteString("To: " + to + "\r\n")
+	b.WriteString("Subject: " + subject + "\r\n")
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: text/html; charset=\"utf-8\"\r\n\r\n")
+	b.WriteString(html)
+	return []byte(b.String())
+}
+
 type logSender struct {
 	cfg ResendConfig
 }
@@ -70,6 +115,9 @@ func (l *logSender) Send(to, subject, html string) error {
 func NewSender(cfg ResendConfig) Sender {
 	if cfg.APIKey != "" && cfg.AppEnv != "dev" {
 		return &resendSender{cfg: cfg}
+	}
+	if cfg.SMTPAddr != "" {
+		return &smtpSender{cfg: cfg}
 	}
 	return &logSender{cfg: cfg}
 }

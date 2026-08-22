@@ -32,8 +32,7 @@ VAPID_PRIVATE_KEY=<base64url PKCS8 P-256>
 Generate VAPID keys:
 
 ```powershell
-# one-off via a tiny Go program or: node -e with 'web-push' lib
-go run ./cmd/api -vapid            # prints keypair when implemented; otherwise use npx web-push generate-vapid-keys
+go run ./cmd/api -vapid            # prints the keypair; paste into env
 ```
 
 ### Web (Vercel)
@@ -68,12 +67,16 @@ WORKDIR /app
 COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
 COPY services/api ./
+COPY infra/postgres/migrations /app/migrations
 RUN go build -o /bin/api ./cmd/api
 
 FROM debian:bookworm-slim
 COPY --from=build /bin/api /bin/api
+COPY --from=build /app/migrations /app/infra/postgres/migrations
 ENTRYPOINT ["/bin/api"]
 ```
+
+The migrations directory MUST ship inside the image — `-migrate` reads it at startup (`MIGRATIONS_DIR=/app/infra/postgres/migrations`).
 
 - Health check: `GET /api/v1/health`.
 - Workers run in the same process (trending, currency, digest jobs) — no separate service needed; scale horizontally later.
@@ -86,7 +89,7 @@ ENTRYPOINT ["/bin/api"]
 
 ## 5. Object storage (media)
 
-Swap the local-disk `Media` service for the S3 implementation (documented in code): set bucket, access key, secret, and `MEDIA_BASE` to the CDN URL. Keep `document_verification` files in a private bucket served only via the admin endpoint.
+Media is currently stored on local disk (`MEDIA_DIR`) — mount a persistent Railway volume, or media is lost on redeploy. The S3/R2 adapter is planned roadmap work (see ARCHITECTURE.md §6); until it lands, a single API replica with an attached volume is the supported setup. Keep `document_verification` files encrypted via `MEDIA_ENCRYPTION_KEY` and served only through the admin endpoint.
 
 ## 6. CI/CD
 

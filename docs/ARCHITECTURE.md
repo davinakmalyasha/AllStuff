@@ -4,15 +4,26 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 
 ## 1. Conventions
 
+> **Implementation status note (docs aligned to code):** this document describes the target design. Where the code differs today, these are the authoritative deviations:
+> - **OAuth:** Google only (`GET /auth/oauth/google` + `/callback`); Facebook/Apple/GitHub are roadmap.
+> - **Pagination:** `?limit=&offset=` everywhere (limit ≤ 100); no cursors or `X-Next-Cursor`.
+> - **Data export:** synchronous download at `GET /me/export`; account deletion is `POST /me/delete` with `POST /me/delete/cancel`.
+> - **Recovery codes:** regenerate at `POST /me/security/2fa/recovery-codes`.
+> - **WebSocket:** one connection per user ("last wins"); frames delivered server→client are `welcome`, `message.new`, `message.edited`, `message.deleted`, `reaction.updated`, `receipt.read`, `typing`, `notification.new`. Client→server supports `ping` (→`pong`) and a reserved `subscribe`. `receipt.delivered`/`presence`/`media.ready`/replay-sync are not implemented yet.
+> - **Media upload:** direct multipart `POST /api/v1/media` with ClamAV scan when `CLAMAV_ADDR` is set. Presigned uploads and the async FFmpeg variant pipeline are roadmap.
+> - **Rate limiting & jobs:** in-memory limiter (not Redis) — set `REDIS_URL` only for multi-instance WS fan-out. All jobs run in-process on one instance.
+>
+> Where the text below conflicts with the list above, the list wins.
+
 - Base path: `/api/v1`. Public reads are unauthenticated; writes require auth unless noted.
 - **Auth:** httpOnly+Secure+SameSite cookies (`bv_access` JWT 15 min, `bv_refresh` rotating 30 days, registry-backed per §5.9.1/§7.4). CSRF: double-submit token cookie `bv_csrf`; all mutating requests must send `X-CSRF-Token`.
-- **Errors:** `{ "error": { "code": "<stable_code>", "message": "<human>", "fields": { "field": ["msg"] } } }` (PRD §11.2). Codes documented per endpoint.
-- **Pagination:** cursor-based where order matters (`?cursor=<opaque>&limit=`, limit ≤ 50), `Link`-style response headers `X-Next-Cursor`; offset (`?page=&per_page=`) only for admin lists.
+- **Errors:** `{ "error": { "code": "<stable_code>", "message": "<human>", "fields": { "field": "msg" } } }` (PRD §11.2). Codes documented per endpoint.
+- **Pagination:** `?limit=&offset=`, default 20–50 depending on the list, hard ceiling 100.
 - **Ids:** UUIDv7; typed as `uuid` in JSON.
 - **Money:** `{ "amount": "12.50", "currency": "USD" }` — never bare numbers.
 - **Time:** RFC3339 UTC. Open-now computed server-side per business timezone (`is_open_now` field).
-- **Rate limits** (Redis, per IP or user where noted): auth 5/min/IP; engagement writes 30/min/user; chat 1/s + 60/h per thread; search 60/min/IP; media upload 20/h/user.
-- **ETags** on public reads (business page, category page, leaderboards).
+- **Rate limits** (in-memory, per IP or user where noted): auth 5/min/IP; engagement writes 30/min/user; chat sends 30/min/user plus 1/s + 60/h per user-thread; search/suggest/users-search 60/min/IP; media upload 20/h/user; global 120/min/IP.
+- **ETags** on small JSON GET responses under `/api/v1` (errors and streamed files pass through untouched).
 
 ## 2. REST Endpoints
 
@@ -214,12 +225,12 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 ## 7. Addendum (platform extensions)
 
 ### 7.1 Community & profiles
-- Q&A: questions/answers tables; owner answers highlighted; notifications on ask/answer (PRD �5.6.2 extension).
+- Q&A: questions/answers tables; owner answers highlighted; notifications on ask/answer (PRD �5.6.2 extension).
 - Follows + owner announcements: follows table (unique user+business); business_updates with follower notification fan-out; following feed endpoint.
-- Public profiles: GET /u/:username � reviews/comments/public collections/verified businesses.
+- Public profiles: GET /u/:username � reviews/comments/public collections/verified businesses.
 
 ### 7.2 Verification & trust (B3)
-- Resubmission cap: businesses.resubmit_count (max 3, PRD �8.2).
+- Resubmission cap: businesses.resubmit_count (max 3, PRD �8.2).
 - Appeals: appeals table; user submits via /me/appeal; admin decides (approve restores account); result notified.
 - Co-owner invites: business_invites (accepted_at = active); CanManageBusiness replaces owner-only checks everywhere.
 - Trending anomalies: engagement_events.flagged ? admin review queue; resolve clears the flag.
@@ -227,7 +238,7 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 ### 7.3 Messaging extensions
 - Link previews: server-side og: extraction on text sends (SSRF-safe: http/https only, 2s timeout, 256KB cap, private IPs rejected); stored in chat_messages.link_preview.
 - Pinned messages: chat_participants.pinned_message_ids (bigint[], max 5) + pin endpoints.
-- Quiet hours: notification_prefs.quiet_hours enforced for push delivery (22:00�08:00 local).
+- Quiet hours: notification_prefs.quiet_hours enforced for push delivery (22:00�08:00 local).
 
 ### 7.4 Platform ops
 - KPI endpoint: /admin/kpis (counts + 14-day registration series).
