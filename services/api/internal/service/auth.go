@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -391,8 +393,13 @@ func (a *Auth) Enroll2FA(ctx context.Context, userID string) (secret, otpauthURL
 	if err != nil {
 		return "", "", err
 	}
-	// Encrypt at rest (PRD §9.3) — XOR with a key derived from the JWT secret.
-	enc := xorCipher(secret, a.cfg.JWTSecret)
+	// Encrypt at rest (PRD §9.3): AES-256-GCM under a key derived from the
+	// JWT secret. Rows written before this scheme used XOR and are opened
+	// transparently until re-enrollment re-seals them.
+	enc, err := a.sealSecret(secret)
+	if err != nil {
+		return "", "", err
+	}
 	if err := a.repos.TFA.UpsertSecret(ctx, userID, enc); err != nil {
 		return "", "", err
 	}
@@ -412,7 +419,10 @@ func (a *Auth) Confirm2FA(ctx context.Context, userID, code string) ([]string, e
 	if st == nil {
 		return nil, domain.ErrValidation.WithField("_", "Start enrollment first.")
 	}
-	secret := xorCipher(st.SecretEncrypted, a.cfg.JWTSecret)
+	secret, err := a.openSecret(st.SecretEncrypted)
+	if err != nil {
+		return nil, err
+	}
 	if !security.ValidateTOTP(secret, code) {
 		return nil, domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
@@ -424,8 +434,12 @@ func (a *Auth) Confirm2FA(ctx context.Context, userID, code string) ([]string, e
 			return nil, err
 		}
 		codes[i] = fmt.Sprintf("%X-%X-%X-%X", b[0:2], b[2:4], b[4:6], b[6:8])
-		sum := sha256.Sum256([]byte("rc:" + userID + ":" + codes[i]))
-		hashes[i] = hex.EncodeToString(sum[:])
+		// Recovery codes are passwords: argon2id, not bare SHA-256.
+		h, herr := security.HashPassword(codes[i])
+		if herr != nil {
+			return nil, herr
+		}
+		hashes[i] = h
 	}
 	if err := a.repos.TFA.Enable(ctx, userID, hashes); err != nil {
 		return nil, err
@@ -443,7 +457,10 @@ func (a *Auth) Disable2FA(ctx context.Context, userID, code string) error {
 	if st == nil {
 		return domain.ErrValidation.WithField("_", "2FA is not enabled.")
 	}
-	secret := xorCipher(st.SecretEncrypted, a.cfg.JWTSecret)
+	secret, serr := a.openSecret(st.SecretEncrypted)
+	if serr != nil {
+		return serr
+	}
 	if !security.ValidateTOTP(secret, code) {
 		return domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
@@ -484,18 +501,29 @@ func (a *Auth) Verify2FA(ctx context.Context, challengeToken, code string, ip ne
 	if st == nil {
 		return nil, nil, domain.ErrSessionInvalid
 	}
-	secret := xorCipher(st.SecretEncrypted, a.cfg.JWTSecret)
+	secret, serr := a.openSecret(st.SecretEncrypted)
+	if serr != nil {
+		return nil, nil, serr
+	}
 	if security.ValidateTOTP(secret, code) {
 		return a.finishLogin(ctx, user, ip, ua)
 	}
-	// Recovery code path: hash and compare against stored.
-	sum := sha256.Sum256([]byte("rc:" + user.ID + ":" + code))
-	hash := hex.EncodeToString(sum[:])
-	if st.RecoveryCodesHash != nil && containsJSON(st.RecoveryCodesHash, hash) {
-		if err := a.repos.TFA.UseRecoveryCode(ctx, user.ID, hash); err != nil {
-			return nil, nil, err
+	// Recovery code path: codes are argon2id-hashed passwords — verify
+	// against each stored hash, then consume the matched one.
+	if st.RecoveryCodesHash != nil {
+		var stored []string
+		if json.Unmarshal(st.RecoveryCodesHash, &stored) == nil {
+			for _, h := range stored {
+				ok, verr := security.VerifyPassword(code, h)
+				if verr != nil || !ok {
+					continue
+				}
+				if err := a.repos.TFA.UseRecoveryCode(ctx, user.ID, h); err != nil {
+					return nil, nil, err
+				}
+				return a.finishLogin(ctx, user, ip, ua)
+			}
 		}
-		return a.finishLogin(ctx, user, ip, ua)
 	}
 	return nil, nil, domain.ErrValidation.WithField("code", "2FA code is invalid.")
 }
@@ -519,17 +547,57 @@ func xorCipher(data, key string) string {
 	return string(out)
 }
 
-func containsJSON(arr []byte, target string) bool {
-	var items []string
-	if err := json.Unmarshal(arr, &items); err != nil {
-		return false
+// totpKey derives the AES key for TOTP secrets from the JWT secret, keeping
+// the two secret classes related but not identical.
+func (a *Auth) totpKey() []byte {
+	sum := sha256.Sum256([]byte("bizverse:totp:" + a.cfg.JWTSecret))
+	return sum[:]
+}
+
+// sealSecret encrypts a TOTP secret with AES-256-GCM ("v1:" prefix).
+func (a *Auth) sealSecret(plain string) (string, error) {
+	block, err := aes.NewCipher(a.totpKey())
+	if err != nil {
+		return "", err
 	}
-	for _, it := range items {
-		if it == target {
-			return true
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	out := gcm.Seal(nonce, nonce, []byte(plain), nil)
+	return "v1:" + base64.StdEncoding.EncodeToString(out), nil
+}
+
+// openSecret decrypts v1 payloads; legacy XOR rows fall through so existing
+// enrollments keep working until re-enrollment re-seals them.
+func (a *Auth) openSecret(enc string) (string, error) {
+	if b, ok := strings.CutPrefix(enc, "v1:"); ok {
+		raw, err := base64.StdEncoding.DecodeString(b)
+		if err != nil {
+			return "", domain.ErrInternal
 		}
+		block, err := aes.NewCipher(a.totpKey())
+		if err != nil {
+			return "", err
+		}
+		gcm, err := cipher.NewGCM(block)
+		if err != nil {
+			return "", err
+		}
+		if len(raw) < gcm.NonceSize() {
+			return "", domain.ErrInternal
+		}
+		plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
+		if err != nil {
+			return "", domain.ErrInternal
+		}
+		return string(plain), nil
 	}
-	return false
+	return xorCipher(enc, a.cfg.JWTSecret), nil
 }
 
 // ---- sessions & export ----
@@ -803,7 +871,10 @@ func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string)
 	if st == nil || st.EnabledAt == nil {
 		return nil, domain.ErrValidation.WithField("_", "2FA is not enabled.")
 	}
-	secret := xorCipher(st.SecretEncrypted, a.cfg.JWTSecret)
+	secret, serr := a.openSecret(st.SecretEncrypted)
+	if serr != nil {
+		return nil, serr
+	}
 	if !security.ValidateTOTP(secret, code) {
 		return nil, domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
@@ -815,8 +886,11 @@ func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string)
 			return nil, err
 		}
 		codes[i] = fmt.Sprintf("%X-%X-%X-%X", b[0:2], b[2:4], b[4:6], b[6:8])
-		sum := sha256.Sum256([]byte("rc:" + userID + ":" + codes[i]))
-		hashes[i] = hex.EncodeToString(sum[:])
+		h, herr := security.HashPassword(codes[i])
+		if herr != nil {
+			return nil, herr
+		}
+		hashes[i] = h
 	}
 	if err := a.repos.TFA.Enable(ctx, userID, hashes); err != nil {
 		return nil, err
