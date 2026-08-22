@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -816,6 +817,79 @@ func (c *Chat) RemoveQuickReply(ctx context.Context, ownerID, businessID, id str
 }
 
 // ---- thread lifecycle ----
+
+// ---- pinned threads (PRD §5.5.1: max 5 per participant) ----
+
+func (c *Chat) PinThread(ctx context.Context, userID, threadID string, on bool) error {
+	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
+		return err
+	}
+	var pinned []string
+	if err := c.repos.QueryRow(ctx,
+		`SELECT pinned_thread_ids FROM chat_participants WHERE thread_id=$1 AND user_id=$2`,
+		threadID, userID).Scan(&pinned); err != nil {
+		return err
+	}
+	if pinned == nil {
+		pinned = []string{}
+	}
+	has := false
+	for _, p := range pinned {
+		if p == threadID {
+			has = true
+			break
+		}
+	}
+	if on == has {
+		return nil // already in desired state
+	}
+	if on {
+		if len(pinned) >= 5 {
+			return domain.ErrValidation.WithField("_", "Max 5 pinned conversations (PRD §5.5.1).")
+		}
+		pinned = append(pinned, threadID)
+	} else {
+		out := pinned[:0]
+		for _, p := range pinned {
+			if p != threadID {
+				out = append(out, p)
+			}
+		}
+		pinned = out
+	}
+	_, err := c.repos.Exec(ctx,
+		`UPDATE chat_participants SET pinned_thread_ids=$3 WHERE thread_id=$1 AND user_id=$2`,
+		threadID, userID, pinned)
+	return err
+}
+
+// PinnedThreads returns the caller's pinned conversations in pin order.
+func (c *Chat) PinnedThreads(ctx context.Context, userID string) ([]*domain.ThreadListItem, error) {
+	var pinned []string
+	if err := c.repos.QueryRow(ctx, `
+		SELECT coalesce(array_agg(tid ORDER BY ord), '{}')
+		FROM chat_participants p,
+		     unnest(p.pinned_thread_ids) WITH ORDINALITY AS u(tid, ord)
+		WHERE p.user_id = $1`, userID).Scan(&pinned); err != nil || len(pinned) == 0 {
+		return []*domain.ThreadListItem{}, err
+	}
+	all, err := c.repos.Chat.ThreadsByUser(ctx, userID, "")
+	if err != nil {
+		return nil, err
+	}
+	idx := map[string]int{}
+	for i, id := range pinned {
+		idx[id] = i
+	}
+	out := make([]*domain.ThreadListItem, 0, len(pinned))
+	for _, t := range all {
+		if _, ok := idx[t.ID]; ok {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return idx[out[i].ID] < idx[out[j].ID] })
+	return out, nil
+}
 
 func (c *Chat) CloseThread(ctx context.Context, userID, threadID string) error {
 	t, err := c.checkAccess(ctx, threadID, userID)

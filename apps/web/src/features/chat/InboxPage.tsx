@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { MessageSquare, Plus, Search, WifiOff } from 'lucide-react'
+import { MessageSquare, Pin, Plus, Search, WifiOff } from 'lucide-react'
 import { api, type ThreadListItemDTO } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -87,37 +87,48 @@ export function InboxPage({ businessId }: { businessId?: string }) {
       </div>
 
       <div className="space-y-2">
-        {data?.threads.map((t) => (
-          <Link
-            key={t.id}
-            to={`/me/messages/${t.id}`}
-            className="card flex items-center gap-3 p-3.5 transition-shadow hover:shadow-cardHover"
-          >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface2 text-base font-semibold text-ink2">
-              {t.type === 'business' ? (t.business_name ?? 'B').charAt(0) : (t.other_name ?? 'U').charAt(0)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-semibold text-ink">
-                  {t.type === 'business' ? t.business_name ?? 'Business' : t.other_name ?? 'User'}
-                </p>
-                {t.type === 'business' && <Badge>Business</Badge>}
-              </div>
-              <p className="truncate text-xs text-ink3">{t.last_body ?? 'Start the conversation'}</p>
-            </div>
-            {t.unread > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-ink">
-                {t.unread}
-              </span>
-            )}
-            <MessageSquare className="h-4 w-4 shrink-0 text-ink3" />
-          </Link>
-        ))}
-        {!data?.threads.length && (
-          <Card className="py-12 text-center text-sm text-ink3">
-            No conversations yet. Message a business or a user to start one.
-          </Card>
-        )}
+        {(() => {
+          const all = data?.threads ?? []
+          const pinned = all.filter((t) => t.pinned)
+          const rest = all.filter((t) => !t.pinned)
+          return (
+            <>
+              {pinned.length > 0 && <p className="mono-label pt-1">Pinned</p>}
+              {[...pinned, ...rest].map((t) => (
+                <Link
+                  key={t.id}
+                  to={`/me/messages/${t.id}`}
+                  className={`card flex items-center gap-3 p-3.5 transition-shadow hover:shadow-cardHover ${t.pinned ? 'border-ink/30' : ''}`}
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface2 text-base font-semibold text-ink2">
+                    {t.type === 'business' ? (t.business_name ?? 'B').charAt(0) : (t.other_name ?? 'U').charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {t.pinned && <Pin className="h-3 w-3 shrink-0 fill-current text-ink" />}
+                      <p className="truncate text-sm font-semibold text-ink">
+                        {t.type === 'business' ? t.business_name ?? 'Business' : t.other_name ?? 'User'}
+                      </p>
+                      {t.type === 'business' && <Badge>Business</Badge>}
+                    </div>
+                    <p className="truncate text-xs text-ink3">{t.last_body ?? 'Start the conversation'}</p>
+                  </div>
+                  {t.unread > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-ink">
+                      {t.unread}
+                    </span>
+                  )}
+                  <MessageSquare className="h-4 w-4 shrink-0 text-ink3" />
+                </Link>
+              ))}
+              {!all.length && (
+                <Card className="py-12 text-center text-sm text-ink3">
+                  No conversations yet. Message a business or a user to start one.
+                </Card>
+              )}
+            </>
+          )
+        })()}
       </div>
     </div>
   )

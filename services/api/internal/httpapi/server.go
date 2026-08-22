@@ -267,6 +267,9 @@ func (s *Server) routes() {
 	mux.HandleFunc("PUT /api/v1/threads/{id}/pin/{messageId}", s.handlePinMessage)
 	mux.HandleFunc("DELETE /api/v1/threads/{id}/pin/{messageId}", s.handlePinMessage)
 	mux.HandleFunc("GET /api/v1/threads/{id}/pinned", s.handlePinned)
+	mux.HandleFunc("PUT /api/v1/threads/{id}/pinned-thread", s.handleThreadPinToggle)
+	mux.HandleFunc("DELETE /api/v1/threads/{id}/pinned-thread", s.handleThreadPinToggle)
+	mux.HandleFunc("GET /api/v1/me/pinned-threads", s.handlePinnedThreads)
 	mux.HandleFunc("GET /api/v1/admin/kpis", s.adminOnly(s.handleAdminKPIs))
 
 	// Trending & leaderboards (PRD §5.6.3)

@@ -119,7 +119,8 @@ func (r *ChatRepo) ThreadsByUser(ctx context.Context, userID, businessID string)
 			(SELECT body FROM chat_messages m WHERE m.thread_id = t.id AND m.deleted_for <> 'everyone'
 			 ORDER BY m.id DESC LIMIT 1) AS last_body,
 			(SELECT count(*) FROM chat_messages m WHERE m.thread_id = t.id AND m.id > COALESCE(p.last_read_message_id, 0)
-			 AND m.sender_id <> $1 AND m.deleted_for <> 'everyone') AS unread
+			 AND m.sender_id <> $1 AND m.deleted_for <> 'everyone') AS unread,
+			t.id = ANY(p.pinned_thread_ids) AS pinned
 		FROM chat_threads t
 		JOIN chat_participants p ON p.thread_id = t.id AND p.user_id = $1 AND p.left_at IS NULL
 		LEFT JOIN businesses b ON b.id = t.business_id
@@ -148,7 +149,7 @@ func (r *ChatRepo) ThreadsByUser(ctx context.Context, userID, businessID string)
 		if err := rows.Scan(&it.ID, &it.Type, &it.BusinessID, &it.Status, &it.LastMessageAt, &it.CreatedAt,
 			&it.BusinessName, &it.BusinessSlug, &it.BusinessLogo,
 			&it.OtherID, &it.OtherName, &it.OtherUsername, &it.OtherAvatar,
-			&it.LastBody, &it.Unread); err != nil {
+			&it.LastBody, &it.Unread, &it.Pinned); err != nil {
 			return nil, err
 		}
 		out = append(out, &it)

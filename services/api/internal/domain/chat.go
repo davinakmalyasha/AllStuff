@@ -29,6 +29,7 @@ type ThreadListItem struct {
 	OtherAvatar    *string    `json:"other_avatar"`
 	LastBody       *string    `json:"last_body"`
 	Unread         int        `json:"unread"`
+	Pinned         bool       `json:"pinned"`
 }
 
 type ChatMessage struct {

@@ -362,6 +362,35 @@ func (s *Server) handleThreadMute(w http.ResponseWriter, r *http.Request) {
 	noContent(w)
 }
 
+// Pinned conversations (PRD §5.5.1): PUT/DELETE toggles the thread in the
+// caller's pin list (max 5).
+func (s *Server) handleThreadPinToggle(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	if err := s.deps.Chat.PinThread(r.Context(), user.ID, r.PathValue("id"), r.Method == http.MethodPut); err != nil {
+		fail(w, err)
+		return
+	}
+	noContent(w)
+}
+
+func (s *Server) handlePinnedThreads(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	list, err := s.deps.Chat.PinnedThreads(r.Context(), user.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"threads": list})
+}
+
 func (s *Server) handleBlock(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {

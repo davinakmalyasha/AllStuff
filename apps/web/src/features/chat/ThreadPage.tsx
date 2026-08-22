@@ -252,6 +252,25 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     }
   }
 
+  // Pinned conversation (PRD §5.5.1, max 5): header toggle.
+  const [pinnedThread, setPinnedThread] = useState(false)
+  useEffect(() => {
+    api<{ threads: Array<{ id: string }> }>(`/me/pinned-threads`)
+      .then((r) => setPinnedThread(r.threads.some((t) => t.id === id)))
+      .catch(() => undefined)
+  }, [id])
+  const togglePinThread = async () => {
+    const next = !pinnedThread
+    setPinnedThread(next)
+    try {
+      await api(`/threads/${id}/pinned-thread`, { method: next ? 'PUT' : 'DELETE' })
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+    } catch {
+      setPinnedThread(!next)
+      toast.error(next ? 'Pin limit is 5 conversations.' : 'Could not unpin.')
+    }
+  }
+
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
   const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && own(m))), [messages, user?.id])
 
@@ -265,6 +284,9 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
           <ArrowLeft className="h-4 w-4" />
         </button>
         <p className="flex-1 text-sm font-semibold text-ink">Thread</p>
+        <button onClick={() => void togglePinThread()} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={pinnedThread ? 'Unpin conversation' : 'Pin conversation'} title={pinnedThread ? 'Unpin' : 'Pin (max 5)'}>
+          <Pin className={`h-4 w-4 ${pinnedThread ? 'fill-current text-ink' : ''}`} />
+        </button>
         <button onClick={() => void toggleMute()} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={muted ? 'Unmute notifications' : 'Mute notifications'} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
         </button>

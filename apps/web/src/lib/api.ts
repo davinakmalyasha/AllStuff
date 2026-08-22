@@ -487,6 +487,7 @@ export interface ThreadListItemDTO {
   other_avatar: string | null
   last_body: string | null
   unread: number
+  pinned?: boolean
 }
 
 export interface ChatMessageDTO {
