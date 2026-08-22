@@ -5,8 +5,57 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, searchPath, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 
-const TILES = 'https://tiles.openstreetmap.org/{z}/{x}/{y}.png' // dark variant below (Batch 3)
-const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+const TILES_LIGHT = 'https://tiles.openstreetmap.org/{z}/{x}/{y}.png'
+const TILES_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+
+// Muted category tints (PRD §5.2 "category-colored pins"): stable per category id.
+const CAT_TINTS = ['#d97706', '#059669', '#2563eb', '#7c3aed', '#dc2626', '#0d9488', '#ea580c', '#db2777', '#4f46e5', '#65a30d']
+function catTint(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return CAT_TINTS[h % CAT_TINTS.length]
+}
+
+// Marker palette follows the app theme (class on <html>), not just the OS
+// preference — black pins were unreadable on the dark basemap.
+const MARKERS = {
+  light: { fill: '#18181b', ring: '#ffffff', text: '#ffffff' },
+  dark: { fill: '#e4e4e7', ring: '#18181b', text: '#18181b' },
+} as const
+
+function useIsDarkTheme(): boolean {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+  useEffect(() => {
+    const el = document.documentElement
+    const obs = new MutationObserver(() => setDark(el.classList.contains('dark')))
+    obs.observe(el, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+  return dark
+}
+
+function applyMarkerTheme(map: maplibregl.Map, dark: boolean) {
+  const c = MARKERS[dark ? 'dark' : 'light']
+  const setPaint = (layer: string, prop: string, value: unknown) => {
+    if (map.getLayer(layer)) {
+      // Paint property names span every layer type; the callers above keep
+      // layer/prop pairs valid.
+      (map.setPaintProperty as (l: string, p: string, v: unknown) => void)(layer, prop, value)
+    }
+  }
+  const setLayout = (layer: string) => {
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'visibility', 'visible')
+  }
+  // Basemap tiles: exactly one raster layer visible at a time.
+  if (map.getLayer('osm-light')) map.setLayoutProperty('osm-light', 'visibility', dark ? 'none' : 'visible')
+  if (map.getLayer('osm-dark')) map.setLayoutProperty('osm-dark', 'visibility', dark ? 'visible' : 'none')
+  setLayout('osm-fallback')
+  setPaint('clusters', 'circle-color', c.fill)
+  setPaint('cluster-count', 'text-color', c.text)
+  setPaint('businesses', 'circle-color', c.fill)
+  setPaint('businesses-halo', 'circle-stroke-color', c.ring)
+  setPaint('businesses-pulse', 'circle-color', c.fill)
+}
 
 export interface MapMarker extends BusinessDTO {
   trend?: { is_booming: boolean; is_rising: boolean; velocity: number }
@@ -19,13 +68,13 @@ interface BizMapProps {
   showControls?: boolean
   initialCategories?: string[]
   onSelect?: (b: MapMarker) => void
-  embedded?: boolean // no search bar / chips (mini maps)
+  embedded?: boolean // no search bar / chips / controls (mini maps)
 }
 
 /**
- * The universal map (PRD §5.2): viewport search, clustering, category layers,
- * Booming pulse markers, Rising rings, near-me. Reused by the full map page,
- * the homepage widget, and business mini-maps.
+ * The universal map (PRD §5.2): viewport search, clustering, category-tinted
+ * pins, Booming pulse, Rising halo, hover tooltips, near-me. Reused by the
+ * full map page, the homepage widget, and business mini-maps.
  */
 export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, showControls = true, initialCategories = [], onSelect, embedded = false }: BizMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -37,9 +86,13 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
   const [verifiedOnly, setVerifiedOnly] = useState(false)
   const [selected, setSelected] = useState<MapMarker | null>(null)
   const [loading, setLoading] = useState(false)
+  const dark = useIsDarkTheme()
   const trendRef = useRef<Record<string, TrendEntryDTO>>({})
+  const userPosRef = useRef<{ lat: number; lng: number } | null>(null)
+  const popupRef = useRef<maplibregl.Popup | null>(null)
 
-  // Init map once.
+  // Init map once. Two raster basemap layers are registered up front and
+  // toggled by visibility — avoids source-swap API differences.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     const m = new maplibregl.Map({
@@ -47,19 +100,26 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       style: {
         version: 8,
         sources: {
-          osm: { type: 'raster', tiles: [window.matchMedia?.('(prefers-color-scheme: dark)').matches ? DARK_TILES : TILES], tileSize: 256, attribution: '© OpenStreetMap' },
+          'osm-light': { type: 'raster', tiles: [TILES_LIGHT], tileSize: 256, attribution: '© OpenStreetMap' },
+          'osm-dark': { type: 'raster', tiles: [TILES_DARK], tileSize: 256, attribution: '© CARTO © OpenStreetMap' },
         },
-        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+        layers: [
+          { id: 'osm-light', type: 'raster', source: 'osm-light' },
+          { id: 'osm-dark', type: 'raster', source: 'osm-dark', layout: { visibility: 'none' } },
+        ],
       },
       center,
       zoom,
+      attributionControl: { compact: true },
     })
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    if (!embedded && navigator.geolocation) {
-      m.addControl(new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-      }), 'top-right')
+    if (!embedded) {
+      m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+      if (navigator.geolocation) {
+        m.addControl(new maplibregl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: true,
+        }), 'top-right')
+      }
     }
     mapRef.current = m
     setMap(m)
@@ -69,6 +129,12 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Markers + basemap follow the theme toggle instantly.
+  useEffect(() => {
+    if (!map) return
+    applyMarkerTheme(map, dark)
+  }, [map, dark])
 
   // Fetch trending/rising for badge styling.
   useEffect(() => {
@@ -98,12 +164,14 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     const bounds = mapRef.current.getBounds()
     setLoading(true)
     try {
+      const pos = userPosRef.current
       const p = {
         bbox: `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`,
         category: cats.length ? cats : undefined,
         q: q || undefined,
         verified_only: verifiedOnly || undefined,
         limit: 100,
+        ...(pos ? { lat: pos.lat, lng: pos.lng } : {}),
       }
       const res = await api<{ businesses: BusinessDTO[] }>(searchPath(p))
       const withTrend = res.businesses.map((b) => {
@@ -116,68 +184,93 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     }
   }
 
+  // Single stable handler per registration: re-running this effect removes
+  // the exact listener it added (the old closure-based off() leaked).
   useEffect(() => {
     if (!map) return
     const debounced = setTimeout(() => void query(), 400)
-    map.on('moveend', () => void query())
+    const onMoveEnd = () => void query()
+    map.on('moveend', onMoveEnd)
     return () => {
       clearTimeout(debounced)
-      map.off('moveend', () => void query())
+      map.off('moveend', onMoveEnd)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, cats, q, verifiedOnly])
 
-  // Render GeoJSON layer with clustering + category filter.
+  // Render GeoJSON layer with clustering + category filter + trend styling.
   useEffect(() => {
     if (!map) return
-    const sourceId = 'biz'
-    const src = map.getSource(sourceId)
-    if (src) {
-      ;(src as maplibregl.GeoJSONSource).setData({
-        type: 'FeatureCollection',
-        features: markers.map((b) => ({
-          type: 'Feature' as const,
-          geometry: { type: 'Point' as const, coordinates: [b.lng, b.lat] },
-          properties: {
-            id: b.id, name: b.name, slug: b.slug, city: b.city,
-            category: b.category_id, rating: b.rating_avg ?? 0,
-            review_count: b.review_count, price: b.price_level ?? 0,
-            open: !!b.is_open_now,
-            booming: b.trend?.is_booming ?? false,
-            rising: b.trend?.is_rising ?? false,
-            logo: b.logo_url,
-          },
-        })),
-      })
-      return
+    const features = markers.map((b) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [b.lng, b.lat] },
+      properties: {
+        id: b.id, name: b.name, slug: b.slug, city: b.city,
+        cat_name: b.category_name ?? '',
+        rating: b.rating_avg ?? 0,
+        open: !!b.is_open_now,
+        booming: b.trend?.is_booming ?? false,
+        rising: b.trend?.is_rising ?? false,
+        tint: catTint(b.category_id),
+        d: b.distance_km ?? -1,
+      },
+    }))
+    const setData = () => {
+      const src = map.getSource('biz') as maplibregl.GeoJSONSource | undefined
+      if (!src) return false
+      src.setData({ type: 'FeatureCollection', features })
+      return true
     }
-    map.addSource(sourceId, {
+    if (setData()) return
+
+    map.addSource('biz', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
+      data: { type: 'FeatureCollection', features },
       cluster: true,
       clusterMaxZoom: 13,
       clusterRadius: 42,
     })
-    map.addLayer({ id: 'clusters', type: 'circle', source: sourceId, filter: ['has', 'point_count'], paint: { 'circle-color': '#18181b', 'circle-radius': ['step', ['get', 'point_count'], 16, 20, 20, 60, 26], 'circle-opacity': 0.85 } })
-    map.addLayer({ id: 'cluster-count', type: 'symbol', source: sourceId, filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count'], 'text-size': 11 }, paint: { 'text-color': '#ffffff' } as maplibregl.SymbolLayerSpecification['paint'] })
+    map.addLayer({ id: 'clusters', type: 'circle', source: 'biz', filter: ['has', 'point_count'], paint: { 'circle-color': MARKERS.light.fill, 'circle-radius': ['step', ['get', 'point_count'], 16, 20, 20, 60, 26], 'circle-opacity': 0.85 } })
+    map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'biz', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count'], 'text-size': 11 }, paint: { 'text-color': '#ffffff' } as maplibregl.SymbolLayerSpecification['paint'] })
+
+    // Booming pulse: soft expanding glow under the pin (animated below).
     map.addLayer({
-      id: 'businesses', type: 'circle', source: sourceId, filter: ['!', ['has', 'point_count']],
+      id: 'businesses-pulse', type: 'circle', source: 'biz',
+      filter: ['all', ['!', ['has', 'point_count']], ['get', 'booming']],
+      paint: { 'circle-radius': 10, 'circle-color': MARKERS.light.fill, 'circle-opacity': 0.3 },
+    })
+    // Rising halo: soft outer ring marks hidden gems (dashes unsupported in
+    // circle paint, so a low-opacity solid ring reads as the "↑" badge).
+    map.addLayer({
+      id: 'businesses-halo', type: 'circle', source: 'biz',
+      filter: ['all', ['!', ['has', 'point_count']], ['get', 'rising'], ['!', ['get', 'booming']]],
       paint: {
-        'circle-radius': ['case', ['get', 'booming'], 13, ['get', 'rising'], 11, 8],
-        'circle-color': ['case', ['get', 'booming'], '#000000', ['get', 'rising'], '#555555', '#18181b'],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': ['case', ['get', 'booming'], 3, ['get', 'rising'], 2, 1.5],
+        'circle-radius': 13, 'circle-opacity': 0,
+        'circle-stroke-color': MARKERS.light.ring, 'circle-stroke-width': 1.5,
       },
     })
-    map.on('click', 'businesses', (e: maplibregl.MapLayerMouseEvent) => {
+    // Base pins: monochrome fill, category-tinted ring.
+    map.addLayer({
+      id: 'businesses', type: 'circle', source: 'biz', filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-radius': ['case', ['get', 'booming'], 10, 8],
+        'circle-color': MARKERS.light.fill,
+        'circle-stroke-color': ['get', 'tint'],
+        'circle-stroke-width': 3,
+      },
+    })
+
+    const featureAt = (e: maplibregl.MapLayerMouseEvent) => {
       const f = e.features?.[0]
-      if (!f) return
-      const b = markers.find((m) => m.id === f.properties?.id)
-      if (b) {
-        setSelected(b)
-        map.easeTo({ center: [b.lng, b.lat] })
-        onSelect?.(b)
-      }
+      if (!f) return undefined
+      return markers.find((m) => m.id === f.properties?.id)
+    }
+    map.on('click', 'businesses', (e: maplibregl.MapLayerMouseEvent) => {
+      const b = featureAt(e)
+      if (!b) return
+      setSelected(b)
+      map.easeTo({ center: [b.lng, b.lat] })
+      onSelect?.(b)
     })
     map.on('click', 'clusters', (e: maplibregl.MapLayerMouseEvent) => {
       const f = e.features?.[0]
@@ -185,10 +278,42 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates
       map.easeTo({ center: coords, zoom: (map.getZoom() ?? 0) + 2 })
     })
-    map.on('mouseenter', 'businesses', () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', 'businesses', () => { map.getCanvas().style.cursor = '' })
+    map.on('mouseenter', 'businesses', (e: maplibregl.MapLayerMouseEvent) => {
+      map.getCanvas().style.cursor = 'pointer'
+      const f = e.features?.[0]
+      if (!f) return
+      const p = f.properties as Record<string, string>
+      const dist = Number(p.d)
+      if (!popupRef.current) popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 12 })
+      popupRef.current
+        .setLngLat((f.geometry as unknown as { coordinates: [number, number] }).coordinates)
+        .setHTML(
+          `<div style="font:500 12px/1.4 system-ui,sans-serif;color:#18181b">${p.name}` +
+          `<br/><span style="color:#71717a;font-weight:400">${p.cat_name} · ${p.city}` +
+          (dist > 0 ? ` · ${dist.toFixed(1)} km` : '') + `</span></div>`,
+        )
+        .addTo(map)
+    })
+    map.on('mouseleave', 'businesses', () => {
+      map.getCanvas().style.cursor = ''
+      popupRef.current?.remove()
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, markers])
+
+  // Animate the Booming pulse (radius/opacity breathing cycle).
+  useEffect(() => {
+    if (!map) return
+    let phase = 0
+    const iv = window.setInterval(() => {
+      if (!map.getLayer('businesses-pulse')) return
+      phase += 0.08
+      const wave = (Math.sin(phase) + 1) / 2
+      map.setPaintProperty('businesses-pulse', 'circle-radius', 9 + 9 * wave)
+      map.setPaintProperty('businesses-pulse', 'circle-opacity', 0.35 * (1 - wave))
+    }, 50)
+    return () => clearInterval(iv)
+  }, [map])
 
   // Category chips (non-embedded only).
   const { data: catData } = useCategories()
@@ -230,7 +355,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       <div ref={containerRef} className="h-full w-full" />
 
       {selected && (
-        <div className="absolute bottom-4 left-1/2 z-20 w-72 -translate-x-1/2 rounded-xl border border-border bg-surface p-4 shadow-cardHover sm:left-auto sm:right-4 sm:translate-x-0">
+        <div className="absolute bottom-4 left-1/2 z-20 w-full max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border bg-surface p-4 shadow-cardHover sm:left-auto sm:right-4 sm:w-72 sm:max-w-none sm:translate-x-0">
           <div className="flex items-center gap-3">
             {selected.logo_url ? (
               <img src={selected.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />
@@ -242,6 +367,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
               <p className="text-xs text-ink3">{selected.city} · {selected.category_name}</p>
             </div>
             {selected.trend?.is_booming && <Badge tone="attention" dot>Booming</Badge>}
+            {!selected.trend?.is_booming && selected.trend?.is_rising && <Badge tone="attention">↑ Rising</Badge>}
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-ink3">

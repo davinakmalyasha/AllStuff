@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
+import { MiniMapLive } from '@/components/map/MiniMapLive'
 import { ProductModal } from '@/components/engagement/ProductModal'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -294,7 +295,7 @@ export function BusinessPage() {
               <h2 className="mono-label">Location</h2>
               <p className="flex items-start gap-2 text-sm text-ink2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {b.address}, {b.city}, {b.country}</p>
               <div className="h-36 overflow-hidden rounded-lg border border-border">
-                <MiniMap lat={b.lat} lng={b.lng} name={b.name} />
+                <MiniMapLive lat={b.lat} lng={b.lng} name={b.name} />
               </div>
               <a href={`https://www.openstreetmap.org/?mlat=${b.lat}&mlon=${b.lng}#map=16/${b.lat}/${b.lng}`} target="_blank" rel="noreferrer" className="text-sm text-ink underline underline-offset-4 hover:text-ink2">
                 Open in map
@@ -412,22 +413,6 @@ function ContactRow({ icon, label, href }: { icon: React.ReactNode; label: strin
     <a href={href} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-ink underline-offset-4 hover:underline">
       <span className="text-ink3">{icon}</span> {label}
     </a>
-  )
-}
-
-function MiniMap({ lat, lng, name }: { lat: number; lng: number; name: string }) {
-  return (
-    <div className="relative h-full w-full">
-      <img
-        src={`https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=15&size=400x150&markers=${lat},${lng},red-pushpin`}
-        alt={`Map showing ${name}`}
-        className="h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => {
-          ;(e.target as HTMLImageElement).style.display = 'none'
-        }}
-      />
-    </div>
   )
 }
 
