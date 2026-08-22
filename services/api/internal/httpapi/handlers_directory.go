@@ -95,7 +95,16 @@ func (s *Server) handleBusinessPage(w http.ResponseWriter, r *http.Request) {
 			_, _ = s.deps.Repos.Engagement.InsertEvent(r.Context(), user.ID, "business", b.ID, "view", 1, key)
 		}
 	}
-	ok(w, map[string]any{"business": b, "similar": filtered, "products": products, "is_owner": isOwner})
+	// Trend flags from the latest 24h snapshot (PRD §5.3.1 badges).
+	var booming, rising bool
+	_ = s.deps.Repos.QueryRow(r.Context(), `
+		SELECT coalesce(is_booming, false), coalesce(is_rising, false)
+		FROM trend_snapshots WHERE business_id = $1 AND period = '24h'
+		ORDER BY taken_at DESC LIMIT 1`, b.ID).Scan(&booming, &rising)
+	ok(w, map[string]any{
+		"business": b, "similar": filtered, "products": products, "is_owner": isOwner,
+		"trend": map[string]any{"is_booming": booming, "is_rising": rising},
+	})
 }
 
 // ---- search & suggest ----

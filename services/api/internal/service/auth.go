@@ -39,6 +39,17 @@ var (
 	usernameRe = regexp.MustCompile(`^[a-z0-9_]{3,30}$`)
 )
 
+// reservedUsernames cannot be registered (PRD §6.6): they would collide with
+// platform routes and system identities.
+var reservedUsernames = map[string]bool{
+	"admin": true, "administrator": true, "moderator": true, "support": true,
+	"help": true, "security": true, "api": true, "apis": true, "root": true,
+	"system": true, "bizverse": true, "official": true, "team": true,
+	"staff": true, "owner": true, "me": true, "null": true, "undefined": true,
+	"about": true, "contact": true, "terms": true, "privacy": true, "login": true,
+	"register": true, "signup": true, "settings": true, "profile": true, "user": true,
+}
+
 type RegisterInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -75,6 +86,9 @@ func (a *Auth) Register(ctx context.Context, in RegisterInput) (*domain.User, *T
 	}
 	if !usernameRe.MatchString(in.Username) {
 		return nil, nil, domain.ErrValidation.WithField("username", "3–30 chars: lowercase letters, numbers, underscores.")
+	}
+	if reservedUsernames[in.Username] {
+		return nil, nil, domain.ErrValidation.WithField("username", "That username is reserved.")
 	}
 
 	exists, err := a.repos.Users.GetByEmail(ctx, in.Email)
@@ -164,8 +178,44 @@ func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (
 	if err != nil {
 		return nil, nil, err
 	}
+	a.maybeNewDeviceAlert(ctx, user, ip, ua)
 	a.logger.Info("login", "user", user.ID)
 	return user, tokens, nil
+}
+
+// maybeNewDeviceAlert emails the user when a login arrives from an IP with
+// no prior session (PRD §5.9.1 / §8.1 "new device" alert). Best-effort.
+func (a *Auth) maybeNewDeviceAlert(ctx context.Context, user *domain.User, ip net.IP, ua string) {
+	if user.EmailVerifiedAt == nil {
+		return
+	}
+	ipStr := ""
+	if ip != nil {
+		ipStr = ip.String()
+	}
+	var known bool
+	var err error
+	if ipStr == "" {
+		err = a.repos.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1)`,
+			user.ID).Scan(&known)
+	} else {
+		err = a.repos.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM sessions WHERE user_id = $1 AND revoked_at IS NULL AND host(ip) = $2 LIMIT 1)`,
+			user.ID, ipStr).Scan(&known)
+	}
+	if err == nil && !known {
+		suffix := ""
+		if ipStr != "" {
+			suffix = " (IP: " + ipStr + ")"
+		}
+		_ = a.email.Send(user.Email, "New sign-in to your account",
+			mail.WrapHTML(a.cfg.PublicURL, "New sign-in to your account",
+				fmt.Sprintf(`<p>Hi %s,</p><p>Your account was just signed in from a new device or location%s.</p>
+				<p>If this wasn't you, reset your password and revoke sessions from your security page.</p>`,
+					htmlEscape(user.Name), suffix)))
+	}
 }
 
 type clientMeta struct {
@@ -531,11 +581,37 @@ func (a *Auth) CancelDeletion(ctx context.Context, userID string) error {
 	return err
 }
 
-// PurgeExpiredDeletions hard-deletes users past the 14-day grace (job).
+// PurgeExpiredDeletions anonymizes accounts past the 14-day grace
+// (PRD §5.9.2 / E6): every personal identifier is scrubbed while authored
+// content (reviews, comments) stays intact as "Deleted User" — the users row
+// must survive because engagement tables reference it.
 func (a *Auth) PurgeExpiredDeletions(ctx context.Context) (int64, error) {
 	tag, err := a.repos.Exec(ctx, `
-		DELETE FROM users WHERE deleted_at IS NOT NULL AND deleted_at < now() - interval '14 days'`)
-	return tag.RowsAffected(), err
+		UPDATE users SET
+			email = 'deleted+' || left(replace(id::text, '-', ''), 24) || '@anon.invalid',
+			name = 'Deleted User',
+			username = 'u' || left(replace(id::text, '-', ''), 15),
+			password_hash = NULL,
+			avatar_url = NULL,
+			bio = NULL,
+			profile_links = '{}'::jsonb,
+			notification_prefs = '{}',
+			digest_opt_in = false,
+			updated_at = now()
+		WHERE deleted_at IS NOT NULL AND deleted_at < now() - interval '14 days'
+		  AND email NOT LIKE 'deleted+%@anon.invalid'`)
+	if err != nil {
+		return 0, err
+	}
+	n := tag.RowsAffected()
+	if n > 0 {
+		_, _ = a.repos.Exec(ctx, `
+			UPDATE sessions s SET revoked_at = now()
+			FROM users u
+			WHERE u.id = s.user_id AND s.revoked_at IS NULL
+			  AND u.deleted_at IS NOT NULL AND u.deleted_at < now() - interval '14 days'`)
+	}
+	return n, nil
 }
 
 func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, error) {

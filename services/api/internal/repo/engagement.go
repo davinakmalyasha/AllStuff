@@ -508,9 +508,22 @@ func (r *EngagementRepo) GetHelpful(ctx context.Context, reviewID, userID string
 
 func (r *EngagementRepo) CreateNotification(ctx context.Context, userID, ntype string, payload map[string]any) (*domain.Notification, error) {
 	n := &domain.Notification{ID: newUUID(), UserID: userID, Type: ntype, Payload: payload}
+	// Retention tiers (PRD §5.7): 90d users, 180d business owners, 365d admins.
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO notifications (id, user_id, type, payload) VALUES ($1,$2,$3,$4)`,
+		INSERT INTO notifications (id, user_id, type, payload, expires_at)
+		SELECT $1,$2,$3,$4, now() + CASE
+				WHEN u.role = 'admin' THEN interval '365 days'
+				WHEN EXISTS (SELECT 1 FROM businesses b WHERE b.owner_id = u.id AND b.deleted_at IS NULL) THEN interval '180 days'
+				ELSE interval '90 days' END
+		FROM users u WHERE u.id = $2`,
 		n.ID, userID, ntype, payload)
+	if err != nil {
+		// Recipient vanished mid-flight: fall back to the default window.
+		_, err = r.pool.Exec(ctx, `
+			INSERT INTO notifications (id, user_id, type, payload, expires_at)
+			VALUES ($1,$2,$3,$4, now() + interval '90 days')`,
+			n.ID, userID, ntype, payload)
+	}
 	return n, err
 }
 

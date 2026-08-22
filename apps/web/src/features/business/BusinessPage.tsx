@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Clock,
+  Flame,
   Globe,
   Mail,
   MapPin,
@@ -47,7 +48,7 @@ export function BusinessPage() {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['business', slug],
     queryFn: () =>
-      api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${window.location.search}`),
+      api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; trend?: { is_booming: boolean; is_rising: boolean }; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${window.location.search}`),
   })
 
   const b = data?.business
@@ -125,7 +126,8 @@ export function BusinessPage() {
               {b.verification_level && (
                 <Badge tone="attention"><ShieldCheck className="h-3 w-3" /> {b.verification_level === 'fully_verified' ? 'Fully Verified' : 'Verified'}</Badge>
               )}
-              {b.like_count > 0 && <Badge tone="positive"><TrendingUp className="h-3 w-3" /> {b.like_count} likes</Badge>}
+              {data?.trend?.is_booming && <Badge tone="positive"><Flame className="h-3 w-3" /> Booming</Badge>}
+              {!data?.trend?.is_booming && data?.trend?.is_rising && <Badge tone="attention"><TrendingUp className="h-3 w-3" /> Rising</Badge>}
             </div>
             {b.tagline && <p className="mt-1 text-sm" style={{ color: 'var(--pv-muted)' }}>{b.tagline}</p>}
             <div className="mt-1.5 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--pv-muted)' }}>
@@ -133,6 +135,7 @@ export function BusinessPage() {
               {b.review_count > 0 && (
                 <span className="flex items-center gap-1"><Star className="h-3.5 w-3.5" /> {b.rating_avg?.toFixed(1)} ({b.review_count})</span>
               )}
+              {b.founded_year != null && <span className="font-mono text-xs">Est. {b.founded_year}</span>}
               <span>{b.city}, {b.country}</span>
               <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || '—'}</span>
               <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open now' : 'Closed now'}</Badge>
@@ -306,13 +309,27 @@ export function BusinessPage() {
             {b.contact.website && <ContactRow icon={<Globe className="h-4 w-4" />} label={b.contact.website} href={b.contact.website} />}
             {Object.entries(SOCIALS)
               .filter(([k]) => b.contact[k])
-              .map(([k, label]) => (
-                <div key={k} className="flex items-center gap-2 text-sm">
-                  <span className="text-ink3">↗</span>
-                  <span className="text-ink">{label}</span>
-                  <span className="ml-auto font-mono text-xs text-ink3">@{b.contact[k]}</span>
-                </div>
-              ))}
+              .map(([k, label]) => {
+                const handle = b.contact[k]
+                const urls: Record<string, string> = {
+                  whatsapp: `https://wa.me/${handle}`,
+                  instagram: `https://instagram.com/${handle}`,
+                  tiktok: `https://tiktok.com/@${handle}`,
+                  facebook: `https://facebook.com/${handle}`,
+                  x: `https://x.com/${handle}`,
+                  youtube: `https://youtube.com/@${handle}`,
+                  line: `https://line.me/R/ti/p/@${handle}`,
+                  telegram: `https://t.me/${handle}`,
+                }
+                return (
+                  <ContactRow
+                    key={k}
+                    icon={<span className="text-ink3">↗</span>}
+                    label={`${label} · @${handle}`}
+                    href={urls[k] ?? handle}
+                  />
+                )
+              })}
           </Card>
         </aside>
       </div>

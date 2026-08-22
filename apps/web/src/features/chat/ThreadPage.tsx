@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Bell,
+  BellOff,
   FileUp,
   Image as ImageIcon,
 
@@ -236,6 +238,20 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     enabled: searching && searchQ.trim().length >= 2,
   })
 
+  // Thread mute (PRD §5.5.1): optimistic toggle; server keeps muted_until.
+  const [muted, setMuted] = useState(false)
+  const toggleMute = async () => {
+    const next = !muted
+    setMuted(next)
+    try {
+      await api(`/threads/${id}/mute`, { method: next ? 'PUT' : 'DELETE' })
+      toast.success(next ? 'Notifications muted' : 'Notifications unmuted')
+    } catch {
+      setMuted(!next)
+      toast.error('Could not update mute.')
+    }
+  }
+
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
   const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && own(m))), [messages, user?.id])
 
@@ -249,6 +265,9 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
           <ArrowLeft className="h-4 w-4" />
         </button>
         <p className="flex-1 text-sm font-semibold text-ink">Thread</p>
+        <button onClick={() => void toggleMute()} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={muted ? 'Unmute notifications' : 'Mute notifications'} title={muted ? 'Unmute' : 'Mute'}>
+          {muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+        </button>
         <button onClick={() => setSearching((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Search">
           <Search className="h-4 w-4" />
         </button>
