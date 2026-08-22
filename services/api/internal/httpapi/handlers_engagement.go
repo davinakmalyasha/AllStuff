@@ -310,7 +310,13 @@ func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 		if pid := r.URL.Query().Get("product_id"); pid != "" {
 			productID = &pid
 		}
-		list, err := s.deps.Engagement.ListReviews(r.Context(), businessID, productID, sort, limit, offset)
+		// my_vote is included when a session is present so the UI can
+		// toggle votes off (PRD §5.6.1).
+		var viewerID *string
+		if user, found := currentUser(r); found {
+			viewerID = &user.ID
+		}
+		list, err := s.deps.Engagement.ListReviews(r.Context(), businessID, productID, sort, limit, offset, viewerID)
 		if err != nil {
 			fail(w, err)
 			return
@@ -383,6 +389,16 @@ func (s *Server) handleReviewReply(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
+	// POST creates, PATCH edits (stamps reply_edited_at), DELETE removes —
+	// PRD §5.6.2 owner reply lifecycle.
+	if r.Method == http.MethodDelete {
+		if err := s.deps.Engagement.DeleteReviewReply(r.Context(), user.ID, r.PathValue("reviewId")); err != nil {
+			fail(w, err)
+			return
+		}
+		noContent(w)
+		return
+	}
 	var in struct {
 		Reply string `json:"reply"`
 	}
@@ -390,7 +406,15 @@ func (s *Server) handleReviewReply(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	rw, err := s.deps.Engagement.ReplyToReview(r.Context(), user.ID, r.PathValue("reviewId"), in.Reply)
+	var (
+		rw *domain.Review
+		err error
+	)
+	if r.Method == http.MethodPatch {
+		rw, err = s.deps.Engagement.EditReviewReply(r.Context(), user.ID, r.PathValue("reviewId"), in.Reply)
+	} else {
+		rw, err = s.deps.Engagement.ReplyToReview(r.Context(), user.ID, r.PathValue("reviewId"), in.Reply)
+	}
 	if err != nil {
 		fail(w, err)
 		return

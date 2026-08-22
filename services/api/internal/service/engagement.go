@@ -363,8 +363,8 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 	return created, nil
 }
 
-func (s *Engagement) ListReviews(ctx context.Context, businessID string, productID *string, sort string, limit, offset int) ([]*domain.Review, error) {
-	return s.repos.Engagement.ListReviews(ctx, businessID, productID, sort, limit, offset)
+func (s *Engagement) ListReviews(ctx context.Context, businessID string, productID *string, sort string, limit, offset int, viewerID *string) ([]*domain.Review, error) {
+	return s.repos.Engagement.ListReviews(ctx, businessID, productID, sort, limit, offset, viewerID)
 }
 
 // MyReviews: a user's own reviews with business context (PRD §5.6.2).
@@ -413,11 +413,9 @@ func (s *Engagement) DeleteReview(ctx context.Context, userID, reviewID string) 
 	return s.repos.Engagement.DeleteReview(ctx, reviewID, userID)
 }
 
-func (s *Engagement) ReplyToReview(ctx context.Context, ownerID, reviewID, reply string) (*domain.Review, error) {
-	reply = strings.TrimSpace(reply)
-	if reply == "" || len([]rune(reply)) > 1000 {
-		return nil, domain.ErrValidation.WithField("reply", "Reply must be 1–1000 characters.")
-	}
+// ownerOfReview loads the review + owning business and verifies the caller
+// owns that business (shared by reply create/edit/delete).
+func (s *Engagement) ownerOfReview(ctx context.Context, ownerID, reviewID string) (*domain.Review, error) {
 	rw, err := s.repos.Engagement.GetReview(ctx, reviewID)
 	if err != nil {
 		return nil, err
@@ -432,6 +430,26 @@ func (s *Engagement) ReplyToReview(ctx context.Context, ownerID, reviewID, reply
 	if b.OwnerID != ownerID {
 		return nil, domain.ErrForbidden
 	}
+	return rw, nil
+}
+
+func validateReply(reply *string) (string, error) {
+	out := strings.TrimSpace(*reply)
+	if out == "" || len([]rune(out)) > 1000 {
+		return "", domain.ErrValidation.WithField("reply", "Reply must be 1–1000 characters.")
+	}
+	return out, nil
+}
+
+func (s *Engagement) ReplyToReview(ctx context.Context, ownerID, reviewID, reply string) (*domain.Review, error) {
+	reply, err := validateReply(&reply)
+	if err != nil {
+		return nil, err
+	}
+	rw, err := s.ownerOfReview(ctx, ownerID, reviewID)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.repos.Engagement.SetReviewReply(ctx, reviewID, ownerID, reply); err != nil {
 		return nil, err
 	}
@@ -441,9 +459,33 @@ func (s *Engagement) ReplyToReview(ctx context.Context, ownerID, reviewID, reply
 	return s.repos.Engagement.GetReview(ctx, reviewID)
 }
 
+// EditReviewReply updates an existing reply and stamps reply_edited_at
+// (PRD §5.6.2: owner replies stay editable).
+func (s *Engagement) EditReviewReply(ctx context.Context, ownerID, reviewID, reply string) (*domain.Review, error) {
+	reply, err := validateReply(&reply)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.ownerOfReview(ctx, ownerID, reviewID); err != nil {
+		return nil, err
+	}
+	if err := s.repos.Engagement.SetReviewReplyEdit(ctx, reviewID, ownerID, reply); err != nil {
+		return nil, err
+	}
+	return s.repos.Engagement.GetReview(ctx, reviewID)
+}
+
+// DeleteReviewReply removes an owner reply.
+func (s *Engagement) DeleteReviewReply(ctx context.Context, ownerID, reviewID string) error {
+	if _, err := s.ownerOfReview(ctx, ownerID, reviewID); err != nil {
+		return err
+	}
+	return s.repos.Engagement.ClearReviewReply(ctx, reviewID, ownerID)
+}
+
 func (s *Engagement) ToggleHelpful(ctx context.Context, userID, reviewID string, vote int) error {
-	if vote != 1 && vote != -1 {
-		return domain.ErrValidation.WithField("vote", "Vote must be 1 or -1.")
+	if vote != 1 && vote != -1 && vote != 0 {
+		return domain.ErrValidation.WithField("vote", "Vote must be -1, 0 or 1.")
 	}
 	rw, err := s.repos.Engagement.GetReview(ctx, reviewID)
 	if err != nil {
@@ -454,6 +496,10 @@ func (s *Engagement) ToggleHelpful(ctx context.Context, userID, reviewID string,
 	}
 	if rw.UserID == userID {
 		return domain.ErrValidation.WithField("_", "You can't vote on your own review (PRD §8.4).")
+	}
+	if vote == 0 {
+		// Toggle-off: remove the vote row entirely.
+		return s.repos.Engagement.RemoveHelpful(ctx, reviewID, userID)
 	}
 	if err := s.repos.Engagement.SetHelpful(ctx, reviewID, userID, vote); err != nil {
 		return err

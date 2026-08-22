@@ -234,6 +234,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("PATCH /api/v1/reviews/{reviewId}", s.handleReviewUpdate)
 	mux.HandleFunc("DELETE /api/v1/reviews/{reviewId}", s.handleReviewDelete)
 	mux.HandleFunc("POST /api/v1/reviews/{reviewId}/reply", s.handleReviewReply)
+	mux.HandleFunc("PATCH /api/v1/reviews/{reviewId}/reply", s.handleReviewReply)
+	mux.HandleFunc("DELETE /api/v1/reviews/{reviewId}/reply", s.handleReviewReply)
 	mux.HandleFunc("PUT /api/v1/reviews/{reviewId}/helpful", s.handleReviewHelpful)
 	mux.HandleFunc("GET /api/v1/notifications", s.handleNotifications)
 	mux.HandleFunc("POST /api/v1/notifications/read", s.handleNotifications)

@@ -409,7 +409,7 @@ func deref(s *string) string {
 	return *s
 }
 
-func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, productID *string, sort string, limit, offset int) ([]*domain.Review, error) {
+func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, productID *string, sort string, limit, offset int, viewerID *string) ([]*domain.Review, error) {
 	order := "r.created_at DESC"
 	switch sort {
 	case "highest":
@@ -420,11 +420,12 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 	rows, err := r.pool.Query(ctx, `
 		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
 			r.status, r.created_at, u.name, u.username, u.avatar_url,
-			(SELECT coalesce(sum(vote),0) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count
+			(SELECT coalesce(sum(vote),0) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count,
+			(SELECT vote FROM review_helpful_votes v WHERE v.review_id = r.id AND v.user_id = NULLIF($5::text,'')::uuid) AS my_vote
 		FROM reviews r JOIN users u ON u.id = r.user_id
 		WHERE r.business_id=$1 AND r.deleted_at IS NULL
 		  AND (NULLIF($2::text,'') IS NULL AND r.product_id IS NULL OR r.product_id::text = $2::text)
-		ORDER BY `+order+` LIMIT $3 OFFSET $4`, businessID, deref(productID), limit, offset)
+		ORDER BY `+order+` LIMIT $3 OFFSET $4`, businessID, deref(productID), limit, offset, deref(viewerID))
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +435,7 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 		var rw domain.Review
 		if err := rows.Scan(&rw.ID, &rw.BusinessID, &rw.ProductID, &rw.UserID, &rw.Rating, &rw.Text,
 			&rw.ImageIDs, &rw.Reply, &rw.ReplyAt, &rw.Status, &rw.CreatedAt, &rw.AuthorName, &rw.AuthorUsername,
-			&rw.AuthorAvatar, &rw.HelpfulCount); err != nil {
+			&rw.AuthorAvatar, &rw.HelpfulCount, &rw.MyVote); err != nil {
 			return nil, err
 		}
 		out = append(out, &rw)
@@ -473,6 +474,25 @@ func (r *EngagementRepo) SetReviewReply(ctx context.Context, id, ownerID, reply 
 	return err
 }
 
+// SetReviewReplyEdit updates an existing owner reply and stamps
+// reply_edited_at (PRD §5.6.2: replies stay editable).
+func (r *EngagementRepo) SetReviewReplyEdit(ctx context.Context, id, ownerID, reply string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE reviews SET reply=$3, reply_edited_at=now(), updated_at=now()
+		WHERE id=$1 AND business_id IN (SELECT id FROM businesses WHERE owner_id=$2)`,
+		id, ownerID, reply)
+	return err
+}
+
+// ClearReviewReply removes an owner reply entirely.
+func (r *EngagementRepo) ClearReviewReply(ctx context.Context, id, ownerID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE reviews SET reply=NULL, reply_at=NULL, reply_edited_at=NULL, updated_at=now()
+		WHERE id=$1 AND business_id IN (SELECT id FROM businesses WHERE owner_id=$2)`,
+		id, ownerID)
+	return err
+}
+
 func (r *EngagementRepo) GetReview(ctx context.Context, id string) (*domain.Review, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
@@ -490,6 +510,13 @@ func (r *EngagementRepo) SetHelpful(ctx context.Context, reviewID, userID string
 		INSERT INTO review_helpful_votes (id, review_id, user_id, vote) VALUES ($1,$2,$3,$4)
 		ON CONFLICT (review_id, user_id) DO UPDATE SET vote = EXCLUDED.vote`,
 		newUUID(), reviewID, userID, vote)
+	return err
+}
+
+// RemoveHelpful clears the viewer's vote entirely (toggle-off).
+func (r *EngagementRepo) RemoveHelpful(ctx context.Context, reviewID, userID string) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM review_helpful_votes WHERE review_id=$1 AND user_id=$2`, reviewID, userID)
 	return err
 }
 

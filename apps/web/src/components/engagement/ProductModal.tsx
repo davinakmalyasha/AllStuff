@@ -291,9 +291,14 @@ export function ProductModal({
                   ))}
                 </span>
                 <button
-                  onClick={() => void helpful.mutateAsync({ id: r.id, vote: 1 })}
-                  className="ml-auto text-xs text-ink3 hover:text-ink"
+                  onClick={() => {
+                    const next = r.my_vote === 1 ? 0 : 1
+                    void helpful.mutateAsync({ id: r.id, vote: next }).then(() => refetch())
+                  }}
+                  disabled={!user || r.user_id === user?.id}
+                  className={`ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-surface2 disabled:opacity-50 ${r.my_vote === 1 ? 'bg-surface2 font-medium text-ink' : 'text-ink3'}`}
                   aria-label="Helpful"
+                  aria-pressed={r.my_vote === 1}
                 >
                   👍 {r.helpful_count}
                 </button>

@@ -434,12 +434,14 @@ export interface ReviewDTO {
   image_ids: string[]
   reply: string | null
   reply_at: string | null
+  reply_edited_at?: string | null
   status: string
   created_at: string
   author_name: string
   author_username: string
   author_avatar: string | null
   helpful_count: number
+  my_vote?: number | null
   business_name?: string
   business_slug?: string
 }

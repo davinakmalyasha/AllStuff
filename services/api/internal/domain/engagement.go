@@ -57,6 +57,7 @@ type Review struct {
 	AuthorUsername string    `json:"author_username"`
 	AuthorAvatar   *string   `json:"author_avatar"`
 	HelpfulCount   int       `json:"helpful_count"`
+	MyVote         *int      `json:"my_vote,omitempty"` // viewer's own vote: 1 | -1 | nil
 	BusinessName   string    `json:"business_name,omitempty"`
 	BusinessSlug   string    `json:"business_slug,omitempty"`
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ImagePlus, Pencil, Star, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
 import { api, uploadMedia, type ReviewDTO } from '@/lib/api'
@@ -23,12 +23,41 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  // Owner reply lifecycle (PRD §5.6.2): replies are editable/deletable.
+  const [replyEdit, setReplyEdit] = useState<{ id: string; text: string } | null>(null)
+  const [replyDeleteId, setReplyDeleteId] = useState<string | null>(null)
 
+  const PAGE_SIZE = 10
   const { data } = useQuery({
     queryKey: ['reviews', businessId, sort],
-    queryFn: () => api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=50`),
+    queryFn: () => api<{ reviews: ReviewDTO[]; count?: number }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=${PAGE_SIZE}`),
   })
-  const reviews = data?.reviews ?? []
+  const [page, setPage] = useState(1)
+  const [extras, setExtras] = useState<ReviewDTO[]>([])
+  const { data: more, isFetching: moreLoading } = useQuery({
+    queryKey: ['reviews-more', businessId, sort, page],
+    queryFn: () => api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`),
+    enabled: page > 1,
+  })
+  useEffect(() => {
+    if (more?.reviews.length) setExtras((prev) => {
+      const seen = new Set(prev.map((r) => r.id))
+      return [...prev, ...more.reviews.filter((r) => !seen.has(r.id))]
+    })
+  }, [more])
+  useEffect(() => {
+    setPage(1)
+    setExtras([])
+  }, [sort])
+  const reviews = [...(data?.reviews ?? []), ...extras]
+  const [hasMore, setHasMore] = useState(true)
+  useEffect(() => {
+    setHasMore((data?.reviews?.length ?? 0) >= PAGE_SIZE)
+    if ((data?.reviews?.length ?? 0) < PAGE_SIZE) setExtras([])
+  }, [data])
+  useEffect(() => {
+    if (more) setHasMore(more.reviews.length >= PAGE_SIZE)
+  }, [more])
   const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : null
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['reviews', businessId] })
@@ -55,6 +84,30 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       refresh()
     },
   })
+
+  // Reply edit/delete (PRD §5.6.2): PATCH stamps reply_edited_at.
+  const replyEditMut = useMutation({
+    mutationFn: ({ id, reply }: { id: string; reply: string }) => api(`/reviews/${id}/reply`, { method: 'PATCH', body: { reply } }),
+    onSuccess: () => {
+      setReplyEdit(null)
+      refresh()
+      toast.success('Reply updated')
+    },
+  })
+  const replyDeleteMut = useMutation({
+    mutationFn: (id: string) => api(`/reviews/${id}/reply`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setReplyDeleteId(null)
+      refresh()
+      toast.success('Reply removed')
+    },
+  })
+
+  /** Helpful toggle (PRD §5.6.1): clicking the active vote clears it. */
+  const voteHelpful = (r: ReviewDTO, vote: number) => {
+    const next = r.my_vote === vote ? 0 : vote
+    void helpfulMut.mutateAsync({ id: r.id, vote: next })
+  }
 
   const mine = reviews.find((r) => r.user_id === user?.id)
 
@@ -181,11 +234,25 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs text-ink3">
-                <button onClick={() => void helpfulMut.mutateAsync({ id: r.id, vote: 1 })} className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-surface2" aria-label="Helpful">
-                  <ThumbsUp className="h-3 w-3" /> {r.helpful_count}
+                <button
+                  onClick={() => user && voteHelpful(r, 1)}
+                  disabled={!user || r.user_id === user?.id}
+                  className={`flex items-center gap-1 rounded px-1.5 py-1 hover:bg-surface2 disabled:opacity-50 ${r.my_vote === 1 ? 'bg-surface2 font-medium text-ink' : ''}`}
+                  aria-label="Helpful"
+                  aria-pressed={r.my_vote === 1}
+                  title={r.my_vote === 1 ? 'Click to remove your vote' : 'Mark helpful'}
+                >
+                  <ThumbsUp className={`h-3 w-3 ${r.my_vote === 1 ? 'fill-current' : ''}`} /> {r.helpful_count}
                 </button>
-                <button onClick={() => void helpfulMut.mutateAsync({ id: r.id, vote: -1 })} className="rounded px-1.5 py-1 hover:bg-surface2" aria-label="Not helpful">
-                  <ThumbsDown className="h-3 w-3" />
+                <button
+                  onClick={() => user && voteHelpful(r, -1)}
+                  disabled={!user || r.user_id === user?.id}
+                  className={`rounded px-1.5 py-1 hover:bg-surface2 disabled:opacity-50 ${r.my_vote === -1 ? 'bg-surface2 font-medium text-ink' : ''}`}
+                  aria-label="Not helpful"
+                  aria-pressed={r.my_vote === -1}
+                  title={r.my_vote === -1 ? 'Click to remove your vote' : 'Mark not helpful'}
+                >
+                  <ThumbsDown className={`h-3 w-3 ${r.my_vote === -1 ? 'fill-current' : ''}`} />
                 </button>
               </div>
             </div>
@@ -206,8 +273,30 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
             <ReportButton targetType="review" targetId={r.id} compact />
             {r.reply && (
               <div className="ml-6 rounded-lg border-l-2 border-ink bg-surface2 px-3 py-2">
-                <p className="text-xs font-medium text-ink">Owner reply</p>
-                <p className="mt-1 text-sm text-ink2">{r.reply}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-ink">
+                    Owner reply{isOwner && r.reply_edited_at ? ' (edited)' : ''}
+                  </p>
+                  {isOwner && (
+                    <div className="flex items-center gap-1.5">
+                      {!replyEdit && (
+                        <>
+                          <button onClick={() => setReplyEdit({ id: r.id, text: r.reply ?? '' })} className="text-xs text-ink3 hover:text-ink"><Pencil className="inline h-3 w-3" /> edit</button>
+                          <button onClick={() => setReplyDeleteId(r.id)} className="text-xs text-ink3 hover:text-ink"><Trash2 className="inline h-3 w-3" /> delete</button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {replyEdit?.id === r.id ? (
+                  <div className="mt-1.5 flex gap-2">
+                    <input value={replyEdit.text} onChange={(e) => setReplyEdit({ id: r.id, text: e.target.value })} className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
+                    <Button size="sm" onClick={() => void replyEditMut.mutateAsync({ id: r.id, reply: replyEdit.text })} disabled={!replyEdit.text.trim() || replyEditMut.isPending}>Save</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setReplyEdit(null)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-sm text-ink2">{r.reply}</p>
+                )}
               </div>
             )}
             {isOwner && !r.reply && replyingTo !== r.id && (
@@ -256,6 +345,25 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
         confirmLabel="Delete"
         danger
       />
+
+      <Confirm
+        open={!!replyDeleteId}
+        onClose={() => setReplyDeleteId(null)}
+        onConfirm={() => replyDeleteId && void replyDeleteMut.mutateAsync(replyDeleteId)}
+        title="Remove owner reply"
+        message="Your public reply to this review will be removed."
+        confirmLabel="Remove"
+        danger
+      />
+
+      {/* Load more (PRD §5.6.2: paginated review list) */}
+      {reviews.length > 0 && hasMore && (
+        <div className="mt-4 text-center">
+          <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={moreLoading}>
+            {moreLoading ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
+      )}
 
       {/* Photo lightbox */}
       <Modal open={!!lightbox} onClose={() => setLightbox(null)} title="">
