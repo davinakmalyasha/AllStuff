@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" id="meta-theme-color" />
+    <title>BizVerse — Every business. One place.</title>
+    <script>
+      // FOUC guard: apply theme before first paint. Default is LIGHT (white).
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('bv.theme')
+          var dark = stored ? stored === 'dark' : false
+          document.documentElement.classList.toggle('dark', dark)
+          var meta = document.getElementById('meta-theme-color')
+          if (meta) meta.setAttribute('content', dark ? '#0a0a0a' : '#ffffff')
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

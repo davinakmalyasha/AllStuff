@@ -1,0 +1,406 @@
+import { lazy, Suspense, useEffect, useState } from 'react'
+import {
+  createBrowserRouter,
+  Link,
+  Navigate,
+  RouterProvider,
+  useLocation,
+} from 'react-router-dom'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import '@/lib/i18n'
+import { ThemeProvider } from '@/theme/ThemeProvider'
+import { ws } from '@/lib/ws'
+import { PublicLayout } from '@/components/layout/PublicLayout'
+import { UserShell } from '@/app/shells/UserShell'
+import { OwnerShell } from '@/app/shells/OwnerShell'
+import { AdminShell } from '@/app/shells/AdminShell'
+import { LandingPage } from '@/features/landing/LandingPage'
+import { DiscoverPage } from '@/features/discover/DiscoverPage'
+import { CategoriesPage, ForBusinessPage } from '@/features/pages/StaticPages'
+import { ClaimPage } from '@/features/pages/ClaimPage'
+import { CityPage } from '@/features/discover/CityPage'
+import { UserProfilePage } from '@/features/me/UserProfilePage'
+import { FollowingFeedPage } from '@/features/me/FollowingFeedPage'
+import { HelpPage, BusinessHelpPage } from '@/features/help/HelpPages'
+import { ContactPage } from '@/features/help/ContactPage'
+import { TermsPage, PrivacyPage } from '@/features/pages/LegalPages'
+import { AdminKPIPage } from '@/features/admin/AdminKPIPage'
+import { AdminAppealsPage } from '@/features/admin/AdminAppealsPage'
+import { AdminAuditPage } from '@/features/admin/AdminAuditPage'
+import { AdminClaimsPage } from '@/features/admin/AdminClaimsPage'
+import { LeaderboardsPage } from '@/features/discover/LeaderboardsPage'
+import { PublicCollectionPage } from '@/features/me/PublicCollectionPage'
+const MapPage = lazy(() => import('@/features/map/MapPage').then((m) => ({ default: m.MapPage })))
+const ComparePage = lazy(() => import('@/features/compare/ComparePage').then((m) => ({ default: m.ComparePage })))
+import { LoginPage } from '@/features/auth/LoginPage'
+import { RegisterPage } from '@/features/auth/RegisterPage'
+import { VerifyEmailPage } from '@/features/auth/VerifyEmailPage'
+import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
+import { MePage } from '@/features/me/MePage'
+import { CollectionsPage } from '@/features/me/CollectionsPage'
+import { NotificationsPage } from '@/features/me/NotificationsPage'
+import { MyReviewsPage, ExportPage } from '@/features/me/ActivityPages'
+import { SecurityPage } from '@/features/me/SecurityPage'
+const InboxPage = lazy(() => import('@/features/chat/InboxPage').then((m) => ({ default: m.InboxPage })))
+const ThreadPage = lazy(() => import('@/features/chat/ThreadPage').then((m) => ({ default: m.ThreadPage })))
+const DashboardChatsPage = lazy(() => import('@/features/chat/DashboardChatsPage').then((m) => ({ default: m.DashboardChatsPage })))
+const BusinessPage = lazy(() => import('@/features/business/BusinessPage').then((m) => ({ default: m.BusinessPage })))
+const CategoryPage = lazy(() => import('@/features/discover/CategoryPage').then((m) => ({ default: m.CategoryPage })))
+const BusinessWizardPage = lazy(() => import('@/features/dashboard/BusinessWizardPage').then((m) => ({ default: m.BusinessWizardPage })))
+import { VerificationSettingsPage } from '@/features/dashboard/VerificationSettingsPage'
+const StorefrontBuilderPage = lazy(() => import('@/features/dashboard/StorefrontBuilderPage').then((m) => ({ default: m.StorefrontBuilderPage })))
+const ProductsPage = lazy(() => import('@/features/dashboard/ProductsPage').then((m) => ({ default: m.ProductsPage })))
+import { SettingsPage } from '@/features/dashboard/SettingsPage'
+import { AnalyticsPage } from '@/features/dashboard/AnalyticsPage'
+import { DashboardReviewsPage, DashboardCommentsPage } from '@/features/dashboard/EngagementPages'
+import { AdminSettingsPage } from '@/features/admin/AdminSettingsPage'
+const AdminCategoriesPage = lazy(() => import('@/features/admin/AdminCategoriesPage').then((m) => ({ default: m.AdminCategoriesPage })))
+const AdminVerifyPage = lazy(() => import('@/features/admin/AdminVerifyPage').then((m) => ({ default: m.AdminVerifyPage })))
+const AdminModerationPage = lazy(() => import('@/features/admin/AdminModerationPage').then((m) => ({ default: m.AdminModerationPage })))
+const AdminUsersPage = lazy(() => import('@/features/admin/AdminUsersPage').then((m) => ({ default: m.AdminUsersPage })))
+const AdminCurationPage = lazy(() => import('@/features/admin/AdminCurationPage').then((m) => ({ default: m.AdminCurationPage })))
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { PageSpinner } from '@/components/ui/Spinner'
+import { CurrencyProvider } from '@/components/CurrencyProvider'
+import { ToastStack } from '@/components/ui/Toast'
+import { api, type BusinessDTO } from '@/lib/api'
+import { useAuth } from '@/stores/auth'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, retry: 1 },
+  },
+})
+
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+  return null
+}
+
+/** Suspense boundary for lazy routes. */
+function Lazy({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageSpinner />}>{children}</Suspense>
+}
+
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { user, initialized } = useAuth()
+  if (initialized && user) return <Navigate to="/me" replace />
+  return <>{children}</>
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, initialized } = useAuth()
+  const location = useLocation()
+  if (!initialized) return null // brief; fetchMe resolves fast
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
+  return <>{children}</>
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  if (!user?.is_admin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+function NotFoundPage() {
+  const { t } = useTranslation()
+  return (
+    <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-2 text-center">
+      <p className="font-mono text-5xl font-semibold tracking-tight">404</p>
+      <p className="text-sm text-ink2">{t('common.error')}</p>
+    </div>
+  )
+}
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: (
+      <>
+        <ScrollToTop />
+        <PublicLayout />
+      </>
+    ),
+    children: [
+      { index: true, element: <LandingPage /> },
+      { path: 'discover', element: <DiscoverPage /> },
+      { path: 'leaderboards', element: <LeaderboardsPage /> },
+      { path: 'categories', element: <CategoriesPage /> },
+      { path: 'map', element: <Lazy><MapPage /></Lazy> },
+      { path: 'compare', element: <Lazy><ComparePage /></Lazy> },
+      { path: 'for-business', element: <ForBusinessPage /> },
+      { path: 'claim', element: <ClaimPage /> },
+      { path: 'b/:slug', element: <Lazy><BusinessPage /></Lazy> },
+      { path: 'c/:slug', element: <Lazy><CategoryPage /></Lazy> },
+      { path: 'city/:slug', element: <CityPage /> },
+      { path: 'collections/:id', element: <PublicCollectionPage /> },
+      { path: 'u/:username', element: <UserProfilePage /> },
+      { path: 'help', element: <HelpPage /> },
+      { path: 'help/business', element: <BusinessHelpPage /> },
+      { path: 'contact', element: <ContactPage /> },
+      { path: 'terms', element: <TermsPage /> },
+      { path: 'privacy', element: <PrivacyPage /> },
+      {
+        path: 'login',
+        element: (
+          <GuestOnly>
+            <LoginPage />
+          </GuestOnly>
+        ),
+      },
+      {
+        path: 'register',
+        element: (
+          <GuestOnly>
+            <RegisterPage />
+          </GuestOnly>
+        ),
+      },
+      { path: 'verify-email', element: <VerifyEmailPage /> },
+      { path: 'forgot-password', element: <ForgotPasswordPage /> },
+      { path: 'reset-password', element: <ResetPasswordPage /> },
+      { path: '*', element: <NotFoundPage /> },
+    ],
+  },
+  {
+    path: '/me',
+    element: (
+      <RequireAuth>
+        <UserShell />
+      </RequireAuth>
+    ),
+    children: [
+      { index: true, element: <MePage /> },
+{ path: 'collections', element: <CollectionsPage /> },
+{ path: 'security', element: <SecurityPage /> },
+{ path: 'notifications', element: <NotificationsPage /> },
+{ path: 'reviews', element: <MyReviewsPage /> },
+{ path: 'export', element: <ExportPage /> },
+{ path: 'following', element: <FollowingFeedPage /> },
+      { path: 'messages', element: <Lazy><InboxPage /></Lazy> },
+      { path: 'messages/:id', element: <Lazy><ThreadPage /></Lazy> },
+    ],
+  },
+  {
+    path: '/dashboard',
+    element: (
+      <RequireAuth>
+        <OwnerShell />
+      </RequireAuth>
+    ),
+    children: [
+      { index: true, element: <DashboardIndex /> },
+      { path: 'register', element: <Lazy><BusinessWizardPage /></Lazy> },
+      { path: 'storefront', element: <Lazy><StorefrontBuilderPage /></Lazy> },
+      { path: 'products', element: <Lazy><ProductsPage /></Lazy> },
+      { path: 'chats', element: <Lazy><DashboardChatsPage /></Lazy> },
+      { path: 'chats/:id', element: <Lazy><ThreadPage businessMode /></Lazy> },
+      { path: 'settings', element: <SettingsPage /> },
+      { path: 'settings/verification', element: <VerificationSettingsPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
+      { path: 'reviews', element: <DashboardReviewsPage /> },
+      { path: 'comments', element: <DashboardCommentsPage /> },
+    ],
+  },
+  {
+    path: '/admin',
+    element: (
+      <RequireAuth>
+        <RequireAdmin>
+          <AdminShell />
+        </RequireAdmin>
+      </RequireAuth>
+    ),
+    children: [
+      { index: true, element: <AdminKPIPage /> },
+      { path: 'analytics', element: <AdminKPIPage /> },
+      { path: 'categories', element: <Lazy><AdminCategoriesPage /></Lazy> },
+      { path: 'verify', element: <Lazy><AdminVerifyPage /></Lazy> },
+      { path: 'moderation', element: <Lazy><AdminModerationPage /></Lazy> },
+      { path: 'users', element: <Lazy><AdminUsersPage /></Lazy> },
+      { path: 'curation', element: <Lazy><AdminCurationPage /></Lazy> },
+      { path: 'appeals', element: <AdminAppealsPage /> },
+      { path: 'audit', element: <AdminAuditPage /> },
+      { path: 'claims', element: <AdminClaimsPage /> },
+      { path: 'settings', element: <AdminSettingsPage /> },
+    ],
+  },
+])
+
+function DashboardIndex() {
+  const { user } = useAuth()
+  const { data } = useQuery({
+    queryKey: ['my-businesses'],
+    queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
+    enabled: !!user,
+  })
+  const businesses = data?.businesses ?? []
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <p className="mono-label mb-1">Overview</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        </div>
+        <Link to="/dashboard/register">
+          <Button size="sm"><Plus className="h-4 w-4" /> New business</Button>
+        </Link>
+      </div>
+      {businesses.length === 0 ? (
+        <Card className="py-12 text-center">
+          <p className="text-sm text-ink2">No businesses yet. Register your first storefront â€” it takes about 10 minutes and it's free forever.</p>
+          <Link to="/dashboard/register" className="mt-4 inline-block">
+            <Button>Start registration</Button>
+          </Link>
+        </Card>
+      ) : (
+        <div className="grid gap-3">
+          {businesses.map((b) => (
+            <Link key={b.id} to="/dashboard/settings/verification" className="card flex items-center gap-3 p-4 transition-shadow hover:shadow-cardHover">
+              {b.logo_url ? (
+                <img src={b.logo_url} alt="" className="h-11 w-11 rounded-lg object-cover" />
+              ) : (
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-surface2 text-base font-semibold">{b.name.charAt(0)}</div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">{b.name}</p>
+                <p className="text-xs text-ink3">/{b.slug}</p>
+              </div>
+              <Badge tone={STATUS_TONE[b.status] ?? 'neutral'} dot>{STATUS_LABEL[b.status] ?? b.status}</Badge>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft', pending_review: 'Pending review', verified: 'Verified',
+  rejected: 'Rejected', suspended: 'Suspended', paused: 'Paused', closed: 'Closed',
+}
+const STATUS_TONE: Record<string, 'neutral' | 'attention' | 'positive' | 'danger'> = {
+  draft: 'neutral', pending_review: 'attention', verified: 'positive', rejected: 'danger',
+  suspended: 'danger', paused: 'neutral', closed: 'neutral',
+}
+
+function Bootstrap() {
+  const { fetchMe } = useAuth()
+  useEffect(() => {
+    void fetchMe()
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+    }
+    const orig = window.onerror
+    window.onerror = (msg, src, line, col, err) => {
+      try {
+        void fetch('/api/v1/errors', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: String(msg), stack: err?.stack ?? `${src}:${line}:${col}`, url: window.location.href }),
+        })
+      } catch {
+        /* noop */
+      }
+      return orig?.(msg, src, line, col, err) ?? false
+    }
+  }, [fetchMe])
+  return (
+    <>
+      <CurrencyProvider />
+      <ToastStack />
+      <TabTitle />
+      <KeyboardShortcuts />
+      <BackToTop />
+      <LiveEvents />
+      <RouterProvider router={router} />
+    </>
+  )
+}
+
+/** Keeps one WS connection open for authed users: chat + notification.new. */
+function LiveEvents() {
+  const { user } = useAuth()
+  useEffect(() => {
+    if (!user) return
+    ws.connect()
+  }, [user])
+  return null
+}
+
+function TabTitle() {
+  const { user } = useAuth()
+  const { data: notif } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api<{ unread: number }>('/notifications?limit=1'),
+    enabled: !!user,
+    refetchInterval: 60_000,
+  })
+  const { data: threads } = useQuery({
+    queryKey: ['threads', 'all'],
+    queryFn: () => api<{ threads: Array<{ unread: number }> }>('/threads'),
+    enabled: !!user,
+    refetchInterval: 60_000,
+  })
+  useEffect(() => {
+    const unread = (notif?.unread ?? 0) + (threads?.threads ?? []).reduce((a, t) => a + t.unread, 0)
+    if (unread > 0) {
+      const base = document.title.replace(/^\(\d+\) /, '')
+      document.title = `(${unread}) ${base}`
+    }
+  }, [notif, threads])
+  return null
+}
+
+function KeyboardShortcuts() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement
+      if (e.key === '/' && el?.tagName !== 'INPUT' && el?.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        document.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="Search" i]')?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  return null
+}
+
+function BackToTop() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setShow(window.scrollY > 600)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  if (!show) return null
+  return (
+    <button
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      className="fixed bottom-16 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-ink shadow-cardHover hover:bg-surface2"
+      aria-label="Back to top"
+    >
+      ↑
+    </button>
+  )
+}
+
+export function App() {
+  return (
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <Bootstrap />
+      </QueryClientProvider>
+    </ThemeProvider>
+  )
+}

@@ -1,0 +1,266 @@
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ImagePlus, Pencil, Star, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
+import { api, uploadMedia, type ReviewDTO } from '@/lib/api'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { Confirm, Modal } from '@/components/ui/Modal'
+import { ReportButton } from '@/components/engagement/ReportShare'
+import { toast } from '@/components/ui/Toast'
+import { useAuth } from '@/stores/auth'
+
+/** Reviews with helpful votes and owner replies (PRD §5.6.2). */
+export function ReviewsSection({ businessId, isOwner }: { businessId: string; isOwner: boolean }) {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const [sort, setSort] = useState<'newest' | 'highest' | 'helpful'>('newest')
+  const [writing, setWriting] = useState(false)
+  const [rating, setRating] = useState(5)
+  const [text, setText] = useState('')
+  const [photoIds, setPhotoIds] = useState<string[]>([])
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+
+  const { data } = useQuery({
+    queryKey: ['reviews', businessId, sort],
+    queryFn: () => api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=50`),
+  })
+  const reviews = data?.reviews ?? []
+  const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : null
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['reviews', businessId] })
+
+  const createMut = useMutation({
+    mutationFn: () => api(`/businesses/${businessId}/reviews`, { method: 'POST', body: { rating, text, image_ids: photoIds } }),
+    onSuccess: () => {
+      setWriting(false)
+      setText('')
+      setPhotoIds([])
+      refresh()
+    },
+  })
+
+  const helpfulMut = useMutation({
+    mutationFn: ({ id, vote }: { id: string; vote: number }) => api(`/reviews/${id}/helpful`, { method: 'PUT', body: { vote } }),
+  })
+
+  const replyMut = useMutation({
+    mutationFn: ({ id, reply }: { id: string; reply: string }) => api(`/reviews/${id}/reply`, { method: 'POST', body: { reply } }),
+    onSuccess: () => {
+      setReplyingTo(null)
+      setReplyText('')
+      refresh()
+    },
+  })
+
+  const mine = reviews.find((r) => r.user_id === user?.id)
+
+  // Rating distribution bars (Batch 2).
+  const dist = [5, 4, 3, 2, 1].map((n) => ({
+    star: n,
+    count: reviews.filter((r) => r.rating === n).length,
+  }))
+  const maxDist = Math.max(1, ...dist.map((d) => d.count))
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, rating, text }: { id: string; rating: number; text: string }) =>
+      api(`/reviews/${id}`, { method: 'PATCH', body: { rating, text, image_ids: [] } }),
+    onSuccess: () => {
+      setEditingId(null)
+      refresh()
+      toast.success('Review updated')
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api(`/reviews/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setDeleteId(null)
+      refresh()
+      toast.success('Review deleted')
+    },
+  })
+
+  return (
+    <section>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="mono-label mb-1">Reviews</h2>
+          {avg !== null && (
+            <p className="text-sm text-ink2">
+              <span className="font-mono text-lg font-semibold text-ink">{avg.toFixed(1)}</span> · {reviews.length} review{reviews.length === 1 ? '' : 's'}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink">
+            <option value="newest">Newest</option>
+            <option value="highest">Highest</option>
+            <option value="helpful">Most helpful</option>
+          </select>
+          {user && !mine && (
+            <Button size="sm" onClick={() => setWriting(true)}>Write review</Button>
+          )}
+        </div>
+      </div>
+
+      {/* Rating distribution bars (Batch 2) */}
+      {reviews.length > 0 && (
+        <Card className="mb-4 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1 p-4">
+          <div className="col-span-2 mb-1 flex items-baseline gap-2">
+            <span className="font-mono text-3xl font-semibold">{avg?.toFixed(1)}</span>
+            <span className="text-sm text-ink3">{reviews.length} reviews</span>
+          </div>
+          {dist.map((d) => (
+            <div key={d.star} className="flex items-center gap-2">
+              <span className="flex w-8 items-center gap-0.5 text-xs text-ink2">
+                {d.star} <Star className="h-3 w-3 fill-current" />
+              </span>
+              <div className="h-2 w-40 overflow-hidden rounded-full bg-surface2">
+                <div className="h-full rounded-full bg-ink/70" style={{ width: `${(d.count / maxDist) * 100}%` }} />
+              </div>
+              <span className="w-6 text-right text-xs text-ink3">{d.count}</span>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {writing && (
+        <Card className="mb-4 space-y-3">
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="text-ink">
+                <Star className={`h-5 w-5 ${n <= rating ? 'fill-current' : 'text-ink3'}`} />
+              </button>
+            ))}
+          </div>
+          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="What was it like? (10–2000 characters)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
+          <div className="flex flex-wrap items-center gap-2">
+            {photoIds.map((id) => (
+              <div key={id} className="relative">
+                <img src={`/api/v1/media/${id}/file`} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                <button onClick={() => setPhotoIds((prev) => prev.filter((x) => x !== id))} className="absolute -right-1.5 -top-1.5 rounded-full bg-accent p-0.5 text-accent-ink" aria-label="Remove photo">✕</button>
+              </div>
+            ))}
+            {photoIds.length < 6 && (
+              <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-ink3 hover:bg-surface2" title="Add photo">
+                <ImagePlus className="h-4 w-4" />
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  const r = await uploadMedia('gallery', f)
+                  setPhotoIds((prev) => [...prev, r.media.id])
+                }} />
+              </label>
+            )}
+          </div>
+          {createMut.error && <p className="text-sm text-red-600 dark:text-red-400">{(createMut.error as Error).message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setWriting(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => void createMut.mutateAsync()} disabled={text.trim().length < 10 || createMut.isPending}>Post review</Button>
+          </div>
+        </Card>
+      )}
+
+      <div className="space-y-3">
+        {reviews.length === 0 && <Card className="py-8 text-center text-sm text-ink3">No reviews yet — be the first.</Card>}
+        {reviews.map((r) => (
+          <Card key={r.id} className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface2 text-sm font-semibold">{r.author_name.charAt(0)}</div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink">{r.author_name} <span className="text-xs font-normal text-ink3">@{r.author_username}</span></p>
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star key={n} className={`h-3 w-3 ${n <= r.rating ? 'fill-current text-ink' : 'text-ink3'}`} />
+                  ))}
+                  <span className="ml-1 text-[10px] text-ink3">{new Date(r.created_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-xs text-ink3">
+                <button onClick={() => void helpfulMut.mutateAsync({ id: r.id, vote: 1 })} className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-surface2" aria-label="Helpful">
+                  <ThumbsUp className="h-3 w-3" /> {r.helpful_count}
+                </button>
+                <button onClick={() => void helpfulMut.mutateAsync({ id: r.id, vote: -1 })} className="rounded px-1.5 py-1 hover:bg-surface2" aria-label="Not helpful">
+                  <ThumbsDown className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed text-ink2">{r.text}</p>
+            {(r.image_ids?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {r.image_ids!.map((id) => (
+                  <img key={id} src={`/api/v1/media/${id}/file`} alt="" className="h-20 w-20 cursor-pointer rounded-lg object-cover" loading="lazy" onClick={() => setLightbox(id)} />
+                ))}
+              </div>
+            )}
+            {r.user_id === user?.id && (
+              <div className="flex gap-2">
+                <button onClick={() => setEditingId(r.id)} className="text-xs text-ink3 hover:text-ink"><Pencil className="inline h-3 w-3" /> edit</button>
+                <button onClick={() => setDeleteId(r.id)} className="text-xs text-ink3 hover:text-ink"><Trash2 className="inline h-3 w-3" /> delete</button>
+              </div>
+            )}
+            <ReportButton targetType="review" targetId={r.id} compact />
+            {r.reply && (
+              <div className="ml-6 rounded-lg border-l-2 border-ink bg-surface2 px-3 py-2">
+                <p className="text-xs font-medium text-ink">Owner reply</p>
+                <p className="mt-1 text-sm text-ink2">{r.reply}</p>
+              </div>
+            )}
+            {isOwner && !r.reply && replyingTo !== r.id && (
+              <Button variant="ghost" size="sm" onClick={() => setReplyingTo(r.id)}>Reply</Button>
+            )}
+            {replyingTo === r.id && (
+              <div className="flex gap-2">
+                <input value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Your reply…" className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
+                <Button size="sm" onClick={() => void replyMut.mutateAsync({ id: r.id, reply: replyText })} disabled={!replyText.trim() || replyMut.isPending}>Send</Button>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+
+      {/* Edit modal */}
+      <Modal open={!!editingId} onClose={() => setEditingId(null)} title="Edit review">
+        {(() => {
+          const r = reviews.find((x) => x.id === editingId)
+          if (!r) return null
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="text-ink">
+                    <Star className={`h-5 w-5 ${n <= (rating || r.rating) ? 'fill-current' : 'text-ink3'}`} />
+                  </button>
+                ))}
+              </div>
+              <textarea rows={4} value={text || r.text} onChange={(e) => setText(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink" />
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: r.id, rating: rating || r.rating, text: text || r.text })} disabled={updateMut.isPending}>Save</Button>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
+
+      <Confirm
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={() => deleteId && void deleteMut.mutateAsync(deleteId)}
+        title="Delete review"
+        message="This removes your review permanently."
+        confirmLabel="Delete"
+        danger
+      />
+
+      {/* Photo lightbox */}
+      <Modal open={!!lightbox} onClose={() => setLightbox(null)} title="">
+        {lightbox && <img src={`/api/v1/media/${lightbox}/file`} alt="" className="w-full rounded-lg" />}
+      </Modal>
+    </section>
+  )
+}

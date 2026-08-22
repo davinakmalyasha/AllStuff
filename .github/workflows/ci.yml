@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Go API
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bizverse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go vet ./...
+      - run: go build ./...
+      - name: Run migrations
+        run: go run ./cmd/api -migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
+      - run: go test ./...
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+
+  frontend:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm run build
+      - run: npx tsc --noEmit
+
+  e2e:
+    name: E2E smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bizverse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Seed + migrate
+        run: |
+          cd ../../services/api
+          go run ./cmd/api -migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
+      - run: npx playwright test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+      # Batch 4: prerender public routes for SEO on every run.
+      - name: Prerender
+        run: |
+          npm run build
+          (cd ../../services/api && go run ./cmd/api > /dev/null 2>&1 &)
+          (npx vite preview --port 5173 > /dev/null 2>&1 &)
+          sleep 8
+          node scripts/prerender.mjs || true
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          MIGRATIONS_DIR: ../../infra/postgres/migrations

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Builds
+dist/
+build/
+bin/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+
+# Go
+*.exe
+*.test
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.suo
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Playwright test output
+test-results/
+playwright-report/
+
+# Runtime data (uploads, verification documents - never commit PII)
+data/
+services/api/data/

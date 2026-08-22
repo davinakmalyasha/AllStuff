@@ -1,0 +1,321 @@
+package httpapi
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"bizverse/api/internal/domain"
+	"bizverse/api/internal/repo"
+	"bizverse/api/internal/service"
+)
+
+// ---- public directory ----
+
+func (s *Server) handleCategoriesTree(w http.ResponseWriter, r *http.Request) {
+	tree, err := s.deps.Categories.Tree(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"categories": tree})
+}
+
+func (s *Server) handleCategoryPage(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	cat, path, err := s.deps.Categories.GetBySlug(r.Context(), slug)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	// Category leaderboard (PRD §5.6.3): score-ranked + guaranteed Rising slots.
+	top, updatedAt, err := s.deps.Trending.CategoryLeaderboard(r.Context(), cat.ID, 5)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{
+		"category":    cat,
+		"breadcrumbs": path,
+		"leaderboard": top,
+		"updated_at":  updatedAt,
+	})
+}
+
+func (s *Server) handleBusinessPage(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	b, err := s.deps.Businesses.GetPublic(r.Context(), slug)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	// Preview as guest: the owner can see their draft theme/layout (PRD §5.4.2).
+	isOwner := false
+	if user, found := currentUser(r); found {
+		isOwner = b.OwnerID == user.ID
+	}
+	if r.URL.Query().Get("draft") == "1" && isOwner {
+		// Overlay the draft onto the payload as `preview` — the public page
+		// still renders from the published snapshot unless told otherwise.
+		draft := map[string]any{}
+		_ = s.deps.Repos.QueryRow(r.Context(), `
+			SELECT jsonb_build_object('theme', theme, 'layout', layout) FROM businesses WHERE id = $1`,
+			b.ID).Scan(&draft)
+		ok(w, map[string]any{"business": b, "preview": draft, "similar": []*domain.Business{}, "products": []*domain.Product{}, "is_owner": true})
+		return
+	}
+	// Similar businesses: same category, exclude self (PRD §5.3.6).
+	similar, _, err := s.deps.Search.Businesses(r.Context(), service.SearchParams{
+		CategoryIDs: []string{b.CategoryID},
+		Sort:        "rating",
+		Limit:       6,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	filtered := similar[:0]
+	for _, sb := range similar {
+		if sb.ID != b.ID {
+			filtered = append(filtered, sb)
+		}
+	}
+	// Published products (PRD §5.3.3).
+	products, err := s.deps.Products.ListPublished(r.Context(), b.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	// View event (deduped per user/day, PRD §5.6.3).
+	if user, found := currentUser(r); found {
+		isOwner = b.OwnerID == user.ID
+		if !isOwner {
+			key := user.ID + ":business:" + b.ID + ":view:" + time.Now().Format("2006-01-02")
+			_, _ = s.deps.Repos.Engagement.InsertEvent(r.Context(), user.ID, "business", b.ID, "view", 1, key)
+		}
+	}
+	ok(w, map[string]any{"business": b, "similar": filtered, "products": products, "is_owner": isOwner})
+}
+
+// ---- search & suggest ----
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p := service.SearchParams{
+		Q:                 q.Get("q"),
+		City:              q.Get("city"),
+		Sort:              q.Get("sort"),
+		MinRating:         parseFloatDefault(q.Get("min_rating"), 0),
+		OpenNow:           q.Get("open_now") == "true",
+		VerifiedOnly:      q.Get("verified_only") == "true",
+		FullyVerifiedOnly: q.Get("fully_verified_only") == "true",
+		HasChat:           q.Get("has_chat") == "true",
+		Limit:             parsePositiveInt(q.Get("limit"), 24),
+		Offset:            parsePositiveInt(q.Get("offset"), 0),
+	}
+	if cats := q["category"]; len(cats) > 0 {
+		p.CategoryIDs = cats
+	}
+	if lat, ok := parseFloatPtr(q.Get("lat")); ok {
+		p.Lat = lat
+	}
+	if lng, ok := parseFloatPtr(q.Get("lng")); ok {
+		p.Lng = lng
+	}
+	// Viewport bounding box: bbox=minLng,minLat,maxLng,maxLat (PRD §5.2).
+	if bbox := q.Get("bbox"); bbox != "" {
+		parts := strings.Split(bbox, ",")
+		if len(parts) == 4 {
+			vals := make([]*float64, 4)
+			ok := true
+			for i, part := range parts {
+				v, err := strconv.ParseFloat(part, 64)
+				if err != nil {
+					ok = false
+					break
+				}
+				vals[i] = &v
+			}
+			if ok {
+				p.MinLng, p.MinLat, p.MaxLng, p.MaxLat = vals[0], vals[1], vals[2], vals[3]
+			}
+		}
+	}
+	p.RadiusKM = parseFloatDefault(q.Get("radius_km"), 10)
+	if p.RadiusKM <= 0 || p.RadiusKM > 200 {
+		p.RadiusKM = 10
+	}
+	if p.Lat == nil || p.Lng == nil {
+		p.RadiusKM = 0
+	}
+	for _, pl := range q["price_level"] {
+		if n, err := strconv.Atoi(pl); err == nil && n >= 1 && n <= 4 {
+			p.PriceLevels = append(p.PriceLevels, n)
+		}
+	}
+	results, total, err := s.deps.Search.Businesses(r.Context(), p)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"businesses": results, "count": total})
+}
+
+func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		ok(w, map[string]any{"businesses": []any{}, "categories": []any{}})
+		return
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 6)
+	out, err := s.deps.Search.Suggestions(r.Context(), q, limit)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, out)
+}
+
+// ---- sitemap (PRD §9.4) ----
+
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	ids := strings.Split(r.URL.Query().Get("b"), ",")
+	if len(ids) < 2 || len(ids) > 4 {
+		fail(w, domain.ErrValidation.WithField("b", "Compare 2–4 business ids (?b=id,id,id)."))
+		return
+	}
+	var businesses []*domain.Business
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		b, err := s.deps.Repos.Businesses.GetByID(r.Context(), id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if b == nil || (b.Status != domain.BusinessVerified && b.Status != domain.BusinessPaused) {
+			fail(w, domain.ErrNotFound)
+			return
+		}
+		businesses = append(businesses, b)
+	}
+	if len(businesses) < 2 {
+		fail(w, domain.ErrValidation.WithField("b", "At least 2 valid businesses are required."))
+		return
+	}
+	ok(w, map[string]any{"businesses": businesses})
+}
+
+func (s *Server) handleFeatured(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.deps.Repos.Query(r.Context(), `
+		SELECT `+repo.BusinessCols+repo.BusinessCounts+`
+		FROM businesses b
+		LEFT JOIN categories cat ON cat.id = b.category_id
+		WHERE b.is_featured = true AND b.status = 'verified' AND b.deleted_at IS NULL
+		ORDER BY b.featured_order, b.name LIMIT 8`)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer rows.Close()
+	var out []*domain.Business
+	for rows.Next() {
+		var b domain.Business
+		if err := rows.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
+			&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
+			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.Contact, &b.Tags, &b.FoundedYear,
+			&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.CreatedAt, &b.UpdatedAt,
+			&b.RatingAvg, &b.ReviewCount, &b.LikeCount, &b.RecommendCount, &b.SaveCount,
+			&b.CategoryName, &b.CategorySlug); err != nil {
+			fail(w, err)
+			return
+		}
+		out = append(out, &b)
+	}
+	ok(w, map[string]any{"businesses": out})
+}
+
+func (s *Server) handleRates(w http.ResponseWriter, r *http.Request) {
+	rates, updated, err := s.deps.Currency.Rates(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"base": "USD", "rates": rates, "updated_at": updated})
+}
+
+func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	base := s.deps.Config.PublicURL
+	var sb strings.Builder
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	sb.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+	sb.WriteString(`  <url><loc>` + base + `/</loc></url>` + "\n")
+
+	tree, err := s.deps.Categories.Tree(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var walk func(cats []*domain.Category)
+	walk = func(cats []*domain.Category) {
+		for _, c := range cats {
+			sb.WriteString(`  <url><loc>` + base + `/c/` + c.Slug + `</loc></url>` + "\n")
+			walk(c.Children)
+		}
+	}
+	walk(tree)
+
+	// City landing pages (SEO).
+	cities, err := s.deps.Cities.All(r.Context())
+	if err == nil {
+		for _, c := range cities {
+			if slug, ok := c["slug"].(string); ok {
+				sb.WriteString(`  <url><loc>` + base + `/city/` + slug + `</loc></url>` + "\n")
+			}
+		}
+	}
+
+	// All public business pages.
+	biz, err := s.deps.Repos.Businesses.ByStatus(r.Context(), []string{"verified"}, 100000, 0)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	for _, b := range biz {
+		sb.WriteString(`  <url><loc>` + base + `/b/` + b.Slug + `</loc></url>` + "\n")
+	}
+	sb.WriteString(`</urlset>`)
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(sb.String()))
+}
+
+// ---- helpers ----
+
+func parseFloatDefault(s string, def float64) float64 {
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return v
+	}
+	return def
+}
+
+func parseFloatPtr(s string) (*float64, bool) {
+	if s == "" {
+		return nil, false
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil, false
+	}
+	return &v, true
+}
+
+func parsePositiveInt(s string, def int) int {
+	if v, err := strconv.Atoi(s); err == nil && v > 0 {
+		return v
+	}
+	return def
+}

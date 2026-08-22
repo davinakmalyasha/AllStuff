@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   BizVerse monochrome theme (PRD: monochrome, white default background,
+   dark/light mode). Tokens flip via .dark on <html>.
+------------------------------------------------------------------- */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #fafafa;
+  --color-surface-2: #f4f4f5;
+  --color-border: #e4e4e7;
+  --color-ink: #18181b;
+  --color-ink-2: #52525b;
+  --color-ink-3: #a1a1aa;
+  --color-accent: #09090b;
+  --color-accent-ink: #fafafa;
+}
+
+.dark {
+  --color-bg: #0a0a0a;
+  --color-surface: #111113;
+  --color-surface-2: #1a1a1d;
+  --color-border: #27272a;
+  --color-ink: #f4f4f5;
+  --color-ink-2: #a1a1aa;
+  --color-ink-3: #63636b;
+  --color-accent: #fafafa;
+  --color-accent-ink: #0a0a0a;
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-bg text-ink font-sans;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-ink);
+    color: var(--color-bg);
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-ink-3);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+  .card {
+    @apply rounded-xl border border-border bg-surface;
+  }
+  .mono-label {
+    @apply font-mono text-[11px] uppercase tracking-[0.18em] text-ink3;
+  }
+}

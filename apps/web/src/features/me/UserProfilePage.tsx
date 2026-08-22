@@ -1,0 +1,121 @@
+import { useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { Star } from 'lucide-react'
+import { api } from '@/lib/api'
+import { Badge } from '@/components/ui/Badge'
+import { Card } from '@/components/ui/Card'
+import { PageSpinner } from '@/components/ui/Spinner'
+import { usePageMeta } from '@/lib/meta'
+
+interface PublicProfileDTO {
+  id: string
+  name: string
+  username: string
+  avatar_url: string | null
+  bio: string | null
+  joined_at: string
+  reviews: Array<{ id: string; rating: number; text: string; created_at: string; business_name: string; business_slug: string }>
+  comments: Array<{ id: string; text: string; created_at: string; business_name: string; business_slug: string }>
+  collections: Array<{ id: string; name: string; slug: string; created_at: string }>
+  businesses: Array<{ id: string; name: string; slug: string; logo_url: string | null; city: string; category_id: string }>
+}
+
+/** Public user profile (PRD §6.1 /u/:username). */
+export function UserProfilePage() {
+  const { username = '' } = useParams()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['profile', username],
+    queryFn: () => api<PublicProfileDTO>(`/u/${username}`),
+  })
+
+  usePageMeta(data ? `${data.name} (@${data.username})` : 'Profile')
+
+  if (isLoading) return <PageSpinner />
+  if (!data) {
+    return (
+      <div className="container-page flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="font-mono text-5xl font-semibold tracking-tight">404</p>
+        <p className="text-sm text-ink2">User not found.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="container-page max-w-3xl py-10">
+      <div className="mb-8 flex items-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-2xl font-semibold text-accent-ink">
+          {data.avatar_url ? <img src={data.avatar_url} alt="" className="h-16 w-16 rounded-full object-cover" /> : data.name.charAt(0).toUpperCase()}
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">{data.name}</h1>
+          <p className="text-sm text-ink3">@{data.username} · joined {new Date(data.joined_at).toLocaleDateString()}</p>
+          {data.bio && <p className="mt-1 text-sm text-ink2">{data.bio}</p>}
+        </div>
+      </div>
+
+      {data.businesses.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mono-label mb-3">Businesses</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {data.businesses.map((b) => (
+              <a key={b.id} href={`/b/${b.slug}`} className="card flex items-center gap-3 p-3 transition-shadow hover:shadow-cardHover">
+                {b.logo_url ? <img src={b.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface2 text-base font-semibold">{b.name.charAt(0)}</span>}
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-ink">{b.name}</span>
+                  <span className="text-xs text-ink3">{b.city}</span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.reviews.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mono-label mb-3">Reviews</h2>
+          <div className="space-y-3">
+            {data.reviews.map((r) => (
+              <Card key={r.id} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} className={`h-3 w-3 ${n <= r.rating ? 'fill-current text-ink' : 'text-ink3'}`} />
+                    ))}
+                  </span>
+                  <a href={`/b/${r.business_slug}`} className="text-xs text-ink3 hover:text-ink">{r.business_name}</a>
+                </div>
+                <p className="text-sm text-ink2">{r.text}</p>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.comments.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mono-label mb-3">Comments</h2>
+          <div className="space-y-3">
+            {data.comments.map((c) => (
+              <Card key={c.id}>
+                <p className="text-sm text-ink2">{c.text}</p>
+                <a href={`/b/${c.business_slug}`} className="mt-1 block text-xs text-ink3 hover:text-ink">{c.business_name}</a>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.collections.length > 0 && (
+        <section>
+          <h2 className="mono-label mb-3">Collections</h2>
+          <div className="flex flex-wrap gap-2">
+            {data.collections.map((c) => (
+              <Badge key={c.id}>{c.name}</Badge>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
