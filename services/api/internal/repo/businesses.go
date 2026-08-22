@@ -17,7 +17,7 @@ type BusinessRepo struct{ pool pooler }
 const BusinessCols = `b.id, b.owner_id, b.name, b.slug, b.tagline, b.description, COALESCE(b.category_id::text, '') AS category_id,
 	b.status, b.rejection_reason, b.logo_url, b.cover_url, b.gallery, b.price_level, b.currency,
 	b.address, b.lat, b.lng, b.city, b.country, b.timezone, b.hours, b.special_hours, b.contact, b.amenities, b.tags, b.founded_year,
-	b.is_featured, b.last_published_at, b.published_snapshot, b.verification_level, b.verified_at, b.created_at, b.updated_at`
+	b.is_featured, b.last_published_at, b.published_snapshot, b.verification_level, b.verified_at, b.slug_changed_at, b.created_at, b.updated_at`
 
 const BusinessCounts = `,
 	(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id = b.id AND r.deleted_at IS NULL) AS rating_avg,
@@ -32,7 +32,7 @@ func scanBusiness(row pgx.Row) (*domain.Business, error) {
 	if err := row.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
 		&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
 		&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
-		&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.SlugChangedAt, &b.CreatedAt, &b.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -57,7 +57,7 @@ var allowedBusinessFields = map[string]bool{
 	"logo_url": true, "cover_url": true, "gallery": true, "price_level": true,
 	"currency": true, "address": true, "lat": true, "lng": true, "city": true,
 	"country": true, "timezone": true, "hours": true, "special_hours": true, "amenities": true, "contact": true, "tags": true, "founded_year": true,
-	"slug": true, "theme": true, "layout": true, "published_snapshot": true,
+	"slug": true, "slug_changed_at": true, "theme": true, "layout": true, "published_snapshot": true,
 	"last_published_at": true,
 }
 
@@ -136,7 +136,7 @@ func scanBusinessWithCounts(row pgx.Row) (*domain.Business, error) {
 	if err := row.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
 		&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
 		&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
-		&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.CreatedAt, &b.UpdatedAt,
+		&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.SlugChangedAt, &b.CreatedAt, &b.UpdatedAt,
 		&b.RatingAvg, &b.ReviewCount, &b.LikeCount, &b.RecommendCount, &b.SaveCount,
 		&b.CategoryName, &b.CategorySlug); err != nil {
 		return nil, err

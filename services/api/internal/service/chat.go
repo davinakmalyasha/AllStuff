@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -25,11 +26,29 @@ type Chat struct {
 	repos    *repo.Repos
 	limiter  *ratelimit.RateLimiter
 	notifier *Notifier
+
+	// §8.5 anti-abuse state (per instance; resets are acceptable).
+	burstMu   sync.Mutex
+	bursts    map[string][]burstEntry // userID → recent sends
+	strikeMu  sync.Mutex
+	strikes   map[string][]time.Time // userID → recent blocked-word rejections
+	cooldowns map[string]time.Time   // userID → send lockout until
+}
+
+type burstEntry struct {
+	threadID string
+	body     string
+	at       time.Time
 }
 
 func NewChat(repos *repo.Repos, notifier *Notifier) *Chat {
 	l := ratelimit.NewInMemory()
-	return &Chat{repos: repos, limiter: &l, notifier: notifier}
+	return &Chat{
+		repos: repos, limiter: &l, notifier: notifier,
+		bursts:    map[string][]burstEntry{},
+		strikes:   map[string][]time.Time{},
+		cooldowns: map[string]time.Time{},
+	}
 }
 
 // ---- thread access ----
@@ -134,6 +153,14 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		}
 	}
 
+	// §8.5 anti-abuse: blocked-word cooldown and identical-message bursts.
+	if err := c.abuseGate(userID); err != nil {
+		return nil, err
+	}
+	if err := c.noteBurst(userID, threadID, derefString(in.Body)); err != nil {
+		return nil, err
+	}
+
 	// Dedupe by client_msg_id (at-least-once, PRD §5.5.3).
 	if in.ClientMsgID != "" {
 		existing, err := c.repos.Chat.MessageByClientID(ctx, threadID, in.ClientMsgID)
@@ -145,8 +172,8 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		}
 	}
 
-	// Blocks both ways (PRD §5.5.4).
-	if t.Type == "direct" {
+	// Blocks both ways, enforced in ANY thread type (PRD §5.5.4).
+	{
 		participants, err := c.repos.Chat.ParticipantIDs(ctx, threadID)
 		if err != nil {
 			return nil, err
@@ -174,7 +201,7 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		if body == "" || len([]rune(body)) > 4000 {
 			return nil, domain.ErrValidation.WithField("body", "Message must be 1–4000 characters.")
 		}
-		if err := c.checkBanned(ctx, body); err != nil {
+		if err := c.checkBannedStriked(ctx, userID, body); err != nil {
 			return nil, err
 		}
 	}
@@ -191,6 +218,18 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		if u != nil && u.IsAdmin() {
 			role = "admin"
 		}
+	}
+
+	// Closed business threads: the owner can't send, a customer's reply
+	// reopens the conversation (PRD §5.5.2).
+	if t.Status == "closed" && t.Type == "business" {
+		if role == "owner" {
+			return nil, domain.ErrValidation.WithField("_", "This conversation is closed.")
+		}
+		if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "open"); err != nil {
+			return nil, err
+		}
+		_, _ = c.systemMessage(ctx, threadID, "Conversation reopened.")
 	}
 
 	// Reply target must be in the same thread.
@@ -238,11 +277,12 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 	key := userID + ":business:" + derefString(t.BusinessID) + ":chat_start:" + time.Now().Format("2006-01-02")
 	_, _ = c.repos.Engagement.InsertEvent(ctx, userID, "business", derefString(t.BusinessID), "chat_start", 8, key)
 
-	// Notify other participants (in-app + push handled at the WS layer).
+	// Notify other participants (skipping thread-muted ones, PRD §5.5.1).
 	participants, err := c.repos.Chat.ParticipantIDs(ctx, threadID)
 	if err == nil {
+		muted := c.mutedParticipants(ctx, threadID)
 		for _, pid := range participants {
-			if pid == userID {
+			if pid == userID || muted[pid] {
 				continue
 			}
 			c.notifier.Create(ctx, pid, "message_received", map[string]any{
@@ -276,6 +316,135 @@ func (c *Chat) checkBanned(ctx context.Context, text string) error {
 		}
 	}
 	return nil
+}
+
+// checkBannedStriked wraps the banned-word check with the §8.5 escalation:
+// three rejections within 10 minutes lock sending for 5 minutes.
+func (c *Chat) checkBannedStriked(ctx context.Context, userID, body string) error {
+	err := c.checkBanned(ctx, body)
+	if err == nil {
+		return nil
+	}
+	c.strikeMu.Lock()
+	defer c.strikeMu.Unlock()
+	now := time.Now()
+	recent := c.strikes[userID][:0]
+	for _, t := range c.strikes[userID] {
+		if now.Sub(t) < 10*time.Minute {
+			recent = append(recent, t)
+		}
+	}
+	recent = append(recent, now)
+	if len(recent) >= 3 {
+		c.cooldowns[userID] = now.Add(5 * time.Minute)
+		delete(c.strikes, userID)
+	} else {
+		c.strikes[userID] = recent
+	}
+	return err
+}
+
+// abuseGate enforces the blocked-word cooldown (§8.5/E13).
+func (c *Chat) abuseGate(userID string) error {
+	c.strikeMu.Lock()
+	defer c.strikeMu.Unlock()
+	if until, ok := c.cooldowns[userID]; ok {
+		if time.Now().Before(until) {
+			return domain.ErrValidation.WithField("_",
+				"Too many blocked attempts. You can send again in "+time.Until(until).Round(time.Second).String()+".")
+		}
+		delete(c.cooldowns, userID)
+	}
+	return nil
+}
+
+// noteBurst blocks identical-message blasts across threads (§8.5): the same
+// non-empty body sent to more than 5 distinct threads within 10 minutes.
+func (c *Chat) noteBurst(userID, threadID, body string) error {
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+	now := time.Now()
+	c.burstMu.Lock()
+	defer c.burstMu.Unlock()
+	recent := c.bursts[userID][:0]
+	for _, e := range c.bursts[userID] {
+		if now.Sub(e.at) < 10*time.Minute {
+			recent = append(recent, e)
+		}
+	}
+	distinct := map[string]bool{}
+	sameBody := 0
+	for _, e := range recent {
+		if e.body == body && !distinct[e.threadID] {
+			distinct[e.threadID] = true
+			sameBody++
+		}
+	}
+	if sameBody >= 5 && !distinct[threadID] {
+		return domain.ErrValidation.WithField("_", "You're sending the same message to too many conversations. Slow down.")
+	}
+	recent = append(recent, burstEntry{threadID: threadID, body: body, at: now})
+	c.bursts[userID] = recent
+	if len(c.bursts) > 10_000 { // crude memory bound
+		for u, es := range c.bursts {
+			if len(es) == 0 || now.Sub(es[len(es)-1].at) > 30*time.Minute {
+				delete(c.bursts, u)
+			}
+		}
+	}
+	return nil
+}
+
+// mutedParticipants returns the set of participant IDs whose muted_until is
+// in the future (PRD §5.5.1 thread mute).
+func (c *Chat) mutedParticipants(ctx context.Context, threadID string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := c.repos.Query(ctx, `
+		SELECT user_id FROM chat_participants
+		WHERE thread_id = $1 AND muted_until IS NOT NULL AND muted_until > now()`, threadID)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// SetMuted toggles thread mute for a participant (~8 days ≈ "until I look").
+// Passing false clears it. Uses chat_participants.muted_until.
+func (c *Chat) SetMuted(ctx context.Context, userID, threadID string, on bool) error {
+	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
+		return err
+	}
+	if on {
+		_, err := c.repos.Exec(ctx,
+			`UPDATE chat_participants SET muted_until = now() + interval '8 days' WHERE thread_id=$1 AND user_id=$2`,
+			threadID, userID)
+		return err
+	}
+	_, err := c.repos.Exec(ctx,
+		`UPDATE chat_participants SET muted_until = NULL WHERE thread_id=$1 AND user_id=$2`,
+		threadID, userID)
+	return err
+}
+
+// systemMessage inserts a type=system notice visible to every participant.
+func (c *Chat) systemMessage(ctx context.Context, threadID, text string) (*domain.ChatMessage, error) {
+	m := &domain.ChatMessage{
+		ThreadID:    threadID,
+		SenderRole:  "system",
+		Type:        "system",
+		Body:        &text,
+		ClientMsgID: util.NewUUID(),
+		EditHistory: []map[string]any{},
+	}
+	return c.repos.Chat.CreateMessage(ctx, m)
 }
 
 // ---- pinned messages (PRD §5.5.2) ----
@@ -534,6 +703,12 @@ func (c *Chat) React(ctx context.Context, userID string, messageID int64, emoji 
 		return err
 	}
 	if on {
+		// §8.5: max 20 reaction actions per 5 minutes.
+		if c.limiter != nil {
+			if _, _, ok := (*c.limiter).Allow("react:"+userID, 20, 5*time.Minute); !ok {
+				return domain.ErrRateLimited
+			}
+		}
 		if emoji == "" {
 			return domain.ErrValidation.WithField("emoji", "Emoji is required.")
 		}
@@ -650,7 +825,12 @@ func (c *Chat) CloseThread(ctx context.Context, userID, threadID string) error {
 	if t.Type == "business" {
 		b, err := c.repos.Businesses.GetByID(ctx, derefString(t.BusinessID))
 		if err == nil && b != nil && b.OwnerID == userID {
-			return c.repos.Chat.SetThreadStatus(ctx, threadID, "closed")
+			if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "closed"); err != nil {
+				return err
+			}
+			// System notice so every participant sees why (PRD §5.5.2).
+			_, _ = c.systemMessage(ctx, threadID, "The business closed this conversation.")
+			return nil
 		}
 	}
 	return domain.ErrForbidden

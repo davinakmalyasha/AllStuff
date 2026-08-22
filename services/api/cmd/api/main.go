@@ -85,7 +85,7 @@ func main() {
 	productSvc := service.NewProducts(repos, notifier)
 	analyticsSvc := service.NewAnalytics(repos)
 	engagementSvc := service.NewEngagement(repos, notifier)
-	trendingSvc := service.NewTrending(repos)
+	trendingSvc := service.NewTrending(repos, notifier)
 	chatSvc := service.NewChat(repos, notifier)
 	currencySvc := service.NewCurrency(repos)
 	oauthSvc := service.NewOAuth(repos, cfg)
@@ -137,7 +137,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	go jobs.Run(ctx, logger, repos, cfg, sender)
+	go jobs.Run(ctx, logger, repos, cfg, sender, notifier)
 
 	go func() {
 		logger.Info("api listening", "addr", srv.Addr)

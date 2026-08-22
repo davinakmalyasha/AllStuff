@@ -18,12 +18,16 @@ import (
 //	Rising    = top N by velocity ÷ baseline(age + trailing score) — hidden gems
 //
 // Anti-gaming (§8.6): owner self-actions excluded at write time, dedupe keys,
-// and spike exclusion when 24h score > 10× the 30d average.
+// and spike exclusion when 24h score > 10× the 30d average. Detected spikes
+// flag the responsible events and queue a trend anomaly for admins.
 type Trending struct {
-	repos *repo.Repos
+	repos    *repo.Repos
+	notifier *Notifier
 }
 
-func NewTrending(repos *repo.Repos) *Trending { return &Trending{repos: repos} }
+func NewTrending(repos *repo.Repos, notifier *Notifier) *Trending {
+	return &Trending{repos: repos, notifier: notifier}
+}
 
 // Windows: period → λ per hour (24h: 0.03, 7d: 0.006, 30d: 0.002).
 var windows = []struct {
@@ -95,7 +99,66 @@ func (t *Trending) Compute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return t.markRising(ctx)
+	if err := t.markRising(ctx); err != nil {
+		return err
+	}
+	return t.flagSpikes(ctx)
+}
+
+// flagSpikes implements the anti-gaming rule (PRD §8.6, ARCHITECTURE §4):
+// when a business's 24h score exceeds 10× its trailing 30d baseline (and an
+// absolute floor), its last-24h engagement events are flagged — excluding
+// them from the next recompute — and admins get a trend_anomaly notification.
+func (t *Trending) flagSpikes(ctx context.Context) error {
+	rows, err := t.repos.Query(ctx, `
+		WITH latest AS (
+			SELECT business_id, score FROM trend_snapshots
+			WHERE period='24h' AND taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')
+		),
+		base AS (
+			SELECT business_id, score AS score30 FROM trend_snapshots
+			WHERE period='30d' AND taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='30d')
+		)
+		SELECT l.business_id FROM latest l LEFT JOIN base b ON b.business_id = l.business_id
+		WHERE l.score > 25 AND l.score > 10 * coalesce(b.score30, 0)`)
+	if err != nil {
+		return err
+	}
+	var spiked []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			spiked = append(spiked, id)
+		}
+	}
+	rows.Close()
+	if len(spiked) == 0 {
+		return nil
+	}
+	if _, err := t.repos.Exec(ctx, `
+		UPDATE engagement_events SET flagged = true
+		WHERE target_type='business' AND target_id = ANY($1)
+		  AND occurred_at > now() - interval '24 hours' AND flagged = false`, spiked); err != nil {
+		return err
+	}
+	admins, err := t.repos.Query(ctx,
+		`SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL`)
+	if err != nil {
+		return nil // best-effort notify
+	}
+	defer admins.Close()
+	for admins.Next() {
+		var adminID string
+		if err := admins.Scan(&adminID); err != nil {
+			continue
+		}
+		if t.notifier != nil {
+			t.notifier.Create(ctx, adminID, "trend_anomaly", map[string]any{
+				"business_ids": spiked, "reason": "Engagement spike detected; events flagged for review.",
+			})
+		}
+	}
+	return nil
 }
 
 // markRising: hidden gems — velocity normalized by age + trailing score.

@@ -67,6 +67,7 @@ type Business struct {
 	PublishedSnapshot     map[string]any     `json:"published_snapshot,omitempty"`
 	VerificationLevel     *VerificationLevel `json:"verification_level"`
 	VerifiedAt            *time.Time         `json:"verified_at"`
+	SlugChangedAt         *time.Time         `json:"-"`
 	CreatedAt             time.Time          `json:"created_at"`
 	UpdatedAt             time.Time          `json:"updated_at"`
 

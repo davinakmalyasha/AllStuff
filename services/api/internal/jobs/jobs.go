@@ -12,10 +12,10 @@ import (
 )
 
 // Run starts background jobs (ARCHITECTURE §4).
-func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config.Config, sender email.Sender) {
+func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config.Config, sender email.Sender, notifier *service.Notifier) {
 	logger.Info("jobs started")
 
-	trending := service.NewTrending(repos)
+	trending := service.NewTrending(repos, notifier)
 	currency := service.NewCurrency(repos)
 	digest := service.NewDigest(repos, sender, cfg.PublicURL)
 	alerts := service.NewSearchAlerts(repos, sender, cfg)

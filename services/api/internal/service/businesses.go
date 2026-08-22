@@ -49,30 +49,24 @@ func (s *Businesses) Create(ctx context.Context, ownerID string) (*domain.Busine
 
 type BusinessInput map[string]any
 
-// Update applies wizard fields with per-field validation (PRD Â§8.2).
+// Update applies wizard fields with per-field validation (PRD §8.2).
+// Owners may edit at any time (PRD J4.7); slugs are never regenerated here
+// (immutable, PRD §8.2) and a category switch on a verified listing sends
+// it back to review (PRD §5.4.4).
 func (s *Businesses) Update(ctx context.Context, ownerID, id string, in BusinessInput) (*domain.Business, error) {
 	b, err := s.owned(ctx, ownerID, id)
 	if err != nil {
 		return nil, err
-	}
-	if b.Status != domain.BusinessDraft && b.Status != domain.BusinessRejected {
-		return nil, domain.ErrValidation.WithField("_", "Only drafts can be edited.")
 	}
 
 	fields := map[string]any{}
 	if v, ok := in["name"]; ok {
 		name := strings.TrimSpace(asString(v))
 		if n := len([]rune(name)); n < 2 || n > 80 {
-			return nil, domain.ErrValidation.WithField("name", "Name must be 2â€“80 characters.")
+			return nil, domain.ErrValidation.WithField("name", "Name must be 2–80 characters.")
 		}
 		fields["name"] = name
-		if b.Name != name {
-			slug, err := s.uniqueSlug(ctx, name, b.ID)
-			if err != nil {
-				return nil, err
-			}
-			fields["slug"] = slug
-		}
+		// Slug intentionally NOT touched: URLs are stable (PRD §8.2).
 	}
 	if v, ok := in["tagline"]; ok {
 		tagline := strings.TrimSpace(asString(v))
@@ -194,7 +188,39 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 	if len(fields) == 0 {
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
 	}
+	// Category switches on verified listings require re-verification
+	// (PRD §5.4.4): the listing goes back to the review queue.
+	if cid, changed := fields["category_id"]; changed && b.Status == domain.BusinessVerified {
+		if asString(cid) != b.CategoryID {
+			fields["status"] = string(domain.BusinessPending)
+			fields["verification_level"] = nil
+			fields["verified_at"] = nil
+		}
+	}
 	if err := s.repos.Businesses.Update(ctx, id, fields); err != nil {
+		return nil, err
+	}
+	return s.repos.Businesses.GetByID(ctx, id)
+}
+
+// RequestSlugChange implements PRD §8.2: slugs are immutable except for a
+// single owner-requested change over the business's lifetime.
+func (s *Businesses) RequestSlugChange(ctx context.Context, ownerID, id string) (*domain.Business, error) {
+	b, err := s.owned(ctx, ownerID, id)
+	if err != nil {
+		return nil, err
+	}
+	if b.SlugChangedAt != nil {
+		return nil, domain.ErrValidation.WithField("_", "The URL slug can only be changed once (PRD §8.2).")
+	}
+	slug, err := s.uniqueSlug(ctx, b.Name, b.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repos.Businesses.Update(ctx, id, map[string]any{
+		"slug":            slug,
+		"slug_changed_at": time.Now().UTC(),
+	}); err != nil {
 		return nil, err
 	}
 	return s.repos.Businesses.GetByID(ctx, id)

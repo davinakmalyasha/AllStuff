@@ -106,6 +106,21 @@ func (s *Server) handleBusinessResubmit(w http.ResponseWriter, r *http.Request) 
 	ok(w, map[string]any{"business": b})
 }
 
+// Slug change: one-time owner request (PRD §8.2 slug immutability).
+func (s *Server) handleSlugChange(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	b, err := s.deps.Businesses.RequestSlugChange(r.Context(), user.ID, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"business": b})
+}
+
 // ---- verification documents (owner side) ----
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {

@@ -52,6 +52,38 @@ func (s *Server) handleAdminCategoriesDelete(w http.ResponseWriter, r *http.Requ
 	noContent(w)
 }
 
+// Category merge (PRD §5.8.3): businesses + children move to the target,
+// then the source disappears.
+func (s *Server) handleAdminCategoriesMerge(w http.ResponseWriter, r *http.Request) {
+	cat, err := s.deps.Categories.Merge(r.Context(), r.PathValue("id"), r.PathValue("intoId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"category": cat})
+}
+
+func (s *Server) handleAdminDocReRequest(w http.ResponseWriter, r *http.Request) {
+	admin, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	var in struct {
+		Kind string `json:"kind"`
+		Note string `json:"note"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.deps.Admin.RequestDocument(r.Context(), admin.ID, r.PathValue("id"), in.Kind, strings.TrimSpace(in.Note)); err != nil {
+		fail(w, err)
+		return
+	}
+	noContent(w)
+}
+
 // ---- admin: verification queue (PRD §5.8.1) ----
 
 func (s *Server) handleAdminVerifyQueue(w http.ResponseWriter, r *http.Request) {

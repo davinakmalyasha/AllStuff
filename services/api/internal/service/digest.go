@@ -32,7 +32,7 @@ func (d *Digest) SendWeekly(ctx context.Context) error {
 	if len(users) == 0 {
 		return nil
 	}
-	entries, err := NewTrending(d.repos).Leaderboard(ctx, "7d", "global", 5)
+	entries, err := NewTrending(d.repos, nil).Leaderboard(ctx, "7d", "global", 5)
 	if err != nil {
 		return err
 	}

@@ -139,6 +139,8 @@ func describe(n *domain.Notification) (string, string) {
 		return "Back in stock", "An item you're watching is available again."
 	case "claim_result":
 		return "Claim decision", "Your business claim was reviewed."
+	case "trend_anomaly":
+		return "Trend anomaly", "An engagement spike was detected and flagged."
 	default:
 		return "", ""
 	}
@@ -151,4 +153,5 @@ var SupportedTypes = []string{
 	"question_asked", "question_answered", "business_update", "verification_result",
 	"doc_re_request", "business_suspended", "business_restored", "moderation_warning",
 	"appeal_result", "category_new_business", "back_in_stock", "claim_result",
+	"trend_anomaly",
 }

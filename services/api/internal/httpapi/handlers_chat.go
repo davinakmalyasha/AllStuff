@@ -347,6 +347,21 @@ func (s *Server) handleThreadLeave(w http.ResponseWriter, r *http.Request) {
 	noContent(w)
 }
 
+// Thread mute (PRD §5.5.1): PUT silences notifications for this thread,
+// DELETE clears it.
+func (s *Server) handleThreadMute(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	if err := s.deps.Chat.SetMuted(r.Context(), user.ID, r.PathValue("id"), r.Method == http.MethodPut); err != nil {
+		fail(w, err)
+		return
+	}
+	noContent(w)
+}
+
 func (s *Server) handleBlock(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {

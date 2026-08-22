@@ -192,8 +192,7 @@ func (s *Categories) Update(ctx context.Context, id string, in CategoryInput) (*
 }
 
 // Delete removes a category; businesses must be moved first (PRD Â§5.8.3: no orphans).
-func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string) error {
-	cat, err := s.repos.Categories.GetByID(ctx, id)
+func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string) error {	cat, err := s.repos.Categories.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -225,6 +224,42 @@ func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string)
 		}
 	}
 	return s.repos.Categories.Delete(ctx, id)
+}
+
+// Merge moves every business and child category from one node into a target
+// of the same level, then deletes the source (PRD §5.8.3).
+func (s *Categories) Merge(ctx context.Context, fromID, intoID string) (*domain.Category, error) {
+	if fromID == intoID {
+		return nil, domain.ErrValidation.WithField("_", "Cannot merge a category into itself.")
+	}
+	from, err := s.repos.Categories.GetByID(ctx, fromID)
+	if err != nil {
+		return nil, err
+	}
+	if from == nil {
+		return nil, domain.ErrNotFound
+	}
+	into, err := s.repos.Categories.GetByID(ctx, intoID)
+	if err != nil {
+		return nil, err
+	}
+	if into == nil {
+		return nil, domain.ErrValidation.WithField("into_id", "Target category not found.")
+	}
+	if (from.ParentID == nil) != (into.ParentID == nil) {
+		return nil, domain.ErrValidation.WithField("into_id", "Categories must share the same tree level.")
+	}
+	if _, err := s.repos.Categories.MoveBusinesses(ctx, fromID, intoID); err != nil {
+		return nil, err
+	}
+	if _, err := s.repos.Exec(ctx,
+		`UPDATE categories SET parent_id = $2 WHERE parent_id = $1`, fromID, intoID); err != nil {
+		return nil, err
+	}
+	if err := s.repos.Categories.Delete(ctx, fromID); err != nil {
+		return nil, err
+	}
+	return s.repos.Categories.GetByID(ctx, intoID)
 }
 
 func buildTree(flat []*domain.Category) []*domain.Category {

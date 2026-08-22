@@ -112,6 +112,40 @@ func (a *Admin) Decide(ctx context.Context, adminID, businessID string, in Decid
 	return a.repos.Businesses.GetByID(ctx, businessID)
 }
 
+// RequestDocument asks the owner to re-submit a specific document kind
+// (PRD §5.8.1): matching pending/approved docs are marked rejected with the
+// note, and the owner receives a doc_re_request notification.
+func (a *Admin) RequestDocument(ctx context.Context, adminID, businessID, kind, note string) error {
+	b, err := a.repos.Businesses.GetByID(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	if b == nil {
+		return domain.ErrNotFound
+	}
+	valid := map[string]bool{"registration": true, "license": true, "tax_id": true, "identity": true, "utility": true}
+	if !valid[kind] {
+		return domain.ErrValidation.WithField("kind", "Invalid document kind.")
+	}
+	if _, err := a.repos.Exec(ctx, `
+		UPDATE verification_documents SET status='rejected', review_note=$2, reviewed_at=now()
+		WHERE business_id=$1 AND kind=$3 AND status <> 'rejected'`, businessID, note, kind); err != nil {
+		return err
+	}
+	if _, err := a.repos.Exec(ctx, `
+		INSERT INTO moderation_actions (id, admin_id, action, target_type, target_id, reason, payload)
+		VALUES ($1, $2, 'doc_re_request', 'business', $3, $4, $5)`,
+		util.NewUUID(), adminID, businessID, note, map[string]any{"kind": kind}); err != nil {
+		return err
+	}
+	if b.OwnerID != "" {
+		a.notifier.Create(ctx, b.OwnerID, "doc_re_request", map[string]any{
+			"business_id": businessID, "kind": kind, "note": note,
+		})
+	}
+	return nil
+}
+
 // VerifyQueue lists pending/rejected businesses for the queue UI.
 func (a *Admin) VerifyQueue(ctx context.Context, statuses []string, limit, offset int) ([]*domain.Business, error) {
 	if len(statuses) == 0 {
@@ -197,7 +231,7 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 			adminID, reportID); err != nil {
 			return err
 		}
-	case "hide", "warn", "suspend":
+	case "hide", "warn", "suspend", "delete_for_everyone":
 		// Resolve the report.
 		if _, err := a.repos.Exec(ctx, `
 			UPDATE reports SET status='resolved', resolved_by=$1, resolved_at=now() WHERE id=$2`,
@@ -216,6 +250,23 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 				UPDATE users SET status='suspended', suspended_until = now() + interval '7 days'
 				WHERE id=$1`, report.TargetID); err != nil {
 				return err
+			}
+		case "delete_for_everyone":
+			// Messages only (PRD §5.8.2): remove from every participant's
+			// view and tell the sender why.
+			if report.TargetType != "message" {
+				return domain.ErrValidation.WithField("action", "Only messages support delete-for-everyone.")
+			}
+			if err := a.HideContent(ctx, adminID, "message", report.TargetID, note); err != nil {
+				return err
+			}
+			var sender string
+			_ = a.repos.QueryRow(ctx,
+				`SELECT sender_id FROM chat_messages WHERE id=$1::bigint`, report.TargetID).Scan(&sender)
+			if sender != "" {
+				a.notifier.Create(ctx, sender, "moderation_warning", map[string]any{
+					"note": note, "reason": "A message you sent was removed by moderators.",
+				})
 			}
 		}
 	default:
