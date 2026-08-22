@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
 	"bizverse/api/internal/service"
 )
 
@@ -214,36 +213,27 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrValidation.WithField("b", "At least 2 valid businesses are required."))
 		return
 	}
-	ok(w, map[string]any{"businesses": businesses})
+	// Top-3 published products per column (PRD §5.1.5 compare rows).
+	topProducts := map[string][]*domain.Product{}
+	for _, b := range businesses {
+		list, err := s.deps.Products.ListPublished(r.Context(), b.ID)
+		if err == nil && len(list) > 0 {
+			if len(list) > 3 {
+				list = list[:3]
+			}
+			topProducts[b.ID] = list
+		}
+	}
+	ok(w, map[string]any{"businesses": businesses, "top_products": topProducts})
 }
 
 func (s *Server) handleFeatured(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.deps.Repos.Query(r.Context(), `
-		SELECT `+repo.BusinessCols+repo.BusinessCounts+`
-		FROM businesses b
-		LEFT JOIN categories cat ON cat.id = b.category_id
-		WHERE b.is_featured = true AND b.status = 'verified' AND b.deleted_at IS NULL
-		ORDER BY b.featured_order, b.name LIMIT 8`)
+	featured, err := s.deps.Repos.Businesses.ListFeatured(r.Context(), 8)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	defer rows.Close()
-	var out []*domain.Business
-	for rows.Next() {
-		var b domain.Business
-		if err := rows.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
-			&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
-			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.Contact, &b.Tags, &b.FoundedYear,
-			&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.CreatedAt, &b.UpdatedAt,
-			&b.RatingAvg, &b.ReviewCount, &b.LikeCount, &b.RecommendCount, &b.SaveCount,
-			&b.CategoryName, &b.CategorySlug); err != nil {
-			fail(w, err)
-			return
-		}
-		out = append(out, &b)
-	}
-	ok(w, map[string]any{"businesses": out})
+	ok(w, map[string]any{"businesses": featured})
 }
 
 func (s *Server) handleRates(w http.ResponseWriter, r *http.Request) {

@@ -174,6 +174,30 @@ func (r *BusinessRepo) SlugTaken(ctx context.Context, slug, excludeID string) (b
 	return exists, err
 }
 
+// ListFeatured returns featured verified businesses in curation order
+// (homepage strip, PRD §5.8.5).
+func (r *BusinessRepo) ListFeatured(ctx context.Context, limit int) ([]*domain.Business, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+BusinessCols+BusinessCounts+`
+		FROM businesses b
+		LEFT JOIN categories cat ON cat.id = b.category_id
+		WHERE b.is_featured = true AND b.status = 'verified' AND b.deleted_at IS NULL
+		ORDER BY b.featured_order, b.name LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.Business
+	for rows.Next() {
+		b, err := scanBusinessWithCounts(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // ByStatus returns the queue for admin verification (PRD §5.8.1).
 func (r *BusinessRepo) ByStatus(ctx context.Context, statuses []string, limit, offset int) ([]*domain.Business, error) {
 	rows, err := r.pool.Query(ctx, `
@@ -211,7 +235,7 @@ func (r *BusinessRepo) Search(ctx context.Context, sql string, args []any) ([]*d
 		if err := rows.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
 			&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
 			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
-			&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.CreatedAt, &b.UpdatedAt,
+			&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.SlugChangedAt, &b.CreatedAt, &b.UpdatedAt,
 			&b.RatingAvg, &b.ReviewCount, &b.LikeCount, &b.RecommendCount, &b.SaveCount,
 			&b.CategoryName, &b.CategorySlug,
 			&b.DistanceKM, &rankIgnored); err != nil {

@@ -70,6 +70,7 @@ import { CurrencyProvider } from '@/components/CurrencyProvider'
 import { ToastStack } from '@/components/ui/Toast'
 import { api, type BusinessDTO } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
+import { hydrateCompare } from '@/stores/compare'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -293,7 +294,7 @@ const STATUS_TONE: Record<string, 'neutral' | 'attention' | 'positive' | 'danger
 }
 
 function Bootstrap() {
-  const { fetchMe } = useAuth()
+  const { fetchMe, user } = useAuth()
   useEffect(() => {
     void fetchMe()
     if ('serviceWorker' in navigator) {
@@ -314,6 +315,10 @@ function Bootstrap() {
       return orig?.(msg, src, line, col, err) ?? false
     }
   }, [fetchMe])
+  // Compare tray follows the account across devices (PRD §5.1.5).
+  useEffect(() => {
+    if (user) void hydrateCompare()
+  }, [user?.id])
   return (
     <>
       <CurrencyProvider />

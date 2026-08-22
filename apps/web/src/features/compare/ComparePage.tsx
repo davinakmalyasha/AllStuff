@@ -1,17 +1,23 @@
 import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { GripVertical, Minus, Link2 } from 'lucide-react'
-import { api, type BusinessDTO } from '@/lib/api'
+import { GripVertical, Minus, Link2, MessageSquare, X } from 'lucide-react'
+import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 import { useCompare } from '@/stores/compare'
+import { useAuth } from '@/stores/auth'
+import { formatMoney, useCurrency } from '@/stores/currency'
 
 /** Side-by-side comparison (PRD §5.1.5, §6.1 /compare?b=…). URL is shareable. */
 export function ComparePage() {
   const [params, setParams] = useSearchParams()
-  const { ids, setIds } = useCompare()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const { rates, display } = useCurrency()
+  const { ids, setIds, toggle } = useCompare()
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const overIdx = useRef<number | null>(null)
 
@@ -22,17 +28,36 @@ export function ComparePage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['compare', activeIds.join(',')],
-    queryFn: () => api<{ businesses: BusinessDTO[] }>(`/compare?b=${activeIds.join(',')}`),
+    queryFn: () => api<{ businesses: BusinessDTO[]; top_products: Record<string, ProductDTO[]> }>(`/compare?b=${activeIds.join(',')}`),
     enabled: activeIds.length >= 2,
   })
 
   const businesses = data?.businesses ?? []
+  const topProducts = data?.top_products ?? {}
 
   const updateUrl = () => {
     const next = new URLSearchParams(params)
     if (ids.length >= 2) next.set('b', ids.join(','))
     else next.delete('b')
     setParams(next, { replace: true })
+  }
+
+  const removeColumn = (id: string) => {
+    toggle(id)
+    const remaining = activeIds.filter((x) => x !== id)
+    const url = new URLSearchParams(params)
+    if (remaining.length >= 2) url.set('b', remaining.join(','))
+    else url.delete('b')
+    setParams(url, { replace: true })
+  }
+
+  const chat = async (businessId: string) => {
+    try {
+      const r = await api<{ thread: { id: string } }>('/threads', { method: 'POST', body: { business_id: businessId } })
+      navigate(`/me/messages/${r.thread.id}`)
+    } catch {
+      /* thread may already exist for this business+user pair; server dedupes */
+    }
   }
 
   const share = async () => {
@@ -49,7 +74,7 @@ export function ComparePage() {
     setDragIdx(null)
     overIdx.current = null
     if (dragIdx === null || dragIdx === to) return
-    const next = [...ids]
+    const next = [...activeIds]
     const [moved] = next.splice(dragIdx, 1)
     next.splice(to, 0, moved)
     setIds(next)
@@ -114,7 +139,12 @@ export function ComparePage() {
                 className={`min-w-0 cursor-grab active:cursor-grabbing ${dragIdx === i ? 'opacity-40' : ''} ${overIdx.current === i && dragIdx !== null && dragIdx !== i ? 'ring-2 ring-ink/20' : ''}`}
                 title="Drag to reorder"
               >
-                <GripVertical className="h-3.5 w-3.5 text-ink3" />
+                <div className="flex items-start justify-between">
+                  <GripVertical className="h-3.5 w-3.5 text-ink3" />
+                  <button onClick={() => removeColumn(b.id)} className="rounded p-0.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={`Remove ${b.name} from compare`} title="Remove">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
                 {b.logo_url ? (
                   <img src={b.logo_url} alt="" className="h-14 w-14 rounded-xl object-cover" />
                 ) : (
@@ -131,6 +161,31 @@ export function ComparePage() {
           {row('Category', (b) => b.category_name ?? '—')}
           {row('Rating', (b) => b.review_count > 0 ? `★ ${b.rating_avg?.toFixed(1)} (${b.review_count})` : '—')}
           {row('Price level', (b) => "$".repeat(b.price_level ?? 0) || '—')}
+          {row('Top products', (b) => {
+            const list = topProducts[b.id] ?? []
+            if (!list.length) return '—'
+            return (
+              <ul className="space-y-1">
+                {list.map((p) => (
+                  <li key={p.id} className="truncate">
+                    {p.name}
+                    <span className="ml-1 font-mono text-xs text-ink3">
+                      {p.call_for_price || p.base_price == null ? 'ask' : formatMoney(p.base_price, p.currency ?? b.currency, display, rates)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          })}
+          {row('Amenities', (b) => {
+            const chips = [...(b.amenities ?? []), ...(b.tags ?? [])].slice(0, 6)
+            if (!chips.length) return '—'
+            return (
+              <div className="flex flex-wrap gap-1">
+                {chips.map((a) => <Badge key={a}>{a}</Badge>)}
+              </div>
+            )
+          })}
           {row('Location', (b) => `${b.city}, ${b.country}`)}
           {row('Distance', (b) => (b.distance_km ? `${b.distance_km.toFixed(1)} km` : '—'))}
           {row('Open now', (b) => (b.is_open_now ? 'Yes' : 'No'))}
@@ -144,6 +199,18 @@ export function ComparePage() {
             return count > 0 ? `${count} linked` : '—'
           })}
           {row('Engagement', (b) => `${b.like_count} likes · ${b.recommend_count} recs · ${b.save_count} saved`)}
+          {row('Actions', (b) => (
+            <div className="flex flex-wrap gap-2">
+              {user ? (
+                <button onClick={() => void chat(b.id)} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-ink hover:bg-surface2">
+                  <MessageSquare className="h-3 w-3" /> Chat
+                </button>
+              ) : (
+                <a href={`/login?next=/b/${b.slug}`} className="rounded-lg border border-border px-2 py-1 text-xs text-ink2">Log in to chat</a>
+              )}
+              <a href={`/b/${b.slug}`} className="rounded-lg border border-border px-2 py-1 text-xs text-ink hover:bg-surface2">View</a>
+            </div>
+          ))}
         </div>
       </div>
     </div>

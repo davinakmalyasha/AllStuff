@@ -106,6 +106,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/v1/me/saved-searches/{searchId}", s.handleSavedSearchDelete)
 	mux.HandleFunc("PATCH /api/v1/me/saved-searches/{searchId}", s.handleSavedSearchPatch)
 	mux.HandleFunc("GET /api/v1/collections/{id}", s.handlePublicCollection)
+	mux.HandleFunc("GET /api/v1/me/compare", s.handleCompareSync)
+	mux.HandleFunc("PUT /api/v1/me/compare", s.handleCompareSync)
 	mux.HandleFunc("POST /api/v1/errors", s.handleClientError)
 	mux.HandleFunc("GET /api/v1/push/vapid-key", s.handleVapidKey)
 

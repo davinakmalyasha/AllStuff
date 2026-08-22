@@ -456,3 +456,45 @@ func (s *Server) handleCancelDeletion(w http.ResponseWriter, r *http.Request) {
 	}
 	noContent(w)
 }
+
+// ---- compare tray sync (PRD 5.1.5) ----
+
+func (s *Server) handleCompareSync(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		var ids []string
+		if err := s.deps.Repos.QueryRow(r.Context(),
+			`SELECT compare_ids FROM users WHERE id = $1`, user.ID).Scan(&ids); err != nil {
+			fail(w, err)
+			return
+		}
+		ok(w, map[string]any{"ids": ids})
+	case http.MethodPut:
+		var in struct {
+			IDs []string `json:"ids"`
+		}
+		if err := decodeBody(w, r, &in); err != nil {
+			fail(w, err)
+			return
+		}
+		if len(in.IDs) > 4 {
+			in.IDs = in.IDs[:4]
+		}
+		if in.IDs == nil {
+			in.IDs = []string{}
+		}
+		if _, err := s.deps.Repos.Exec(r.Context(),
+			`UPDATE users SET compare_ids = $2 WHERE id = $1`, user.ID, in.IDs); err != nil {
+			fail(w, err)
+			return
+		}
+		noContent(w)
+	default:
+		fail(w, &domain.Error{Code: "method_not_allowed", Message: "Method not allowed.", Status: http.StatusMethodNotAllowed})
+	}
+}
