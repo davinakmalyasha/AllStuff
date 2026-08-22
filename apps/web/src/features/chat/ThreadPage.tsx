@@ -75,6 +75,19 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         )
       }),
       ws.on('reaction.updated', () => void qc.invalidateQueries({ queryKey: ['thread', id] })),
+      ws.on('receipt.read', (f) => {
+        // Another participant read up to last_read_message_id: bump read_count
+        // on messages up to that point so "seen" indicators stay accurate.
+        const p = f.payload as { thread_id: string; user_id: string; last_read_message_id: number }
+        if (p.thread_id !== id || p.user_id === user?.id) return
+        setMessages((prev) =>
+          prev.map((x) =>
+            x.id <= p.last_read_message_id && x.sender_id === user?.id && x.read_count < 1
+              ? { ...x, read_count: x.read_count + 1 }
+              : x,
+          ),
+        )
+      }),
       ws.on('typing', (f) => {
         const p = f.payload as { thread_id: string; user_id: string; is_typing: boolean }
         if (p.thread_id === id && p.user_id !== user?.id) {
@@ -127,8 +140,11 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const [pendingKind, setPendingKind] = useState<'image' | 'file' | 'video' | 'audio'>('image')
 
   // Voice notes (PRD §5.5.2): MediaRecorder → webm → chat_audio upload.
+  // Capped at 5 minutes; oversized recordings surface an error toast instead
+  // of being silently dropped.
   const [recording, setRecording] = useState(false)
   const recorderRef = useRef<MediaRecorder | null>(null)
+  const recTimerRef = useRef<number | null>(null)
 
   const toggleVoice = async () => {
     if (recording) {
@@ -144,11 +160,26 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop())
         setRecording(false)
+        if (recTimerRef.current !== null) {
+          clearTimeout(recTimerRef.current)
+          recTimerRef.current = null
+        }
         const blob = new Blob(chunks, { type: 'audio/webm' })
-        if (blob.size > 200_000) await uploadImage(new File([blob], 'voice.webm', { type: 'audio/webm' }), 'chat_audio')
+        if (blob.size === 0) return
+        if (blob.size > 200_000) {
+          toast.error('Voice note too long — keep it under ~30 seconds.')
+          return
+        }
+        try {
+          await uploadImage(new File([blob], 'voice.webm', { type: 'audio/webm' }), 'chat_audio')
+        } catch {
+          toast.error('Could not upload voice note.')
+        }
       }
       rec.start()
       setRecording(true)
+      // Hard stop at the PRD's 5-minute voice-note ceiling.
+      recTimerRef.current = window.setTimeout(() => rec.stop(), 5 * 60 * 1000)
     } catch {
       toast.error('Microphone unavailable')
     }

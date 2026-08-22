@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, Heart, ThumbsUp } from 'lucide-react'
 import { api, type CollectionDTO } from '@/lib/api'
@@ -25,6 +25,10 @@ export function EngagementBar({
   const [liked, setLiked] = useState(false)
   const [recommended, setRecommended] = useState(false)
   const [savedIn, setSavedIn] = useState<string[]>([])
+  // Optimistic deltas: added while a toggle is in flight, cleared once the
+  // server state arrives (prevents double-count while my-state is loading).
+  const [likeDelta, setLikeDelta] = useState(0)
+  const [recDelta, setRecDelta] = useState(0)
 
   const { data: myState } = useQuery({
     queryKey: ['my-state', businessId],
@@ -49,12 +53,15 @@ export function EngagementBar({
     mutationFn: (on: boolean) => api(`/likes/business/${businessId}`, { method: on ? 'PUT' : 'DELETE' }),
     onMutate: (on) => {
       setLiked(on)
-      qc.setQueryData(['business', businessSlug], (old: unknown) => old)
+      setLikeDelta((d) => d + (on ? 1 : -1))
     },
   })
   const recMut = useMutation({
     mutationFn: (on: boolean) => api(`/recommends/${businessId}`, { method: on ? 'PUT' : 'DELETE' }),
-    onMutate: (on) => setRecommended(on),
+    onMutate: (on) => {
+      setRecommended(on)
+      setRecDelta((d) => d + (on ? 1 : -1))
+    },
   })
   const saveMut = useMutation({
     mutationFn: (collectionId: string) =>
@@ -78,6 +85,14 @@ export function EngagementBar({
   const isRecommended = myState?.recommended ?? recommended
   const isSaved = (myState?.saved.length ?? 0) > 0 || savedIn.length > 0
 
+  // Server truth arrived: drop the optimistic deltas.
+  useEffect(() => {
+    if (myState) {
+      setLikeDelta(0)
+      setRecDelta(0)
+    }
+  }, [myState?.liked, myState?.recommended])
+
   if (!user) {
     return (
       <div className="flex items-center gap-2">
@@ -98,14 +113,14 @@ export function EngagementBar({
         onClick={() => void likeMut.mutateAsync(!isLiked)}
         disabled={likeMut.isPending}
       >
-        <Heart className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} /> {counts.likes + (isLiked && !myState?.liked ? 1 : 0)}
+        <Heart className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} /> {counts.likes + likeDelta}
       </Button>
       <Button
         variant={isRecommended ? 'primary' : 'secondary'}
         onClick={() => void recMut.mutateAsync(!isRecommended)}
         disabled={recMut.isPending}
       >
-        <ThumbsUp className={`h-4 w-4 ${isRecommended ? 'fill-current' : ''}`} /> Recommend {counts.recommends + (isRecommended && !myState?.recommended ? 1 : 0)}
+        <ThumbsUp className={`h-4 w-4 ${isRecommended ? 'fill-current' : ''}`} /> Recommend {counts.recommends + recDelta}
       </Button>
       <Button variant={isSaved ? 'primary' : 'secondary'} onClick={() => setPickerOpen((v) => !v)}>
         <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} /> Save

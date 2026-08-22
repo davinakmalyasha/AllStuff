@@ -5,7 +5,7 @@ import { BellPlus, Search, SlidersHorizontal, X } from 'lucide-react'
 import { api, searchPath, type BusinessDTO, type CategoryDTO } from '@/lib/api'
 import { BusinessCard } from '@/components/ui/BusinessCard'
 import { Button } from '@/components/ui/Button'
-import { PageSpinner, SkeletonCard } from '@/components/ui/Spinner'
+import { PageSpinner, SkeletonCard, ErrorNote } from '@/components/ui/Spinner'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
@@ -67,7 +67,7 @@ export function DiscoverPage() {
     setParams(next, { replace: true })
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, hasChat, sort],
     queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath({
       q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
@@ -266,6 +266,8 @@ export function DiscoverPage() {
 
       {isLoading ? (
         <PageSpinner />
+      ) : isError ? (
+        <ErrorNote message="Search is unavailable right now." onRetry={() => void refetch()} />
       ) : all.length ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

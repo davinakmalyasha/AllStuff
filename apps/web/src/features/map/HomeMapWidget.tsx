@@ -1,6 +1,10 @@
+import { lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
-import { BizMap } from '@/components/map/BizMap'
+import { SkeletonCard } from '@/components/ui/Spinner'
+
+// Lazy-load the map so maplibre-gl stays out of the entry chunk.
+const BizMap = lazy(() => import('@/components/map/BizMap').then((m) => ({ default: m.BizMap })))
 
 /** Bounded homepage widget (PRD §5.1.1) linking to the full map. */
 export function HomeMapWidget() {
@@ -17,7 +21,9 @@ export function HomeMapWidget() {
           </Link>
         </div>
         <div className="h-80 overflow-hidden rounded-xl border border-border shadow-card">
-          <BizMap embedded className="h-full w-full" />
+          <Suspense fallback={<SkeletonCard />}>
+            <BizMap embedded className="h-full w-full" />
+          </Suspense>
         </div>
       </div>
     </section>

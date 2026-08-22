@@ -66,8 +66,8 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   const maxDist = Math.max(1, ...dist.map((d) => d.count))
 
   const updateMut = useMutation({
-    mutationFn: ({ id, rating, text }: { id: string; rating: number; text: string }) =>
-      api(`/reviews/${id}`, { method: 'PATCH', body: { rating, text, image_ids: [] } }),
+    mutationFn: ({ id, rating, text, image_ids }: { id: string; rating: number; text: string; image_ids: string[] }) =>
+      api(`/reviews/${id}`, { method: 'PATCH', body: { rating, text, image_ids } }),
     onSuccess: () => {
       setEditingId(null)
       refresh()
@@ -240,7 +240,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
               <textarea rows={4} value={text || r.text} onChange={(e) => setText(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink" />
               <div className="flex justify-end gap-2">
                 <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: r.id, rating: rating || r.rating, text: text || r.text })} disabled={updateMut.isPending}>Save</Button>
+                <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: r.id, rating: rating || r.rating, text: text || r.text, image_ids: r.image_ids })} disabled={updateMut.isPending}>Save</Button>
               </div>
             </div>
           )

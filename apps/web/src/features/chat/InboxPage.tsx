@@ -5,7 +5,7 @@ import { MessageSquare, Plus, Search, WifiOff } from 'lucide-react'
 import { api, type ThreadListItemDTO } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 import { ws } from '@/lib/ws'
 
@@ -15,7 +15,7 @@ export function InboxPage({ businessId }: { businessId?: string }) {
   const [q, setQ] = useState('')
   const [connected, setConnected] = useState(true)
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['threads', businessId ?? 'all'],
     queryFn: () => api<{ threads: ThreadListItemDTO[] }>(`/threads${businessId ? `?business_id=${businessId}` : ''}`),
   })
@@ -37,6 +37,12 @@ export function InboxPage({ businessId }: { businessId?: string }) {
   }, [refetch])
 
   if (isLoading) return <PageSpinner />
+  if (isError)
+    return (
+      <div className="mx-auto max-w-2xl py-10">
+        <ErrorNote message="Your inbox is unavailable right now." onRetry={() => void refetch()} />
+      </div>
+    )
 
   return (
     <div className="mx-auto max-w-2xl">

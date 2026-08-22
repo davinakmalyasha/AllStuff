@@ -92,7 +92,7 @@ export function AdminCurationPage() {
     mutationFn: () => api('/admin/curation', { method: 'PUT', body: { featured_ids: featured } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['curation'] })
-      alert('Featured saved')
+      toast.success('Featured saved')
     },
   })
 
@@ -112,7 +112,7 @@ export function AdminCurationPage() {
   const saveAnnouncement = useMutation({
     mutationFn: () => api('/admin/settings', { method: 'PUT', body: { announcement } }),
     onSuccess: () => {
-      alert('Announcement saved')
+      toast.success('Announcement saved')
       qc.invalidateQueries({ queryKey: ['site-config'] })
     },
   })

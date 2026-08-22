@@ -4,13 +4,14 @@ import { api, type NotificationDTO } from '@/lib/api'
 import { NOTIF_FILTERS, NOTIF_LABELS, notifUrl } from '@/lib/notifications'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 
 /** Full notification inbox (PRD §5.7): type filters, mark-read, deep links. */
 export function NotificationsPage() {
   const qc = useQueryClient()
   const [filter, setFilter] = useState('')
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notifications', filter],
     queryFn: () =>
       api<{ notifications: NotificationDTO[]; unread: number }>(
@@ -53,8 +54,13 @@ export function NotificationsPage() {
         ))}
       </div>
 
-      <Card className="divide-y divide-border">
-        {items.length === 0 && <p className="px-4 py-10 text-center text-sm text-ink3">All quiet.</p>}
+      {isLoading ? (
+        <PageSpinner />
+      ) : isError ? (
+        <ErrorNote message="Notifications are unavailable right now." onRetry={() => void refetch()} />
+      ) : (
+        <Card className="divide-y divide-border">
+          {items.length === 0 && <p className="px-4 py-10 text-center text-sm text-ink3">All quiet.</p>}
         {items.map((n) => {
           const url = notifUrl(n)
           const inner = (
@@ -89,7 +95,8 @@ export function NotificationsPage() {
             </div>
           )
         })}
-      </Card>
+        </Card>
+      )}
     </div>
   )
 }

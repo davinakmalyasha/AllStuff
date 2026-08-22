@@ -49,10 +49,40 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
 }
 
+let refreshing: Promise<boolean> | null = null
+
+/**
+ * Try to renew the session once via the refresh cookie. Returns true when a
+ * new access cookie was set. Concurrent callers share one refresh call.
+ */
+function refreshSession(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = (async () => {
+      try {
+        const res = await fetch(`${BASE}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+        })
+        return res.ok
+      } catch {
+        return false
+      } finally {
+        // Release the shared promise slightly later so parallel callers that
+        // grabbed it before settle can proceed with the new cookies.
+        setTimeout(() => {
+          refreshing = null
+        }, 0)
+      }
+    })()
+  }
+  return refreshing
+}
+
 export async function api<T>(path: string, options: RequestOptions = {}, _retried = false): Promise<T> {
   const { body, headers, ...rest } = options
 
-  const isMutation = rest.method !== undefined && rest.method !== 'GET'
+  const method = rest.method ?? 'GET'
+  const isMutation = method !== 'GET'
   const isFormData = body instanceof FormData
   const reqHeaders: Record<string, string> = {
     Accept: 'application/json',
@@ -69,7 +99,7 @@ export async function api<T>(path: string, options: RequestOptions = {}, _retrie
 
   const res = await fetch(`${BASE}${path}`, {
     ...rest,
-    method: rest.method ?? 'GET',
+    method,
     credentials: 'include',
     headers: reqHeaders,
     body: body !== undefined ? (isFormData ? body : JSON.stringify(body)) : undefined,
@@ -86,8 +116,9 @@ export async function api<T>(path: string, options: RequestOptions = {}, _retrie
 
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error
-    // Rate limited: honor Retry-After (cap 60s) and retry once (PRD §5.9.1).
-    if (!_retried && res.status === 429) {
+    // Rate limited on idempotent reads: honor Retry-After (cap 60s), retry
+    // once. Mutations are NOT auto-retried (non-idempotent).
+    if (!_retried && res.status === 429 && !isMutation) {
       const retryAfter = Number(res.headers.get('Retry-After') ?? '5')
       await new Promise((resolve) => setTimeout(resolve, Math.min(retryAfter * 1000, 60_000)))
       return api<T>(path, options, true)
@@ -95,6 +126,16 @@ export async function api<T>(path: string, options: RequestOptions = {}, _retrie
     // Stale CSRF cache (e.g. after logout cleared the cookie): drop it and retry once.
     if (!_retried && res.status === 403 && err?.code === 'csrf_invalid') {
       csrfToken = null
+      return api<T>(path, options, true)
+    }
+    // Access token expired: silently refresh and replay once (never for the
+    // auth endpoints themselves, to avoid loops).
+    if (
+      !_retried &&
+      res.status === 401 &&
+      !path.startsWith('/auth/') &&
+      (await refreshSession())
+    ) {
       return api<T>(path, options, true)
     }
     throw new ApiError(

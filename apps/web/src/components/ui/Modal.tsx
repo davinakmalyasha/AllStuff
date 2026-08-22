@@ -20,16 +20,43 @@ export function Modal({
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
+    const prevFocus = document.activeElement as HTMLElement | null
     document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
     ref.current?.focus()
     return () => {
       document.body.style.overflow = prev
-      window.removeEventListener('keydown', onKey)
+      prevFocus?.focus?.()
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    // Focus trap: keep Tab cycling inside the dialog (WAI-ARIA modal pattern).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !ref.current) return
+      const focusables = ref.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusables.length === 0) {
+        e.preventDefault()
+        return
+      }
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
   if (!open) return null

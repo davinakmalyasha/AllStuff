@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { ShieldCheck, Star } from 'lucide-react'
 import type { BusinessDTO } from '@/lib/api'
@@ -5,7 +6,7 @@ import { Badge } from './Badge'
 import { useCompare } from '@/stores/compare'
 
 /** Business card used across search results, category pages, and similar lists. */
-export function BusinessCard({ business: b, compare = false }: { business: BusinessDTO; compare?: boolean }) {
+export const BusinessCard = memo(function BusinessCard({ business: b, compare = false }: { business: BusinessDTO; compare?: boolean }) {
   const { ids, toggle } = useCompare()
   const inCompare = ids.includes(b.id)
   return (
@@ -59,4 +60,4 @@ export function BusinessCard({ business: b, compare = false }: { business: Busin
       </Link>
     </div>
   )
-}
+})

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type AnalyticsDTO } from '@/lib/api'
 import { useActiveBusiness } from '@/app/shells/OwnerShell'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 
 const PERIODS = ['7d', '30d', 'all'] as const
 
@@ -11,7 +11,7 @@ export function AnalyticsPage() {
   const business = useActiveBusiness()
   const [period, setPeriod] = useState<(typeof PERIODS)[number]>('30d')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['analytics', business?.id, period],
     queryFn: () => api<AnalyticsDTO>(`/businesses/${business!.id}/analytics?period=${period}`),
     enabled: !!business,
@@ -21,6 +21,12 @@ export function AnalyticsPage() {
     return <div className="mx-auto max-w-xl"><h1 className="text-2xl font-semibold tracking-tight">No business selected</h1></div>
   }
   if (isLoading) return <PageSpinner />
+  if (isError)
+    return (
+      <div className="mx-auto max-w-4xl py-10">
+        <ErrorNote message="Analytics are unavailable right now." onRetry={() => void refetch()} />
+      </div>
+    )
 
   const stats: [string, number][] = [
     ['Views', data?.views ?? 0],

@@ -17,7 +17,7 @@ import { ProductModal } from '@/components/engagement/ProductModal'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
 import { useAuth } from '@/stores/auth'
 import { priceLabel } from '@/features/dashboard/StorefrontPreview'
@@ -44,7 +44,7 @@ export function BusinessPage() {
   const { user } = useAuth()
   const [product, setProduct] = useState<ProductDTO | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['business', slug],
     queryFn: () =>
       api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${window.location.search}`),
@@ -76,6 +76,9 @@ export function BusinessPage() {
   )
 
   if (isLoading) return <PageSpinner />
+  if (isError && (error as { status?: number })?.status !== 404) {
+    return <div className="container-page py-10"><ErrorNote message="This page failed to load." onRetry={() => void refetch()} /></div>
+  }
   if (!b) return (
     <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-2 text-center">
       <p className="font-mono text-5xl font-semibold tracking-tight">404</p>
