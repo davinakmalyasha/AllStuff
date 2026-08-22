@@ -7,11 +7,22 @@ services:
       POSTGRES_DB: bizverse
     ports: ["5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bizverse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
+  # Optional: S3-compatible storage for the media pipeline (roadmap driver).
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"
@@ -20,14 +31,30 @@ services:
       MINIO_ROOT_PASSWORD: minio123
     ports: ["9000:9000", "9001:9001"]
     volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mailpit:
     image: axllent/mailpit
     ports: ["1025:1025", "8025:8025"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8025/api/v1/messages?limit=1 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   clamav:
     image: clamav/clamav:stable
     ports: ["3310:3310"]
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
 
 volumes:
   pgdata:

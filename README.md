@@ -11,7 +11,13 @@ Universal business directory + storefront platform. Every business in the world 
 
 ## Quickstart (local)
 
-1. PostgreSQL must be running; create the database and run migrations:
+1. Start the backing services (Postgres, Redis, MinIO, Mailpit, ClamAV):
+
+   ```powershell
+   docker compose -f infra/docker/docker-compose.yml up -d postgres mailpit
+   ```
+
+   Then create the database and run migrations:
 
    ```powershell
    psql -U postgres -h localhost -c "CREATE DATABASE bizverse;"

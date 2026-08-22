@@ -1,0 +1,50 @@
+name: Deploy
+
+# Template deploy pipeline (README advertises it). Activates once the repo
+# variable DEPLOY_ENABLED=true and the matching secrets exist:
+#   API   → Railway   (secrets: RAILWAY_TOKEN, var RAILWAY_SERVICE)
+#   WEB   → Vercel    (secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID)
+# Migrations run as part of the API container start (`-migrate` on boot per
+# docs/DEPLOYMENT.md), so no separate migrate step is needed here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  api:
+    name: API → Railway
+    runs-on: ubuntu-latest
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && secrets.RAILWAY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: curl -fsSL https://railway.app/install.sh | sh
+      - name: Deploy
+        run: railway up --service "${RAILWAY_SERVICE:-api}" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+
+  web:
+    name: Web → Vercel
+    runs-on: ubuntu-latest
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && secrets.VERCEL_TOKEN != '' }}
+    needs: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Deploy production
+        working-directory: apps/web
+        run: |
+          npx vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx vercel build --prod --token "$VERCEL_TOKEN"
+          npx vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
