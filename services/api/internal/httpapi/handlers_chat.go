@@ -548,47 +548,52 @@ func (s *Server) pushToThread(ctx context.Context, threadID string, msg *domain.
 	if s.deps.Config.VAPID == nil {
 		return
 	}
-	ids, err := s.deps.Repos.Chat.ParticipantIDs(ctx, threadID)
+	// Batched fan-out: one query for participants + prefs, one for every
+	// subscription (was two queries per participant per message).
+	rows, err := s.deps.Repos.Query(ctx, `
+		SELECT p.user_id, u.notification_prefs
+		FROM chat_participants p JOIN users u ON u.id = p.user_id
+		WHERE p.thread_id = $1 AND p.user_id <> $2 AND p.left_at IS NULL`,
+		threadID, msg.SenderID)
 	if err != nil {
 		return
 	}
-	for _, uid := range ids {
-		if uid == msg.SenderID {
-			continue
+	type target struct {
+		id    string
+		prefs map[string]any
+	}
+	var targets []target
+	var ids []string
+	for rows.Next() {
+		var t target
+		if err := rows.Scan(&t.id, &t.prefs); err != nil {
+			break
 		}
-		// Quiet hours (PRD §5.7): defer push between 22:00–08:00 in the user's tz.
-		if inQuietHours(ctx, s, uid) {
-			continue
+		targets = append(targets, t)
+		ids = append(ids, t.id)
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return
+	}
+
+	subsByUser, _ := s.deps.Repos.Push.ByUsers(ctx, ids)
+
+	title := "New message"
+	body := "You have a new message"
+	if msg.Body != nil && *msg.Body != "" {
+		body = *msg.Body
+	}
+	hour := time.Now().Hour()
+	for _, t := range targets {
+		// Quiet hours (PRD §5.7): defer push between 22:00–08:00.
+		if qh, ok := t.prefs["quiet_hours"].(map[string]any); ok {
+			if enabled, _ := qh["enabled"].(bool); enabled && (hour >= 22 || hour < 8) {
+				continue
+			}
 		}
-		subs, err := s.deps.Repos.Push.ByUser(ctx, uid)
-		if err != nil {
-			continue
-		}
-		title := "New message"
-		body := "You have a new message"
-		if msg.Body != nil && *msg.Body != "" {
-			body = *msg.Body
-		}
-		for _, sub := range subs {
+		for _, sub := range subsByUser[t.id] {
 			_ = s.deps.Config.VAPID.Send(sub, s.deps.Config.PublicURL, title, body, map[string]string{"thread_id": threadID})
 		}
 	}
-}
-
-func inQuietHours(ctx context.Context, s *Server, userID string) bool {
-	var prefs map[string]any
-	if err := s.deps.Repos.QueryRow(ctx,
-		`SELECT notification_prefs FROM users WHERE id = $1`, userID).Scan(&prefs); err != nil || prefs == nil {
-		return false
-	}
-	qh, ok := prefs["quiet_hours"].(map[string]any)
-	if !ok {
-		return false
-	}
-	enabled, _ := qh["enabled"].(bool)
-	if !enabled {
-		return false
-	}
-	hour := time.Now().Hour()
-	return hour >= 22 || hour < 8
 }

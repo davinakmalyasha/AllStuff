@@ -41,6 +41,25 @@ func New(pool *pgxpool.Pool) *Repos {
 	}
 }
 
+// NewForTx mirrors every repo onto an open transaction so services can run
+// multi-step writes atomically (e.g. chat message insert + thread touch).
+// Commit/Rollback stay with the caller.
+func NewForTx(tx pgx.Tx) *Repos {
+	return &Repos{
+		Users:      &UserRepo{pool: tx},
+		Sessions:   &SessionRepo{pool: tx},
+		Categories: &CategoryRepo{pool: tx},
+		Businesses: &BusinessRepo{pool: tx},
+		Media:      &MediaRepo{pool: tx},
+		Products:   &ProductRepo{pool: tx},
+		Engagement: &EngagementRepo{pool: tx},
+		Chat:       &ChatRepo{pool: tx},
+		Push:       &PushRepo{pool: tx},
+		Community:  &CommunityRepo{pool: tx},
+		TFA:        &TFARepo{pool: tx},
+	}
+}
+
 func (r *Repos) Pool() *pgxpool.Pool { return r.pool }
 
 func (r *Repos) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {

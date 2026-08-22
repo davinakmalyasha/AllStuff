@@ -50,4 +50,32 @@ func (r *PushRepo) ByUser(ctx context.Context, userID string) ([]security.PushSu
 	return out, rows.Err()
 }
 
+// ByUsers fetches subscriptions for many users in one round trip
+// (thread fan-out batching).
+func (r *PushRepo) ByUsers(ctx context.Context, userIDs []string) (map[string][]security.PushSubscription, error) {
+	if len(userIDs) == 0 {
+		return map[string][]security.PushSubscription{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT user_id, endpoint, keys FROM push_subscriptions WHERE user_id = ANY($1)`, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]security.PushSubscription{}
+	for rows.Next() {
+		var uid string
+		var sub security.PushSubscription
+		var keys []byte
+		if err := rows.Scan(&uid, &sub.Endpoint, &keys); err != nil {
+			continue
+		}
+		if err := json.Unmarshal(keys, &sub.Keys); err != nil {
+			continue
+		}
+		out[uid] = append(out[uid], sub)
+	}
+	return out, rows.Err()
+}
+
 

@@ -34,6 +34,13 @@ type Chat struct {
 	strikeMu  sync.Mutex
 	strikes   map[string][]time.Time // userID → recent blocked-word rejections
 	cooldowns map[string]time.Time   // userID → send lockout until
+
+	// Banned-word + allowlist cache: one query per message on every send was
+	// a hot-path N+1; 60s TTL keeps moderation near-real-time.
+	cacheMu   sync.Mutex
+	banWords  []string
+	banAllow  map[string]bool
+	banLoaded time.Time
 }
 
 type burstEntry struct {
@@ -257,11 +264,25 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		ClientMsgID:    clientID,
 		EditHistory:    []map[string]any{},
 	}
-	created, err := c.repos.Chat.CreateMessage(ctx, m)
+	// Atomic core write: message insert + thread preview/touch commit or
+	// roll back together (PRD §7.3). Best-effort side effects below run
+	// after the commit so they can never undo a delivered message.
+	tx, err := c.repos.Pool().Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_ = c.repos.Chat.TouchLastMessage(ctx, threadID)
+	trx := repo.NewForTx(tx)
+	created, err := trx.Chat.CreateMessage(ctx, m)
+	if err == nil {
+		err = trx.Chat.TouchLastMessage(ctx, threadID)
+	}
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 
 	// Link preview: enrich after insert (best-effort).
 	if created.Type == "text" && created.Body != nil && urlRe.MatchString(*created.Body) && created.LinkPreview == nil {
@@ -297,18 +318,9 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 }
 
 func (c *Chat) checkBanned(ctx context.Context, text string) error {
-	words, err := c.repos.Chat.BannedWords(ctx)
+	words, allow, err := c.bannedLists(ctx)
 	if err != nil {
 		return err
-	}
-	// Allowlist (site config) exempts false positives (PRD E13).
-	allow := map[string]bool{}
-	var allowWords []string
-	_ = c.repos.QueryRow(ctx, `
-		SELECT coalesce(value->'words', '[]'::jsonb) FROM site_config WHERE key = 'banned_words_allowlist'`).
-		Scan(&allowWords)
-	for _, w := range allowWords {
-		allow[strings.ToLower(w)] = true
 	}
 	lower := strings.ToLower(text)
 	for _, w := range words {
@@ -317,6 +329,31 @@ func (c *Chat) checkBanned(ctx context.Context, text string) error {
 		}
 	}
 	return nil
+}
+
+// bannedLists returns the banned words and allowlist with a 60s cache.
+func (c *Chat) bannedLists(ctx context.Context) ([]string, map[string]bool, error) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.banWords != nil && time.Since(c.banLoaded) < 60*time.Second {
+		return c.banWords, c.banAllow, nil
+	}
+	words, err := c.repos.Chat.BannedWords(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	var allowWords []string
+	_ = c.repos.QueryRow(ctx, `
+		SELECT coalesce(value->'words', '[]'::jsonb) FROM site_config WHERE key = 'banned_words_allowlist'`).
+		Scan(&allowWords)
+	allow := make(map[string]bool, len(allowWords))
+	for _, w := range allowWords {
+		allow[strings.ToLower(w)] = true
+	}
+	c.banWords = words
+	c.banAllow = allow
+	c.banLoaded = time.Now()
+	return words, allow, nil
 }
 
 // checkBannedStriked wraps the banned-word check with the §8.5 escalation:
