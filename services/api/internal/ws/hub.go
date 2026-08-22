@@ -18,8 +18,9 @@ import (
 type Hub struct {
 	logger *slog.Logger
 
-	mu    sync.RWMutex
-	conns map[string]*conn // userID -> conn (single per user per device; last wins)
+	mu sync.RWMutex
+	// userID → live connections (multi-device: every tab/device gets frames).
+	conns map[string]map[*conn]struct{}
 
 	upgrader websocket.Upgrader
 
@@ -33,6 +34,27 @@ type conn struct {
 	send   chan []byte
 	done   chan struct{} // closed once by shutdown(); send is NEVER closed
 	once   sync.Once
+
+	mu   sync.Mutex
+	subs map[string]bool // thread ids this connection opted into via `subscribe`
+}
+
+// subscribeThreads records the threads this connection wants signals for.
+func (c *conn) subscribeThreads(ids []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.subs == nil {
+		c.subs = map[string]bool{}
+	}
+	for _, id := range ids {
+		c.subs[id] = true
+	}
+}
+
+func (c *conn) wants(threadID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.subs[threadID]
 }
 
 // shutdown tears the connection down exactly once. c.send must not be
@@ -69,7 +91,7 @@ func NewHubWithRedis(logger *slog.Logger, allowedOrigins []string, pubsub *Redis
 	}
 	return &Hub{
 		logger: logger,
-		conns:  map[string]*conn{},
+		conns:  map[string]map[*conn]struct{}{},
 		pubsub: pubsub,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -114,14 +136,17 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 	<-ctx.Done()
 	h.mu.Lock()
-	for id, c := range h.conns {
-		c.shutdown()
+	for id, set := range h.conns {
+		for c := range set {
+			c.shutdown()
+		}
 		delete(h.conns, id)
 	}
 	h.mu.Unlock()
 }
 
-// Serve upgrades and registers the connection.
+// Serve upgrades and registers the connection. Multiple simultaneous
+// connections per user are supported (tabs, phone, desktop).
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, userID string) {
 	wsConn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -130,10 +155,12 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, userID string) {
 	}
 	c := &conn{userID: userID, ws: wsConn, send: make(chan []byte, 64), done: make(chan struct{})}
 	h.mu.Lock()
-	if old, ok := h.conns[userID]; ok {
-		old.shutdown() // last wins (single-conn-per-user model)
+	set := h.conns[userID]
+	if set == nil {
+		set = map[*conn]struct{}{}
+		h.conns[userID] = set
 	}
-	h.conns[userID] = c
+	set[c] = struct{}{}
 	h.mu.Unlock()
 
 	h.sendTo(c, Frame{Type: "welcome", Payload: map[string]any{"user_id": userID}})
@@ -158,7 +185,17 @@ func (h *Hub) readPump(c *conn) {
 		case "ping":
 			h.sendTo(c, Frame{ID: f.ID, Type: "pong"})
 		case "subscribe":
-			// thread subscriptions land with M5; frame contract reserved.
+			// Opt-in thread signals (typing) for this connection.
+			var p struct {
+				ThreadIDs []string `json:"thread_ids"`
+			}
+			if f.Payload != nil {
+				if raw, err := json.Marshal(f.Payload); err == nil {
+					if json.Unmarshal(raw, &p) == nil && len(p.ThreadIDs) > 0 {
+						c.subscribeThreads(p.ThreadIDs)
+					}
+				}
+			}
 		}
 	}
 }
@@ -189,8 +226,11 @@ func (h *Hub) writePump(c *conn) {
 
 func (h *Hub) disconnect(c *conn) {
 	h.mu.Lock()
-	if h.conns[c.userID] == c {
-		delete(h.conns, c.userID)
+	if set, ok := h.conns[c.userID]; ok {
+		delete(set, c)
+		if len(set) == 0 {
+			delete(h.conns, c.userID)
+		}
 	}
 	h.mu.Unlock()
 	c.shutdown()
@@ -207,13 +247,16 @@ func (h *Hub) sendTo(c *conn, f Frame) {
 	}
 }
 
-// SendToUser delivers a frame to a user if connected (idempotent, non-blocking).
-// With Redis configured it also publishes for other instances.
+// SendToUser delivers a frame to every live connection of the user
+// (multi-device). With Redis configured it also publishes for other instances.
 func (h *Hub) SendToUser(userID string, f Frame) {
 	h.mu.RLock()
-	c, ok := h.conns[userID]
+	conns := make([]*conn, 0, len(h.conns[userID]))
+	for c := range h.conns[userID] {
+		conns = append(conns, c)
+	}
 	h.mu.RUnlock()
-	if ok {
+	for _, c := range conns {
 		h.sendTo(c, f)
 	}
 	if h.pubsub != nil {
@@ -224,9 +267,32 @@ func (h *Hub) SendToUser(userID string, f Frame) {
 	}
 }
 
+// DeliverTypingToThread sends a high-frequency signal only to connections
+// that opted in via `subscribe` — no DB lookup, no cross-tab noise.
+func (h *Hub) DeliverTypingToThread(threadID string, f Frame) int {
+	h.mu.RLock()
+	var targets []*conn
+	for _, set := range h.conns {
+		for c := range set {
+			if c.wants(threadID) {
+				targets = append(targets, c)
+			}
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		h.sendTo(c, f)
+	}
+	return len(targets)
+}
+
 // Count returns the number of live connections (health/observability).
 func (h *Hub) Count() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return len(h.conns)
+	n := 0
+	for _, set := range h.conns {
+		n += len(set)
+	}
+	return n
 }

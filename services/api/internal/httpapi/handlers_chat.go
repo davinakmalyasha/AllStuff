@@ -244,7 +244,9 @@ func (s *Server) handleTyping(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	s.broadcastThread(r.Context(), r.PathValue("id"), Frame{Type: "typing", Payload: map[string]any{
+	// Typing is a high-frequency, low-value signal: deliver only to
+	// connections that subscribed to this thread (no participant query).
+	s.deps.Hub.DeliverTypingToThread(r.PathValue("id"), Frame{Type: "typing", Payload: map[string]any{
 		"thread_id": r.PathValue("id"), "user_id": user.ID, "is_typing": true,
 	}})
 	noContent(w)
