@@ -55,8 +55,7 @@ function AllowlistEditor() {
 }
 
 /** Curation & config (PRD §5.8.5): featured, banned words, announcement. */
-export function AdminCurationPage() {
-  const qc = useQueryClient()
+export function AdminCurationPage() {  const qc = useQueryClient()
   const [featured, setFeatured] = useState<string[]>([])
   const [word, setWord] = useState('')
   const [announcement, setAnnouncement] = useState('')
@@ -167,6 +166,8 @@ export function AdminCurationPage() {
         <Button size="sm" onClick={() => void saveAnnouncement.mutateAsync()} disabled={saveAnnouncement.isPending}>Save announcement</Button>
       </Card>
 
+      <TrendingConfigCard />
+
       <Card className="space-y-3">
         <p className="mono-label">Banned words (chat & content, PRD §8.7)</p>
         <div className="flex gap-2">
@@ -206,5 +207,89 @@ export function AdminCurationPage() {
         </pre>
       </Card>
     </div>
+  )
+}
+
+interface TrendingCfg {
+  lambda_24h: number
+  lambda_7d: number
+  lambda_30d: number
+  booming_n: number
+  rising_n: number
+  rising_paused: boolean
+}
+
+const TRENDING_DEFAULTS: TrendingCfg = {
+  lambda_24h: 0.03,
+  lambda_7d: 0.006,
+  lambda_30d: 0.002,
+  booming_n: 25,
+  rising_n: 20,
+  rising_paused: false,
+}
+
+/** Leaderboard tuning (PRD §5.8.5): decay rates, list sizes, Rising pause.
+ *  Stored in site_config key "trending"; the engine picks it up next run. */
+function TrendingConfigCard() {
+  const qc = useQueryClient()
+  const { data: site } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: () => api<Record<string, unknown>>('/admin/settings'),
+  })
+  const [cfg, setCfg] = useState<TrendingCfg>(TRENDING_DEFAULTS)
+  const [dirty, setDirty] = useState(false)
+  useEffect(() => {
+    if (!site) return
+    const t = site.trending as Partial<TrendingCfg> | undefined
+    if (t && typeof t === 'object') setCfg({ ...TRENDING_DEFAULTS, ...t })
+  }, [site])
+
+  const save = useMutation({
+    mutationFn: () => api('/admin/settings', { method: 'PUT', body: { trending: cfg } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-settings'] })
+      setDirty(false)
+      toast.success('Trending config saved — applies on the next recompute')
+    },
+  })
+
+  const numField = (key: keyof TrendingCfg, label: string, step: number) => (
+    <label className="flex items-center justify-between gap-3 text-sm text-ink2">
+      {label}
+      <input
+        type="number"
+        step={step}
+        value={cfg[key] as number}
+        onChange={(e) => {
+          setCfg((c) => ({ ...c, [key]: Number(e.target.value) }))
+          setDirty(true)
+        }}
+        className="h-9 w-28 rounded-lg border border-border bg-surface px-3 text-sm text-ink"
+      />
+    </label>
+  )
+
+  return (
+    <Card className="space-y-3">
+      <p className="mono-label">Trending engine (PRD §5.6.3)</p>
+      {numField('lambda_24h', '24h decay λ', 0.001)}
+      {numField('lambda_7d', '7d decay λ', 0.001)}
+      {numField('lambda_30d', '30d decay λ', 0.001)}
+      {numField('booming_n', 'Booming list size', 1)}
+      {numField('rising_n', 'Rising list size', 1)}
+      <label className="flex items-center justify-between gap-3 text-sm text-ink2">
+        Pause Rising strip (freezes current badges)
+        <input
+          type="checkbox"
+          checked={cfg.rising_paused}
+          onChange={(e) => {
+            setCfg((c) => ({ ...c, rising_paused: e.target.checked }))
+            setDirty(true)
+          }}
+          className="h-4 w-4 accent-black dark:accent-white"
+        />
+      </label>
+      <Button size="sm" onClick={() => void save.mutateAsync()} disabled={!dirty || save.isPending}>Save trending config</Button>
+    </Card>
   )
 }

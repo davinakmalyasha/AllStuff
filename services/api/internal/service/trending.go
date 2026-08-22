@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -29,37 +28,76 @@ func NewTrending(repos *repo.Repos, notifier *Notifier) *Trending {
 	return &Trending{repos: repos, notifier: notifier}
 }
 
-// Windows: period → λ per hour (24h: 0.03, 7d: 0.006, 30d: 0.002).
-var windows = []struct {
-	period string
-	lambda float64
-}{
-	{"24h", 0.03}, {"7d", 0.006}, {"30d", 0.002},
+// TrendingConfig holds the admin-tunable engine knobs (PRD §5.8.5
+// leaderboard config); stored in site_config under key "trending".
+type TrendingConfig struct {
+	Lambda24h    float64
+	Lambda7d     float64
+	Lambda30d    float64
+	BoomingN     int
+	RisingN      int
+	RisingPaused bool // M18: freeze the Rising strip instead of rotating it
+}
+
+func defaultTrendingConfig() TrendingConfig {
+	return TrendingConfig{Lambda24h: 0.03, Lambda7d: 0.006, Lambda30d: 0.002, BoomingN: 25, RisingN: 20}
+}
+
+func (t *Trending) loadConfig(ctx context.Context) TrendingConfig {
+	cfg := defaultTrendingConfig()
+	var raw map[string]any
+	if err := t.repos.QueryRow(ctx,
+		`SELECT value FROM site_config WHERE key = 'trending'`).Scan(&raw); err != nil || raw == nil {
+		return cfg
+	}
+	num := func(k string, def float64) float64 {
+		if v, ok := raw[k].(float64); ok && v > 0 {
+			return v
+		}
+		return def
+	}
+	intOf := func(k string, def int) int {
+		if v, ok := raw[k].(float64); ok && v >= 1 {
+			return int(v)
+		}
+		return def
+	}
+	cfg.Lambda24h = num("lambda_24h", cfg.Lambda24h)
+	cfg.Lambda7d = num("lambda_7d", cfg.Lambda7d)
+	cfg.Lambda30d = num("lambda_30d", cfg.Lambda30d)
+	cfg.BoomingN = intOf("booming_n", cfg.BoomingN)
+	cfg.RisingN = intOf("rising_n", cfg.RisingN)
+	if v, ok := raw["rising_paused"].(bool); ok {
+		cfg.RisingPaused = v
+	}
+	return cfg
 }
 
 // Compute runs the full recompute: scores → snapshots → Booming/Rising flags.
 func (t *Trending) Compute(ctx context.Context) error {
+	cfg := t.loadConfig(ctx)
+	windows := []struct {
+		period string
+		lambda float64
+		hours  float64
+	}{
+		{"24h", cfg.Lambda24h, 24},
+		{"7d", cfg.Lambda7d, 168},
+		{"30d", cfg.Lambda30d, 720},
+	}
 	for _, w := range windows {
-		interval := "24 hours"
-		switch w.period {
-		case "7d":
-			interval = "7 days"
-		case "30d":
-			interval = "30 days"
-		}
 		// Score per business (verified only, un-flagged events).
-		_, err := t.repos.Exec(ctx, `
+		if _, err := t.repos.Exec(ctx, `
 			INSERT INTO trend_snapshots (id, period, business_id, score, taken_at)
 			SELECT gen_random_uuid(), $1, b.id,
-				coalesce(SUM(e.weight * exp(-`+fmt.Sprintf("%g", w.lambda)+` * EXTRACT(EPOCH FROM (now() - e.occurred_at)) / 3600.0)), 0),
+				coalesce(SUM(e.weight * exp(-$2 * EXTRACT(EPOCH FROM (now() - e.occurred_at)) / 3600.0)), 0),
 				now()
 			FROM businesses b
 			LEFT JOIN engagement_events e ON e.target_type='business' AND e.target_id = b.id
-				AND e.occurred_at > now() - interval '`+interval+`' AND e.flagged = false
+				AND e.occurred_at > now() - ($3 * interval '1 hour') AND e.flagged = false
 			WHERE b.status = 'verified' AND b.deleted_at IS NULL
 			GROUP BY b.id`,
-			w.period)
-		if err != nil {
+			w.period, w.lambda, w.hours); err != nil {
 			return err
 		}
 	}
@@ -92,14 +130,14 @@ func (t *Trending) Compute(ctx context.Context) error {
 			rank_global = r.rank_global,
 			rank_category = r.rank_category,
 			rank_city = r.rank_city,
-			is_booming = r.rank_global <= 25
+			is_booming = r.rank_global <= $1
 		FROM ranked r
 		WHERE s.business_id = r.business_id AND s.period='24h'
-			AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`)
+			AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`, cfg.BoomingN)
 	if err != nil {
 		return err
 	}
-	if err := t.markRising(ctx); err != nil {
+	if err := t.markRising(ctx, cfg); err != nil {
 		return err
 	}
 	return t.flagSpikes(ctx)
@@ -162,8 +200,15 @@ func (t *Trending) flagSpikes(ctx context.Context) error {
 }
 
 // markRising: hidden gems — velocity normalized by age + trailing score.
-func (t *Trending) markRising(ctx context.Context) error {
-	// Baseline = 5 + trailing30d×0.2 + age_days×0.05; top 20 eligible.
+// §8.6 rules enforced here:
+//   - a business cannot hold Booming and Rising simultaneously (M23)
+//   - eligibility resets weekly: businesses rising in last week's final
+//     snapshot sit out this week so the badge rotates (M24)
+//   - when RisingPaused is set the strip freezes as-is (M18)
+func (t *Trending) markRising(ctx context.Context, cfg TrendingConfig) error {
+	if cfg.RisingPaused {
+		return nil
+	}
 	_, err := t.repos.Exec(ctx, `
 		UPDATE trend_snapshots SET is_rising = false WHERE period='24h'
 			AND taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`)
@@ -172,7 +217,7 @@ func (t *Trending) markRising(ctx context.Context) error {
 	}
 	_, err = t.repos.Exec(ctx, `
 		WITH latest AS (
-			SELECT s.business_id, s.velocity,
+			SELECT s.business_id, s.velocity, s.is_booming,
 				b.created_at,
 				(SELECT score FROM trend_snapshots WHERE period='30d' AND business_id = s.business_id
 				 ORDER BY taken_at DESC LIMIT 1) AS score30
@@ -184,12 +229,22 @@ func (t *Trending) markRising(ctx context.Context) error {
 				velocity / (5.0 + coalesce(score30,0)*0.2 + extract(epoch from (now() - created_at))/86400.0*0.05) AS normalized,
 				row_number() OVER (ORDER BY velocity / (5.0 + coalesce(score30,0)*0.2 + extract(epoch from (now() - created_at))/86400.0*0.05) DESC) AS rn
 			FROM latest
-			WHERE velocity > 0
+			WHERE velocity > 0 AND NOT coalesce(is_booming, false) -- M23
+			  AND business_id NOT IN ( -- M24 weekly rotation
+				SELECT business_id FROM trend_snapshots old
+				WHERE old.period='24h' AND old.is_rising = true
+				  AND old.taken_at = (
+					SELECT max(taken_at) FROM trend_snapshots
+					WHERE period='24h'
+					  AND taken_at >= date_trunc('week', now()) - interval '7 days'
+					  AND taken_at < date_trunc('week', now())
+				  )
+			  )
 		)
 		UPDATE trend_snapshots s SET is_rising = true
 		FROM ranked r
-		WHERE s.period='24h' AND s.business_id = r.business_id AND r.rn <= 20
-		  AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`)
+		WHERE s.period='24h' AND s.business_id = r.business_id AND r.rn <= $1
+		  AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`, cfg.RisingN)
 	return err
 }
 
