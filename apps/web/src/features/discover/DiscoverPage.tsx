@@ -30,6 +30,7 @@ export function DiscoverPage() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [submitted, setSubmitted] = useState(q)
+  const [hl, setHl] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
 
   usePageMeta(submitted ? `Results for "${submitted}"` : 'Discover businesses')
@@ -152,6 +153,45 @@ export function DiscoverPage() {
   const toggleCat = (id: string) => setCats((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
   const togglePrice = (n: number) => setPriceLevels((prev) => (prev.includes(n) ? prev.filter((p) => p !== n) : [...prev, n]))
 
+  // Suggest options flattened for keyboard navigation (WAI-ARIA combobox).
+  type SuggestOpt = { key: string; href: string; name: string; meta: string }
+  const suggestOpts: SuggestOpt[] = suggest
+    ? [
+        ...suggest.businesses.map((s): SuggestOpt => ({ key: `b-${s.slug}`, href: `/b/${s.slug}`, name: s.name, meta: [s.category, s.city].filter(Boolean).join(' · ') })),
+        ...suggest.categories.map((c): SuggestOpt => ({ key: `c-${c.slug}`, href: `/c/${c.slug}`, name: c.name, meta: `${c.count} businesses` })),
+      ]
+    : []
+
+  const onSuggestKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestOpen || suggestOpts.length === 0) {
+      if (e.key === 'Enter') submit()
+      return
+    }
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setHl((h) => (h + 1) % suggestOpts.length)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setHl((h) => (h <= 0 ? suggestOpts.length - 1 : h - 1))
+        break
+      case 'Enter':
+        e.preventDefault()
+        if (hl >= 0 && hl < suggestOpts.length) {
+          window.location.assign(suggestOpts[hl].href)
+        } else {
+          submit()
+        }
+        break
+      case 'Escape':
+        setSuggestOpen(false)
+        setHl(-1)
+        inputRef.current?.blur()
+        break
+    }
+  }
+
   const hasFilters = cats.length > 0 || priceLevels.length > 0 || minRating > 0 || openNow || verifiedOnly
 
   return (
@@ -165,11 +205,17 @@ export function DiscoverPage() {
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
+                setHl(-1)
                 setSuggestOpen(true)
               }}
               onFocus={() => setSuggestOpen(true)}
               onBlur={() => setTimeout(() => setSuggestOpen(false), 200)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              onKeyDown={onSuggestKeyDown}
+              role="combobox"
+              aria-expanded={suggestOpen && suggestOpts.length > 0}
+              aria-controls="suggest-list"
+              aria-activedescendant={hl >= 0 ? `suggest-opt-${hl}` : undefined}
+              aria-autocomplete="list"
               placeholder="Search businesses, categories, cities…"
               className="h-9 w-full bg-transparent text-sm text-ink placeholder:text-ink3 focus:outline-none"
             />
@@ -182,17 +228,19 @@ export function DiscoverPage() {
           </div>
 
           {suggestOpen && query.trim().length >= 2 && suggest && (
-            <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover">
-              {suggest.businesses.map((s) => (
-                <a key={s.slug} href={`/b/${s.slug}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface2">
-                  <span className="font-medium text-ink">{s.name}</span>
-                  <span className="text-xs text-ink3">{s.category} · {s.city}</span>
-                </a>
-              ))}
-              {suggest.categories.map((c) => (
-                <a key={c.slug} href={`/c/${c.slug}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface2">
-                  <span className="font-medium text-ink">{c.name}</span>
-                  <span className="text-xs text-ink3">{c.count} businesses</span>
+            <div id="suggest-list" role="listbox" aria-label="Suggestions" className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover">
+              {suggestOpts.map((o, i) => (
+                <a
+                  key={o.key}
+                  id={`suggest-opt-${i}`}
+                  role="option"
+                  aria-selected={i === hl}
+                  href={o.href}
+                  onMouseEnter={() => setHl(i)}
+                  className={`flex items-center gap-3 px-4 py-2.5 text-sm ${i === hl ? 'bg-surface2' : ''}`}
+                >
+                  <span className="font-medium text-ink">{o.name}</span>
+                  <span className="text-xs text-ink3">{o.meta}</span>
                 </a>
               ))}
               {suggest.businesses.length === 0 && suggest.categories.length === 0 && (
@@ -319,7 +367,21 @@ export function DiscoverPage() {
         <div className="card flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="font-mono text-sm text-ink3">No results</p>
           <p className="text-sm text-ink2">Try clearing filters or searching something broader.</p>
-          {hasFilters && <Button variant="secondary" size="sm" className="mt-2" onClick={() => { setCats([]); setPriceLevels([]); setMinRating(0); setOpenNow(false); setVerifiedOnly(false); }}>Clear filters</Button>}
+          {!hasFilters && (
+            <>
+              <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                {leafCats.slice(0, 6).map((c) => (
+                  <a key={c.id} href={`/c/${c.slug}`} className="rounded-full border border-border px-3 py-1 text-xs text-ink2 hover:bg-surface2">
+                    {c.name}
+                  </a>
+                ))}
+              </div>
+              <a href="/dashboard/register" className="mt-2 text-sm font-medium text-ink underline underline-offset-4 hover:text-ink2">
+                Add your business →
+              </a>
+            </>
+          )}
+          {hasFilters && <Button variant="secondary" size="sm" className="mt-2" onClick={() => { setCats([]); setPriceLevels([]); setMinRating(0); setOpenNow(false); setVerifiedOnly(false); setFullyVerified(false); }}>Clear filters</Button>}
         </div>
       )}
 

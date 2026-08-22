@@ -170,11 +170,14 @@ export function CommentsSection({ businessId }: { businessId: string }) {
                 }
                 if (e.key === 'ArrowDown' && mentionQuery !== null) {
                   e.preventDefault()
-                  setMentionIdx((i) => i + 1)
+                  setMentionIdx((i) => Math.min((mentionResults?.users?.length ?? 1) - 1, i + 1))
                 }
                 if (e.key === 'ArrowUp' && mentionQuery !== null) {
                   e.preventDefault()
                   setMentionIdx((i) => Math.max(0, i - 1))
+                }
+                if (e.key === 'Escape' && mentionQuery !== null) {
+                  setMentionQuery(null)
                 }
                 if (e.key === 'Enter' && mentionQuery !== null) {
                   e.preventDefault()
@@ -182,6 +185,10 @@ export function CommentsSection({ businessId }: { businessId: string }) {
                   if (u) insertMention(u)
                 }
               }}
+              role="combobox"
+              aria-expanded={mentionQuery !== null && (mentionResults?.users?.length ?? 0) > 0}
+              aria-controls="mention-list"
+              aria-activedescendant={mentionQuery !== null ? `mention-opt-${mentionIdx}` : undefined}
               placeholder={replyTo ? `Replying to @${replyTo.name}…` : 'Join the conversation… (@username to mention)'}
               className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
             />
@@ -190,11 +197,15 @@ export function CommentsSection({ businessId }: { businessId: string }) {
             </Button>
           </div>
           {mentionQuery !== null && (mentionResults?.users?.length ?? 0) > 0 && (
-            <div className="absolute top-11 z-30 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover">
+            <div id="mention-list" role="listbox" aria-label="Mention suggestions" className="absolute top-11 z-30 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover">
               {mentionResults!.users.map((u, i) => (
                 <button
                   key={u.id}
+                  id={`mention-opt-${i}`}
+                  role="option"
+                  aria-selected={i === mentionIdx}
                   onClick={() => insertMention(u)}
+                  onMouseEnter={() => setMentionIdx(i)}
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${i === mentionIdx ? 'bg-surface2' : 'hover:bg-surface2'}`}
                 >
                   <span className="font-medium text-ink">{u.name}</span>
