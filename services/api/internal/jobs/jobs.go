@@ -11,8 +11,26 @@ import (
 	"bizverse/api/internal/service"
 )
 
-// Run starts background jobs (ARCHITECTURE §4).
+// Run starts background jobs (ARCHITECTURE §4). A Postgres advisory lock
+// elects a single leader per cluster so scaled-out replicas don't double-run
+// digests/alerts/currency writes; non-leaders idle until shutdown.
 func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config.Config, sender email.Sender, notifier *service.Notifier) {
+	conn, err := repos.Pool().Acquire(ctx)
+	if err == nil {
+		defer conn.Release()
+		var leader bool
+		if lerr := conn.QueryRow(ctx,
+			`SELECT pg_try_advisory_lock(hashtext('bizverse:jobs'))`).Scan(&leader); lerr == nil && !leader {
+			logger.Info("jobs disabled: another instance holds the scheduler lock")
+			<-ctx.Done()
+			return
+		}
+		defer func() {
+			_, _ = conn.Exec(context.WithoutCancel(ctx),
+				`SELECT pg_advisory_unlock(hashtext('bizverse:jobs'))`)
+		}()
+	}
+
 	logger.Info("jobs started")
 
 	trending := service.NewTrending(repos, notifier)
