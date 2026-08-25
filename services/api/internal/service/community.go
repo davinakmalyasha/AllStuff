@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
+	"time"
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/repo"
@@ -43,18 +45,9 @@ func (s *Community) Ask(ctx context.Context, userID, businessID, text string) (*
 }
 
 func (s *Community) Questions(ctx context.Context, businessID string, limit, offset int) ([]*domain.Question, error) {
-	list, err := s.repos.Community.ListQuestions(ctx, businessID, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	for _, q := range list {
-		answers, err := s.repos.Community.ListAnswers(ctx, q.ID)
-		if err != nil {
-			return nil, err
-		}
-		q.Answers = answers
-	}
-	return list, nil
+	// Single batched load: the per-question ListAnswers loop was an N+1
+	// (21 queries per page at the default limit of 20).
+	return s.repos.Community.ListQuestionsWithAnswers(ctx, businessID, limit, offset)
 }
 
 func (s *Community) Answer(ctx context.Context, userID, questionID, text string) (*domain.Answer, error) {
@@ -122,15 +115,18 @@ func (s *Community) PostUpdate(ctx context.Context, ownerID, businessID, title, 
 	if err != nil {
 		return nil, err
 	}
-	// Notify followers (in-app).
-	followers, err := s.repos.Community.FollowerIDs(ctx, businessID)
-	if err == nil {
-		for _, fid := range followers {
-			s.notifier.Create(ctx, fid, "business_update", map[string]any{
-				"update_id": u.ID, "business_id": businessID, "title": title,
-			})
+	// Notify followers (in-app): bulk INSERT off the request path. The
+	// previous loop ran 4 queries per follower synchronously — a 5k-follower
+	// announcement serialized ~15k queries and starved the pool.
+	go func(updateID string) {
+		fctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := s.notifier.CreateForFollowers(fctx, businessID, "business_update", map[string]any{
+			"update_id": updateID, "business_id": businessID, "title": title,
+		}); err != nil {
+			slog.Warn("announcement fan-out", "err", err, "business", businessID)
 		}
-	}
+	}(u.ID)
 	return u, nil
 }
 

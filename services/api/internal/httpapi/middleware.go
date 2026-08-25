@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -83,7 +85,14 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 			"ua", r.UserAgent(),
 		)
 		if !strings.HasPrefix(r.URL.Path, "/api/v1/health") && r.URL.Path != "/metrics" {
-			s.metrics.Observe(r.Method, r.URL.Path, rec.status)
+			// Label by the MATCHED ROUTE PATTERN when available: slugs
+			// (/b/<slug>, /u/<name>, /og/b/<slug>) each minted a series until
+			// the 512 cap pushed real routes into overflow.
+			label := r.URL.Path
+			if r.Pattern != "" {
+				label = r.Pattern
+			}
+			s.metrics.Observe(r.Method, label, rec.status)
 		}
 	})
 }
@@ -576,4 +585,102 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// ---- response compression (perf audit P2-1) ----
+
+// withGzip compresses text/json API responses for clients that advertise
+// support. Search/list payloads carry full descriptions + snapshot JSONB and
+// shrink 70-80%. Binary media/OG endpoints are skipped via Content-Type, and
+// /ws is excluded (hijacked connections must not be wrapped).
+func (s *Server) withGzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/ws" ||
+			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gzPool := gzipWriterPool{}
+		gzw := gzPool.get(w)
+		defer gzPool.put(gzw)
+		next.ServeHTTP(gzw, r)
+		gzw.close()
+	})
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz  *gzip.Writer
+	on  bool
+	did bool
+}
+
+var _ http.Flusher = (*gzipResponseWriter)(nil)
+
+func (g *gzipResponseWriter) WriteHeader(code int) {
+	if !g.did {
+		g.did = true
+		ct := g.Header().Get("Content-Type")
+		ce := g.Header().Get("Content-Encoding")
+		if ce == "" && (strings.HasPrefix(ct, "application/json") ||
+			strings.HasPrefix(ct, "text/") || ct == "" ) &&
+			g.Header().Get("Content-Disposition") == "" {
+			g.Header().Set("Content-Encoding", "gzip")
+			g.Header().Del("Content-Length")
+			g.Header().Add("Vary", "Accept-Encoding")
+			if g.gz == nil {
+				g.gz = gzip.NewWriter(g.ResponseWriter)
+			} else {
+				g.gz.Reset(g.ResponseWriter)
+			}
+			g.on = true
+		}
+	}
+	g.ResponseWriter.WriteHeader(code)
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	if !g.did {
+		g.WriteHeader(http.StatusOK)
+	}
+	if g.on {
+		return g.gz.Write(b)
+	}
+	return g.ResponseWriter.Write(b)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	if g.on {
+		_ = g.gz.Flush()
+	}
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// close flushes and releases the gzip stream; safe to call once.
+func (g *gzipResponseWriter) close() {
+	if g.on && g.gz != nil {
+		_ = g.gz.Close()
+		g.on = false
+	}
+}
+
+// gzipWriterPool recycles gzip.Writer buffers across requests.
+type gzipWriterPool struct{ pool sync.Pool }
+
+func (p *gzipWriterPool) get(w http.ResponseWriter) *gzipResponseWriter {
+	if v := p.pool.Get(); v != nil {
+		gw := v.(*gzipResponseWriter)
+		gw.ResponseWriter = w
+		gw.did = false
+		gw.on = false
+		return gw
+	}
+	return &gzipResponseWriter{ResponseWriter: w, gz: gzip.NewWriter(nil)}
+}
+
+func (p *gzipWriterPool) put(gw *gzipResponseWriter) {
+	gw.ResponseWriter = nil
+	p.pool.Put(gw)
 }

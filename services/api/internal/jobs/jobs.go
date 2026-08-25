@@ -2,7 +2,9 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,6 +45,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	digest := service.NewDigest(repos, sender, cfg.PublicURL)
 	alerts := service.NewSearchAlerts(repos, sender, cfg)
 	ops := service.NewOps(repos, cfg.MediaDir)
+	authPurger := service.NewAuth(repos, cfg, sender, logger)
 
 	// Recompute immediately at boot, then every 10 minutes.
 	if err := trending.Compute(ctx); err != nil {
@@ -52,13 +55,13 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	if err := currency.Sync(ctx); err != nil {
 		logger.Warn("currency initial sync", "err", err)
 	}
-	// Notification retention: prune past expires_at (default 90 days, PRD §5.7).
+	// Notification retention: prune past expires_at (default 90 days, PRD 5.7).
 	if _, err := repos.Engagement.PurgeExpired(ctx); err != nil {
 		logger.Warn("notification purge initial", "err", err)
 	}
 	// Account deletion grace (14 days) expiry: hard-purge soft-deleted
-	// users (PRD §5.9.2).
-	if _, err := service.NewAuth(repos, cfg, sender, logger).PurgeExpiredDeletions(ctx); err != nil {
+	// users (PRD 5.9.2).
+	if _, err := authPurger.PurgeExpiredDeletions(ctx); err != nil {
 		logger.Warn("deletion purge initial", "err", err)
 	}
 	// Snapshot retention: keep 14 days of trend_snapshots; orphan media cleanup.
@@ -85,6 +88,31 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	defer purgeTicker.Stop()
 	defer opsTicker.Stop()
 
+	// Each ticker runs in its own goroutine so one slow job (a Monday digest
+	// over thousands of recipients) no longer freezes trending/currency/purges
+	// behind a single select loop. `running` guards each job against
+	// overlapping with itself when a run exceeds its interval; cross-replica
+	// duplication is already excluded by the leader lock.
+	var runningMu sync.Mutex
+	running := map[string]bool{}
+	spawn := func(name string, fn func(ctx context.Context)) {
+		runningMu.Lock()
+		if running[name] {
+			runningMu.Unlock()
+			return
+		}
+		running[name] = true
+		runningMu.Unlock()
+		go func() {
+			defer func() {
+				runningMu.Lock()
+				delete(running, name)
+				runningMu.Unlock()
+			}()
+			fn(ctx)
+		}()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -92,57 +120,77 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 			return
 		case <-trendTicker.C:
 			start := time.Now()
-			if err := trending.Compute(ctx); err != nil {
-				logger.Error("trending recompute", "err", err)
-				continue
-			}
-			logger.Info("trending recompute done", "dur_ms", time.Since(start).Milliseconds())
+			spawn("trending", func(ctx context.Context) {
+				if err := trending.Compute(ctx); err != nil {
+					logger.Error("trending recompute", "err", err)
+					return
+				}
+				logger.Info("trending recompute done", "dur_ms", time.Since(start).Milliseconds())
+			})
 		case <-currencyTicker.C:
-			if err := currency.Sync(ctx); err != nil {
-				logger.Warn("currency sync", "err", err)
-				continue
-			}
-			logger.Info("currency sync done")
+			spawn("currency", func(ctx context.Context) {
+				if err := currency.Sync(ctx); err != nil {
+					logger.Warn("currency sync", "err", err)
+					return
+				}
+				logger.Info("currency sync done")
+			})
 		case <-digestCheckTicker.C:
-			// Weekly digest on Mondays UTC (PRD §5.7), idempotent per week.
+			// Weekly digest on Mondays UTC (PRD 5.7), idempotent per ISO
+			// week. Go layouts have NO week verb ("W" is literal), so the
+			// old Format("2006-W02") keyed on day-of-month; use ISOWeek().
 			now := time.Now().UTC()
 			if now.Weekday() == time.Monday {
-				if oncePerPeriod(ctx, repos, "weekly_digest", now.Format("2006-W02")) {
+				y, w := now.ISOWeek()
+				period := fmt.Sprintf("%04d-W%02d", y, w)
+				spawn("weekly_digest", func(ctx context.Context) {
+					if !claimPeriod(ctx, repos, "weekly_digest", period) {
+						return
+					}
 					if err := digest.SendWeekly(ctx); err != nil {
+						// Release the slot: a failed run must not burn the
+						// whole week's digest; next hourly check retries.
+						releasePeriod(context.WithoutCancel(ctx), repos, "weekly_digest", period)
 						logger.Warn("digest", "err", err)
 					}
-				}
+				})
 			}
 		case <-alertTicker.C:
-			// Daily search alerts (PRD §5.1.2), idempotent per day.
+			// Daily search alerts (PRD 5.1.2), idempotent per day.
 			day := time.Now().UTC().Format("2006-01-02")
-			if oncePerPeriod(ctx, repos, "search_alerts", day) {
+			spawn("search_alerts", func(ctx context.Context) {
+				if !claimPeriod(ctx, repos, "search_alerts", day) {
+					return
+				}
 				if err := alerts.SendDaily(ctx); err != nil {
+					releasePeriod(context.WithoutCancel(ctx), repos, "search_alerts", day)
 					logger.Warn("search alerts", "err", err)
 				}
-			}
+			})
 		case <-purgeTicker.C:
-			n, err := repos.Engagement.PurgeExpired(ctx)
-			if err != nil {
-				logger.Warn("notification purge", "err", err)
-				continue
-			}
-			if n > 0 {
-				logger.Info("notification purge", "removed", n)
-			}
-			if dn, err := service.NewAuth(repos, cfg, sender, logger).PurgeExpiredDeletions(ctx); err != nil {
-				logger.Warn("deletion purge", "err", err)
-			} else if dn > 0 {
-				logger.Info("deletion purge", "removed", dn)
-			}
-			retention(ctx, repos, logger)
+			spawn("purges", func(ctx context.Context) {
+				n, err := repos.Engagement.PurgeExpired(ctx)
+				if err != nil {
+					logger.Warn("notification purge", "err", err)
+				} else if n > 0 {
+					logger.Info("notification purge", "removed", n)
+				}
+				if dn, err := authPurger.PurgeExpiredDeletions(ctx); err != nil {
+					logger.Warn("deletion purge", "err", err)
+				} else if dn > 0 {
+					logger.Info("deletion purge", "removed", dn)
+				}
+				retention(ctx, repos, logger)
+			})
 		case <-opsTicker.C:
-			if err := ops.PruneSnapshots(ctx); err != nil {
-				logger.Warn("snapshot prune", "err", err)
-			}
-			if err := ops.CleanupOrphanMedia(ctx); err != nil {
-				logger.Warn("media cleanup", "err", err)
-			}
+			spawn("ops", func(ctx context.Context) {
+				if err := ops.PruneSnapshots(ctx); err != nil {
+					logger.Warn("snapshot prune", "err", err)
+				}
+				if err := ops.CleanupOrphanMedia(ctx); err != nil {
+					logger.Warn("media cleanup", "err", err)
+				}
+			})
 		}
 	}
 }
@@ -183,29 +231,48 @@ func acquireLeader(ctx context.Context, logger *slog.Logger, repos *repo.Repos) 
 	}
 }
 
-// oncePerPeriod records and reports whether this job/period combination is
-// running for the first time — restarts mid-week no longer double-send.
-func oncePerPeriod(ctx context.Context, repos *repo.Repos, job, period string) bool {
+// claimPeriod atomically claims a job/period slot (INSERT .. ON CONFLICT DO
+// NOTHING). Failed runs call releasePeriod so the next tick retries instead
+// of silently skipping the rest of the period.
+func claimPeriod(ctx context.Context, repos *repo.Repos, job, period string) bool {
 	tag, err := repos.Exec(ctx,
 		`INSERT INTO job_runs (job, period) VALUES ($1, $2) ON CONFLICT (job, period) DO NOTHING`,
 		job, period)
 	return err == nil && tag.RowsAffected() > 0
 }
 
+func releasePeriod(ctx context.Context, repos *repo.Repos, job, period string) {
+	_, _ = repos.Exec(ctx, `DELETE FROM job_runs WHERE job = $1 AND period = $2`, job, period)
+}
+
 // retention trims append-only tables that previously grew forever
-// (privacy/GDPR + storage hygiene).
+// (privacy/GDPR + storage hygiene). Deletes are chunked by ctid so no single
+// transaction holds millions of dead tuples (WAL spike, autovacuum lag).
 func retention(ctx context.Context, repos *repo.Repos, logger *slog.Logger) {
-	stmts := []struct{ name, sql string }{
-		{"consumed_tokens", `DELETE FROM consumed_tokens WHERE consumed_at < now() - interval '48 hours'`},
-		{"sessions_revoked", `DELETE FROM sessions WHERE revoked_at IS NOT NULL AND revoked_at < now() - interval '90 days'`},
-		{"engagement_events", `DELETE FROM engagement_events WHERE occurred_at < now() - interval '90 days'`},
-		{"auth_events", `DELETE FROM auth_events WHERE created_at < now() - interval '180 days'`},
+	stmts := []struct{ name, table, pred string }{
+		{"consumed_tokens", "consumed_tokens", `consumed_at < now() - interval '48 hours'`},
+		{"sessions_revoked", "sessions", `revoked_at IS NOT NULL AND revoked_at < now() - interval '90 days'`},
+		{"engagement_events", "engagement_events", `occurred_at < now() - interval '90 days'`},
+		{"auth_events", "auth_events", `created_at < now() - interval '180 days'`},
 	}
 	for _, st := range stmts {
-		if tag, err := repos.Exec(ctx, st.sql); err != nil {
-			logger.Warn("retention "+st.name, "err", err)
-		} else if tag.RowsAffected() > 0 {
-			logger.Info("retention "+st.name, "removed", tag.RowsAffected())
+		var total int64
+		for {
+			tag, err := repos.Exec(ctx,
+				`DELETE FROM `+st.table+` WHERE ctid IN (
+					SELECT ctid FROM `+st.table+` WHERE `+st.pred+` LIMIT 50000)`)
+			if err != nil {
+				logger.Warn("retention "+st.name, "err", err)
+				break
+			}
+			n := tag.RowsAffected()
+			total += n
+			if n < 50000 {
+				break
+			}
+		}
+		if total > 0 {
+			logger.Info("retention "+st.name, "removed", total)
 		}
 	}
 }

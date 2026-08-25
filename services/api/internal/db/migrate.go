@@ -7,12 +7,36 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	// pgxpool's default of max(4, NumCPU) connections starves the whole API
+	// behind a handful of concurrent requests once the N+1-prone endpoints
+	// (search, fan-outs) queue up. Size explicitly; per-URL ?pool_max_conns=
+	// still overrides for exotic deployments.
+	if cfg.MaxConns < 32 {
+		cfg.MaxConns = 32
+	}
+	if cfg.MinConns == 0 {
+		cfg.MinConns = 4
+	}
+	if cfg.MaxConnLifetime <= 0 {
+		cfg.MaxConnLifetime = 30 * time.Minute
+	}
+	if cfg.MaxConnIdleTime <= 0 {
+		cfg.MaxConnIdleTime = 5 * time.Minute
+	}
+	if cfg.HealthCheckPeriod <= 0 {
+		cfg.HealthCheckPeriod = time.Minute
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +95,26 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 			return err
 		}
 
+		// Statements using CREATE/DROP INDEX CONCURRENTLY must run OUTSIDE
+		// the migration transaction (Postgres forbids it inside one). They
+		// execute after the TX commits, on autocommit connections; a failure
+		// aborts the migration run.
+		stmts := splitStatements(string(body))
+		var txStmts, concStmts []string
+		for _, stmt := range stmts {
+			if strings.Contains(stmt, " INDEX CONCURRENTLY ") ||
+				strings.Contains(stmt, " INDEX CONCURRENTLY\n") {
+				concStmts = append(concStmts, stmt)
+			} else {
+				txStmts = append(txStmts, stmt)
+			}
+		}
+
 		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}
-		// Single-statement execution: split on semicolons at line ends, keep comments/DO blocks intact.
-		for _, stmt := range splitStatements(string(body)) {
+		for _, stmt := range txStmts {
 			if _, err := tx.Exec(ctx, stmt); err != nil {
 				_ = tx.Rollback(ctx)
 				return fmt.Errorf("%s: %w", version, err)
@@ -88,6 +126,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
+		}
+		for _, stmt := range concStmts {
+			// Autocommit on the pooled connection: no explicit TX wrapper.
+			if _, err := conn.Exec(context.WithoutCancel(ctx), stmt); err != nil {
+				return fmt.Errorf("%s (concurrent): %w", version, err)
+			}
 		}
 	}
 	return nil

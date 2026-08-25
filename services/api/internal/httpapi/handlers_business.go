@@ -241,7 +241,8 @@ func (s *Server) handleMediaServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", item.Mime)
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	// Media paths are content-addressed by immutable UUID: cache for a year.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	// User-controlled bytes served from the API origin: forbid MIME sniffing
 	// (text/plain → HTML XSS) and force download for anything that is not an
 	// image/audio/video (files can carry active content).
@@ -276,7 +277,8 @@ func (s *Server) handleMediaThumb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	// Thumbnails share the immutable media UUID.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, path)
 }

@@ -74,6 +74,44 @@ func (r *CommunityRepo) CreateAnswer(ctx context.Context, questionID, userID, te
 	return a, nil
 }
 
+// ListQuestionsWithAnswers loads a question page plus every answer for
+// those questions in TWO queries (the per-question ListAnswers loop was 1+N).
+func (r *CommunityRepo) ListQuestionsWithAnswers(ctx context.Context, businessID string, limit, offset int) ([]*domain.Question, error) {
+	qs, err := r.ListQuestions(ctx, businessID, limit, offset)
+	if err != nil || len(qs) == 0 {
+		return qs, err
+	}
+	ids := make([]string, len(qs))
+	for i, q := range qs {
+		ids[i] = q.ID
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT a.id, a.question_id, a.user_id, a.text, a.is_owner, a.created_at, u.name, u.username
+		FROM answers a JOIN users u ON u.id = a.user_id
+		WHERE a.question_id = ANY($1)
+		ORDER BY a.is_owner DESC, a.created_at ASC`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byQuestion := make(map[string][]*domain.Answer, len(qs))
+	for rows.Next() {
+		var a domain.Answer
+		if err := rows.Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Text, &a.IsOwner, &a.CreatedAt,
+			&a.AuthorName, &a.AuthorUsername); err != nil {
+			return nil, err
+		}
+		byQuestion[a.QuestionID] = append(byQuestion[a.QuestionID], &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, q := range qs {
+		q.Answers = byQuestion[q.ID]
+	}
+	return qs, nil
+}
+
 func (r *CommunityRepo) ListAnswers(ctx context.Context, questionID string) ([]*domain.Answer, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT a.id, a.question_id, a.user_id, a.text, a.is_owner, a.created_at, u.name, u.username

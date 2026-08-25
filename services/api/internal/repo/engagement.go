@@ -574,13 +574,58 @@ func (r *EngagementRepo) ListNotifications(ctx context.Context, userID, ntype st
 	return out, rows.Err()
 }
 
-// PurgeExpired removes notifications past their retention window (PRD §5.7).
-func (r *EngagementRepo) PurgeExpired(ctx context.Context) (int64, error) {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM notifications WHERE expires_at < now()`)
+// CreateNotificationsForFollowers inserts an in-app notification for every
+// follower of a business in ONE statement. The previous per-follower loop
+// (INSERT + prefs SELECT + unread COUNT each) serialized ~4 queries per
+// follower inside the announcement request and starved the pool.
+func (r *EngagementRepo) CreateNotificationsForFollowers(ctx context.Context, businessID, ntype string, payload map[string]any) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		INSERT INTO notifications (id, user_id, type, payload, expires_at)
+		SELECT gen_random_uuid(), f.user_id, $2, $3, now() + interval '90 days'
+		FROM follows f
+		WHERE f.business_id = $1`, businessID, ntype, payload)
 	if err != nil {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// PurgeExpired removes notifications past their retention window (PRD §5.7).
+// Batched: a single unbounded DELETE on a large table held locks and spiked
+// WAL; ctid-chunks keep each transaction short.
+func (r *EngagementRepo) PurgeExpired(ctx context.Context) (int64, error) {
+	var total int64
+	for {
+		tag, err := r.pool.Exec(ctx, `DELETE FROM notifications
+			WHERE ctid IN (
+				SELECT ctid FROM notifications WHERE expires_at < now() LIMIT 50000
+			)`)
+		if err != nil {
+			return total, err
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < 50000 {
+			return total, nil
+		}
+	}
+}
+
+// GetLatestUnread returns the newest unread notification of a type for a
+// user (used after bulk fan-out inserts to hydrate WS/email dispatches).
+func (r *EngagementRepo) GetLatestUnread(ctx context.Context, userID, ntype string) (*domain.Notification, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT id, user_id, type, payload, is_read, created_at FROM notifications
+		WHERE user_id=$1 AND type=$2 AND is_read=false
+		ORDER BY created_at DESC LIMIT 1`, userID, ntype)
+	var n domain.Notification
+	if err := row.Scan(&n.ID, &n.UserID, &n.Type, &n.Payload, &n.IsRead, &n.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &n, nil
 }
 
 func (r *EngagementRepo) UnreadCount(ctx context.Context, userID string) (int, error) {

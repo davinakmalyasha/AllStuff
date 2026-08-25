@@ -124,41 +124,84 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 				AND ts.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`
 	}
 
+	// Sort expressions are self-contained (own bind params via arg()): they
+	// run in BOTH phases below, after countArgs was snapshotted, so they
+	// never leak into the COUNT query.
 	order := "b.created_at DESC"
 	switch p.Sort {
 	case "rating":
-		order = "rating_avg DESC NULLS LAST, b.created_at DESC"
-	case "newest":
-		order = "b.created_at DESC"
+		order = `(SELECT coalesce(avg(r.rating), 0) FROM reviews r
+			WHERE r.business_id = b.id AND r.deleted_at IS NULL) DESC NULLS LAST, b.created_at DESC`
 	case "nearest":
-		order = "distance_km ASC NULLS LAST, b.created_at DESC"
+		if p.Lat != nil && p.Lng != nil {
+			order = "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" +
+				arg(*p.Lat) + ", " + arg(*p.Lng) + ")) / 1000.0 ASC NULLS LAST, b.created_at DESC"
+		}
 	case "relevance":
-		order = "ts_rank DESC, b.created_at DESC"
+		if q != "" {
+			order = "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + arg(q) + ")) DESC, b.created_at DESC"
+		}
 	default: // trending: engagement velocity, then score (PRD §5.6.3)
 		order = "coalesce(ts.velocity, 0) DESC, coalesce(ts.score, 0) DESC, b.verified_at DESC NULLS LAST, b.created_at DESC"
 	}
 
-	sql := `
-		SELECT ` + repo.BusinessCols + repo.BusinessCounts + `, ` + dist + `, ` + rank + `
-		FROM businesses b
+	// Phase 1: select ONLY the page's business ids. This keeps the expensive
+	// per-row hydration subqueries (like/save/recommend/review counts) out of
+	// the candidate scan entirely; sorting still evaluates its own aggregate,
+	// but once per candidate instead of five extra subqueries.
+	idSQL := `
+		SELECT b.id FROM businesses b
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + order + `
 		LIMIT ` + arg(p.Limit+1) + ` OFFSET ` + arg(p.Offset)
+	idRows, err := s.repos.Query(ctx, idSQL, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	var ids []string
+	for idRows.Next() {
+		var id string
+		if err := idRows.Scan(&id); err != nil {
+			idRows.Close()
+			return nil, 0, err
+		}
+		ids = append(ids, id)
+	}
+	idRows.Close()
+	if err := idRows.Err(); err != nil {
+		return nil, 0, err
+	}
+	hasMore := len(ids) > p.Limit
+	if hasMore {
+		ids = ids[:p.Limit]
+	}
+	if len(ids) == 0 {
+		return nil, 0, nil
+	}
+
+	// Phase 2: hydrate the full row shape for exactly the page's ids.
+	sql := `
+		SELECT ` + repo.BusinessCols + repo.BusinessCounts + `, ` + dist + `, ` + rank + `
+		FROM businesses b
+		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
+		WHERE b.id = ANY(` + arg(ids) + `)
+		ORDER BY ` + order
 
 	rows, err := s.repos.Businesses.Search(ctx, sql, args)
 	if err != nil {
 		return nil, 0, err
 	}
 	now := time.Now()
-	var out []*domain.Business
+	out := make([]*domain.Business, 0, len(rows))
 	for _, b := range rows {
 		open := isOpenNow(b.Hours, now, b.Timezone)
 		b.IsOpenNow = &open
 		out = append(out, b)
 	}
-	if len(out) > p.Limit {
-		out = out[:p.Limit]
+	if !hasMore {
+		// Last page: total is offset + actual rows returned.
+		return out, p.Offset + len(out), nil
 	}
 	// True total (the row limit above is a page cap; PRD §5.1.2 result counts).
 	var total int

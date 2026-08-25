@@ -167,10 +167,14 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     void load()
   }, [])
 
-  // Viewport query.
+  // Viewport query. A monotonic token guards against out-of-order responses:
+  // rapid pan/zoom fires overlapping searches, and a slower EARLIER response
+  // used to resolve last and revert pins to a viewport the user already left.
+  const querySeq = useRef(0)
   const query = async () => {
     if (!mapRef.current) return
     const bounds = mapRef.current.getBounds()
+    const seq = ++querySeq.current
     setLoading(true)
     try {
       const pos = userPosRef.current
@@ -183,13 +187,14 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
         ...(pos ? { lat: pos.lat, lng: pos.lng } : {}),
       }
       const res = await api<{ businesses: BusinessDTO[] }>(searchPath(p))
+      if (seq !== querySeq.current) return // stale viewport — drop it
       const withTrend = res.businesses.map((b) => {
         const t = trendRef.current[b.id]
         return t ? { ...b, trend: { is_booming: t.is_booming, is_rising: t.is_rising, velocity: t.velocity } } : b
       })
       setMarkers(withTrend)
     } finally {
-      setLoading(false)
+      if (seq === querySeq.current) setLoading(false)
     }
   }
 
@@ -197,12 +202,18 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
   // the exact listener it added (the old closure-based off() leaked).
   useEffect(() => {
     if (!map) return
-    const debounced = setTimeout(() => void query(), 400)
-    const onMoveEnd = () => void query()
-    map.on('moveend', onMoveEnd)
+    let t: ReturnType<typeof setTimeout> | undefined
+    // Debounced on every trigger (init + moveend): each pan previously fired
+    // a full two-phase search immediately; 300ms settles the gesture first.
+    const runLater = () => {
+      if (t) clearTimeout(t)
+      t = setTimeout(() => void query(), 300)
+    }
+    runLater()
+    map.on('moveend', runLater)
     return () => {
-      clearTimeout(debounced)
-      map.off('moveend', onMoveEnd)
+      if (t) clearTimeout(t)
+      map.off('moveend', runLater)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, cats, q, verifiedOnly])

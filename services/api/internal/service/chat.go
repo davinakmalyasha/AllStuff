@@ -19,6 +19,7 @@ import (
 	"bizverse/api/internal/ratelimit"
 	"bizverse/api/internal/repo"
 	"bizverse/api/internal/util"
+	"bizverse/api/internal/ws"
 )
 
 // Chat — full messaging (PRD §5.5, §8.5): direct + business threads,
@@ -322,15 +323,34 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		return nil, err
 	}
 
-	// Link preview: enrich after insert (best-effort).
+	// Link preview: enrich ASYNCHRONOUSLY (best-effort). The outbound fetch
+	// (4s timeout) previously ran inside the send request, turning any
+	// URL-bearing message into a multi-second POST. The enriched message is
+	// re-broadcast so open threads update live.
 	if created.Type == "text" && created.Body != nil && urlRe.MatchString(*created.Body) && created.LinkPreview == nil {
-		if preview, ok := fetchLinkPreview(ctx, *created.Body); ok {
-			if _, err := c.repos.Exec(ctx, `
-				UPDATE chat_messages SET link_preview = $2 WHERE id = $1`,
-				created.ID, preview); err == nil {
-				created.LinkPreview = preview
+		bodyCopy := *created.Body
+		go func(msgID int64, threadID, body string) {
+			pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			preview, ok := fetchLinkPreview(pctx, body)
+			if !ok {
+				return
 			}
-		}
+			if _, err := c.repos.Exec(pctx, `
+				UPDATE chat_messages SET link_preview = $2 WHERE id = $1`,
+				msgID, preview); err != nil {
+				return
+			}
+			full, err := c.repos.Chat.MessageByID(pctx, msgID)
+			if err != nil || full == nil {
+				return
+			}
+			if participants, err := c.repos.Chat.ParticipantIDs(pctx, threadID); err == nil && c.notifier != nil {
+				for _, pid := range participants {
+					c.notifier.hub.SendToUser(pid, ws.Frame{Type: "message.edited", Payload: full})
+				}
+			}
+		}(created.ID, threadID, bodyCopy)
 	}
 
 	// chat_start event once per user/day (PRD §3 weights).

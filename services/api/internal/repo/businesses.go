@@ -268,7 +268,7 @@ func (r *BusinessRepo) Search(ctx context.Context, sql string, args []any) ([]*d
 		var rankIgnored float64 // per-call destination: a shared package var here is a data race across concurrent searches
 		if err := rows.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
 			&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
-			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
+			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Theme, &b.Layout, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
 			&b.IsFeatured, &b.LastPublishedAt, &b.PublishedSnapshot, &b.VerificationLevel, &b.VerifiedAt, &b.SlugChangedAt, &b.CreatedAt, &b.UpdatedAt,
 			&b.RatingAvg, &b.ReviewCount, &b.LikeCount, &b.RecommendCount, &b.SaveCount,
 			&b.CategoryName, &b.CategorySlug,

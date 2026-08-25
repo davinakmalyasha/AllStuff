@@ -86,7 +86,10 @@ func (t *Trending) Compute(ctx context.Context) error {
 		{"30d", cfg.Lambda30d, 720},
 	}
 	for _, w := range windows {
-		// Score per business (verified only, un-flagged events).
+		// Score per business (verified only, un-flagged events). Zero-score
+		// rows are SKIPPED: one snapshot per business × window every 10 min
+		// was 432k rows/day at 1k businesses, mostly zeros that slowed
+		// markRising's per-row prev lookups and bloated retention deletes.
 		if _, err := t.repos.Exec(ctx, `
 			INSERT INTO trend_snapshots (id, period, business_id, score, taken_at)
 			SELECT gen_random_uuid(), $1, b.id,
@@ -96,18 +99,26 @@ func (t *Trending) Compute(ctx context.Context) error {
 			LEFT JOIN engagement_events e ON e.target_type='business' AND e.target_id = b.id
 				AND e.occurred_at > now() - ($3::float8 * interval '1 hour') AND e.flagged = false
 			WHERE b.status = 'verified' AND b.deleted_at IS NULL
-			GROUP BY b.id`,
+			GROUP BY b.id
+			HAVING coalesce(SUM(e.weight * exp(-$2::float8 * EXTRACT(EPOCH FROM (now() - e.occurred_at)) / 3600.0)), 0) > 0`,
 			w.period, w.lambda, w.hours); err != nil {
 			return err
 		}
 	}
 
-	// Velocity + ranks + Booming for the 24h window (vs the previous snapshot).
+	// Velocity + ranks + Booming for the 24h window.
+	// Velocity compares against the latest snapshot ≥23h old — day-over-day
+	// per the PRD/spec comment, not the previous 10-minute tick (which made
+	// Booming rank by recompute-tick noise). Falls back to the immediately
+	// previous snapshot on a fresh install without history.
 	// rank_category/rank_city power category pages and owner analytics (§5.6.3).
 	_, err := t.repos.Exec(ctx, `
 		WITH maxes AS (
 			SELECT max(taken_at) AS latest,
-				max(taken_at) FILTER (WHERE taken_at < (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')) AS prev
+				coalesce(
+					max(taken_at) FILTER (WHERE taken_at <= now() - interval '23 hours'),
+					max(taken_at) FILTER (WHERE taken_at < (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h'))
+				) AS prev
 			FROM trend_snapshots WHERE period='24h'
 		),
 		prev AS (
@@ -265,6 +276,9 @@ func (t *Trending) Leaderboard(ctx context.Context, period, scope string, limit 
 	order := "s.score DESC"
 	switch {
 	case scope == "booming":
+		// Must filter on the flag: sorting by velocity alone included
+		// non-booming businesses in the "Booming" leaderboard (R10).
+		base += " AND s.is_booming = true"
 		order = "s.velocity DESC"
 	case scope == "rising":
 		base += " AND s.is_rising = true"

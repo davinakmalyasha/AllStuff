@@ -109,7 +109,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.broadcastThread(r.Context(), threadID, Frame{Type: "message.new", Payload: msg})
-	s.pushToThread(r.Context(), threadID, msg)
+	// Web-push fan-out is best-effort and each endpoint can take seconds:
+	// never block the sender's HTTP response on it. Detached context — the
+	// request ctx dies with the response.
+	go func(threadID string, msg *domain.ChatMessage) {
+		pctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		s.pushToThread(pctx, threadID, msg)
+	}(threadID, msg)
 	created(w, map[string]any{"message": msg})
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"bizverse/api/internal/config"
@@ -80,6 +81,49 @@ func (n *Notifier) Create(ctx context.Context, userID, ntype string, payload map
 		"notification": notif,
 		"unread":       unread,
 	}})
+}
+
+// CreateForFollowers fans a notification out to every follower of a
+// business: one bulk INSERT for the in-app rows, then email/WS dispatch in
+// bounded worker goroutines. Returns the number of recipients.
+func (n *Notifier) CreateForFollowers(ctx context.Context, businessID, ntype string, payload map[string]any) (int64, error) {
+	nCreated, err := n.repos.Engagement.CreateNotificationsForFollowers(ctx, businessID, ntype, payload)
+	if err != nil {
+		return 0, err
+	}
+	if nCreated == 0 {
+		return 0, nil
+	}
+	followers, err := n.repos.Community.FollowerIDs(ctx, businessID)
+	if err != nil {
+		return nCreated, nil // rows are in; channel dispatch is best-effort
+	}
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	for _, fid := range followers {
+		wg.Add(1)
+		go func(userID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			notif, err := n.repos.Engagement.GetLatestUnread(ctx, userID, ntype)
+			if err == nil && notif != nil {
+				if n.emailOn(ctx, userID, ntype) {
+					go n.sendEmail(notif)
+				}
+				unread, err := n.repos.Engagement.UnreadCount(ctx, userID)
+				if err != nil {
+					unread = 0
+				}
+				n.hub.SendToUser(userID, ws.Frame{Type: "notification.new", Payload: map[string]any{
+					"notification": notif,
+					"unread":       unread,
+				}})
+			}
+		}(fid)
+	}
+	wg.Wait()
+	return nCreated, nil
 }
 
 func (n *Notifier) emailOn(ctx context.Context, userID, ntype string) bool {

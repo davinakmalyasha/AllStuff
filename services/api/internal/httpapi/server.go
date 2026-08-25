@@ -346,6 +346,9 @@ func (s *Server) chain(next http.Handler) http.Handler {
 	next = s.withAccessLog(next)
 	next = s.withSecurityHeaders(next)
 	next = s.withRecover(next)
+	// Innermost: compress route payloads before ETag sees them, so the ETag
+	// hashes the compressed representation every browser requests anyway.
+	next = s.withGzip(next)
 	return next
 }
 
