@@ -256,14 +256,37 @@ func isOpenNow(hours map[string]any, at time.Time, timezone string) bool {
 			return true
 		}
 	}
-	// Previous day's overnight window may cover early today.
+	// Previous day's OVERNIGHT window may cover early today. The overnight
+	// guard (close <= open) mirrors the SQL twin biz_is_open_now (migration
+	// 0014): without it, yesterday's 09:00–17:00 window would wrongly match
+	// today's daytime minutes.
 	prev := local.AddDate(0, 0, -1)
 	if open, defined := check(days[int(prev.Weekday())]); defined && open {
-		if cur < parseCloseOf(prev, hours, days) {
+		oh := parseOpenOf(prev, hours, days)
+		ch := parseCloseOf(prev, hours, days)
+		if ch <= oh && cur < ch {
 			return true
 		}
 	}
 	return false
+}
+
+// parseOpenOf returns the open time (minutes) of the given day's entry.
+func parseOpenOf(day time.Time, hours map[string]any, days []string) int {
+	raw, ok := hours[days[int(day.Weekday())]]
+	if !ok {
+		return 0
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		return 0
+	}
+	openT, _ := entry["open"].(string)
+	o, ok := parseHHMM(openT)
+	if !ok {
+		return 0
+	}
+	return o
 }
 
 // parseCloseOf returns the close time (minutes) of the given day's entry.

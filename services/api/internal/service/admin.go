@@ -354,6 +354,30 @@ func (a *Admin) HideContent(ctx context.Context, adminID, targetType, targetID, 
 	return domain.ErrValidation.WithField("target_type", "Cannot hide this type.")
 }
 
+// RestoreContent reverses a moderation hide (PRD §5.8.2 restore action).
+// Each branch mirrors the exact columns HideContent touches.
+func (a *Admin) RestoreContent(ctx context.Context, targetType, targetID string) error {
+	switch targetType {
+	case "review":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE reviews SET status='visible', hidden_by=NULL, hidden_reason=NULL WHERE id=$1`, targetID)
+		return err
+	case "comment":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE comments SET status='visible' WHERE id=$1`, targetID)
+		return err
+	case "product":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE products SET is_published=true WHERE id=$1`, targetID)
+		return err
+	case "message":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE chat_messages SET deleted_for='none' WHERE id=$1::bigint`, targetID)
+		return err
+	}
+	return domain.ErrValidation.WithField("target_type", "Cannot restore this type.")
+}
+
 // ---- users management (PRD §5.8.4) ----
 
 func (a *Admin) SearchUsers(ctx context.Context, q string, limit, offset int) ([]*domain.User, error) {

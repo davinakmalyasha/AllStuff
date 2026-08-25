@@ -58,6 +58,10 @@ type Business struct {
 	Timezone              string             `json:"timezone"`
 	Hours                 map[string]any     `json:"hours"`
 	SpecialHours          map[string]any     `json:"special_hours,omitempty"`
+	// Storefront builder state (PRD §5.3): persisted on the row, returned
+	// to owners so saved drafts survive a page reload.
+	Theme                 map[string]any     `json:"theme,omitempty"`
+	Layout                map[string]any     `json:"layout,omitempty"`
 	Amenities             []string           `json:"amenities"`
 	Contact               map[string]any     `json:"contact"`
 	Tags                  []string           `json:"tags"`

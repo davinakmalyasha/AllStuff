@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -272,7 +273,9 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "open"); err != nil {
 			return nil, err
 		}
-		_, _ = c.systemMessage(ctx, threadID, "Conversation reopened.")
+		if _, serr := c.systemMessage(ctx, threadID, "Conversation reopened."); serr != nil {
+			slog.Warn("chat system message", "err", serr, "thread", threadID)
+		}
 	}
 
 	// Reply target must be in the same thread.
@@ -1017,7 +1020,9 @@ func (c *Chat) CloseThread(ctx context.Context, userID, threadID string) error {
 				return err
 			}
 			// System notice so every participant sees why (PRD §5.5.2).
-			_, _ = c.systemMessage(ctx, threadID, "The business closed this conversation.")
+			if _, serr := c.systemMessage(ctx, threadID, "The business closed this conversation."); serr != nil {
+				slog.Warn("chat system message", "err", serr, "thread", threadID)
+			}
 			return nil
 		}
 	}

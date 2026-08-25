@@ -65,7 +65,13 @@ func (s *Server) handleAdminHide(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/restore") {
 		action = "restore"
 	}
-	if err := s.deps.Admin.HideContent(r.Context(), admin.ID, targetType, targetID, action); err != nil {
+	var err error
+	if action == "restore" {
+		err = s.deps.Admin.RestoreContent(r.Context(), targetType, targetID)
+	} else {
+		err = s.deps.Admin.HideContent(r.Context(), admin.ID, targetType, targetID, action)
+	}
+	if err != nil {
 		fail(w, err)
 		return
 	}

@@ -336,18 +336,25 @@ function Bootstrap() {
  * reconnecting forever) after the session ended. */
 function LiveEvents() {
   const { user } = useAuth()
+  // Key on the stable id, not the object: fetchMe() after avatar uploads /
+  // verifications produced a fresh user object and needlessly bounced the
+  // socket (dropping every thread subscription mid-session).
+  const userId = user?.id ?? null
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     ws.connect()
     return () => ws.close()
-  }, [user])
+  }, [userId])
   return null
 }
 
 function TabTitle() {
   const { user } = useAuth()
   const { data: notif } = useQuery({
-    queryKey: ['notifications'],
+    // Distinct key: sharing ['notifications'] with NotificationsBell (which
+    // fetches limit=15) made two queryFns fight over one cache entry, so the
+    // dropdown flickered down to a single notification on alternate polls.
+    queryKey: ['notifications', 'count'],
     queryFn: () => api<{ unread: number }>('/notifications?limit=1'),
     enabled: !!user,
     refetchInterval: 60_000,

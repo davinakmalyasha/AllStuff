@@ -174,17 +174,27 @@ func (r *ChatRepo) ThreadsByUser(ctx context.Context, userID, businessID string)
 // CreateMessage inserts and returns the created message (or the existing one
 // when the client_msg_id already exists — at-least-once dedupe, PRD §5.5.3).
 func (r *ChatRepo) CreateMessage(ctx context.Context, m *domain.ChatMessage) (*domain.ChatMessage, error) {
+	// System notices carry no sender: an empty SenderID maps to SQL NULL
+	// (the column is nullable for sender_role='system' only).
+	var senderID any
+	if m.SenderID != "" {
+		senderID = m.SenderID
+	}
+	var scannedSender *string
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO chat_messages (thread_id, sender_id, sender_role, type, body, reply_to_id,
 			forwarded_from_message_id, media_id, link_preview, client_msg_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (thread_id, client_msg_id) DO UPDATE SET client_msg_id = EXCLUDED.client_msg_id
 		RETURNING `+messageCols,
-		m.ThreadID, m.SenderID, m.SenderRole, m.Type, m.Body, m.ReplyToID,
+		m.ThreadID, senderID, m.SenderRole, m.Type, m.Body, m.ReplyToID,
 		m.ForwardedFromID, m.MediaID, m.LinkPreview, m.ClientMsgID).Scan(
-		&m.ID, &m.ThreadID, &m.SenderID, &m.SenderRole, &m.Type, &m.Body,
+		&m.ID, &m.ThreadID, &scannedSender, &m.SenderRole, &m.Type, &m.Body,
 		&m.ReplyToID, &m.ForwardedFromID, &m.MediaID, &m.LinkPreview, &m.ClientMsgID,
 		&m.ReadCount, &m.EditedAt, &m.EditHistory, &m.DeletedFor, &m.DeletedAt, &m.CreatedAt)
+	if err == nil && scannedSender != nil {
+		m.SenderID = *scannedSender
+	}
 	return m, err
 }
 
@@ -214,10 +224,14 @@ const messageCols = `id, thread_id, sender_id, sender_role, type, body, reply_to
 
 func scanMessage(row pgx.Row) (*domain.ChatMessage, error) {
 	var m domain.ChatMessage
-	if err := row.Scan(&m.ID, &m.ThreadID, &m.SenderID, &m.SenderRole, &m.Type, &m.Body,
+	var senderID *string // NULL for sender_role='system'
+	if err := row.Scan(&m.ID, &m.ThreadID, &senderID, &m.SenderRole, &m.Type, &m.Body,
 		&m.ReplyToID, &m.ForwardedFromID, &m.MediaID, &m.LinkPreview, &m.ClientMsgID,
 		&m.ReadCount, &m.EditedAt, &m.EditHistory, &m.DeletedFor, &m.DeletedAt, &m.CreatedAt); err != nil {
 		return nil, err
+	}
+	if senderID != nil {
+		m.SenderID = *senderID
 	}
 	return &m, nil
 }
