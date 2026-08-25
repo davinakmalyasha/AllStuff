@@ -217,9 +217,18 @@ func (r *ProductRepo) ReplaceOptionsVariants(ctx context.Context, tx Tx, product
 }
 
 // Duplicate copies a product with its options and variants (PRD §5.4.3).
-func (r *ProductRepo) Duplicate(ctx context.Context, tx Tx, productID, newID string) error {
-	pr, err := r.GetByID(ctx, productID)
-	if err != nil || pr == nil {
+// Every read runs on the caller's transaction, not the pool: pool reads
+// outside the tx see a different snapshot and mask connection errors as 404s.
+func (r *ProductRepo) Duplicate(ctx context.Context, tx pgx.Tx, productID, newID string) error {
+	tr := &ProductRepo{pool: tx}
+	pr, err := tr.GetByID(ctx, productID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	if pr == nil {
 		return domain.ErrNotFound
 	}
 	_, err = tx.Exec(ctx, `
@@ -233,11 +242,11 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx Tx, productID, newID str
 	if err != nil {
 		return err
 	}
-	options, err := r.ListOptions(ctx, productID)
+	options, err := tr.ListOptions(ctx, productID)
 	if err != nil {
 		return err
 	}
-	variants, err := r.ListVariants(ctx, productID)
+	variants, err := tr.ListVariants(ctx, productID)
 	if err != nil {
 		return err
 	}
@@ -249,7 +258,7 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx Tx, productID, newID str
 	}
 	copiedVariants := make([]*domain.ProductVariant, 0, len(variants))
 	for _, v := range variants {
-		sku, err := r.uniqueCopySKU(ctx, v.SKU, pr.BusinessID)
+		sku, err := tr.uniqueCopySKU(ctx, v.SKU, pr.BusinessID)
 		if err != nil {
 			return err
 		}
@@ -259,7 +268,7 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx Tx, productID, newID str
 			StockQty: v.StockQty, InStock: v.InStock, ImageID: v.ImageID,
 		})
 	}
-	return r.ReplaceOptionsVariants(ctx, tx, newID, copiedOptions, copiedVariants)
+	return tr.ReplaceOptionsVariants(ctx, tx, newID, copiedOptions, copiedVariants)
 }
 
 // uniqueCopySKU derives a collision-free SKU for a duplicate. The old
@@ -276,6 +285,13 @@ func (r *ProductRepo) uniqueCopySKU(ctx context.Context, baseSKU, businessID str
 			return candidate, nil
 		}
 		candidate = baseSKU + "-copy-" + util.NewUUID()[:6]
+	}
+	taken, err := r.SKUTaken(ctx, candidate, businessID, "")
+	if err != nil {
+		return "", err
+	}
+	if taken {
+		return "", domain.ErrConflict
 	}
 	return candidate, nil
 }

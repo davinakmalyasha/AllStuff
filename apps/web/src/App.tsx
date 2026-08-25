@@ -185,6 +185,7 @@ const router = createBrowserRouter([
 { path: 'following', element: <FollowingFeedPage /> },
       { path: 'messages', element: <Lazy><InboxPage /></Lazy> },
       { path: 'messages/:id', element: <Lazy><ThreadPage /></Lazy> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
   {
@@ -206,6 +207,7 @@ const router = createBrowserRouter([
       { path: 'analytics', element: <AnalyticsPage /> },
       { path: 'reviews', element: <DashboardReviewsPage /> },
       { path: 'comments', element: <DashboardCommentsPage /> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
   {
@@ -229,6 +231,7 @@ const router = createBrowserRouter([
       { path: 'audit', element: <AdminAuditPage /> },
       { path: 'claims', element: <AdminClaimsPage /> },
       { path: 'settings', element: <AdminSettingsPage /> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ])
@@ -312,6 +315,11 @@ function Bootstrap() {
         /* noop */
       }
       return orig?.(msg, src, line, col, err) ?? false
+    }
+    // Restore the previous handler on unmount (StrictMode remounts would
+    // otherwise stack reporters that never go away).
+    return () => {
+      window.onerror = orig
     }
   }, [fetchMe])
   // Compare tray follows the account across devices (PRD §5.1.5).

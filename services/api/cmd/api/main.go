@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -101,7 +102,12 @@ func main() {
 		}
 	}
 	hub := ws.NewHubWithRedis(logger, wsOrigins, pubsub)
-	go hub.Run(ctx)
+	var backgroundWG sync.WaitGroup
+	backgroundWG.Add(1)
+	go func() {
+		defer backgroundWG.Done()
+		hub.Run(ctx)
+	}()
 
 	notifier := service.NewNotifier(repos, cfg, sender, hub, logger)
 	authSvc := service.NewAuth(repos, cfg, sender, logger)
@@ -177,7 +183,11 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	go jobs.Run(ctx, logger, repos, cfg, sender, notifier)
+	backgroundWG.Add(1)
+	go func() {
+		defer backgroundWG.Done()
+		jobs.Run(ctx, logger, repos, cfg, sender, notifier)
+	}()
 
 	go func() {
 		logger.Info("api listening", "addr", srv.Addr)
@@ -191,13 +201,15 @@ func main() {
 	logger.Info("shutting down")
 
 	// Ordered shutdown: 1) drain HTTP (hijacked WS conns survive Shutdown),
-	// 2) cancel ctx → hub closes live sockets, jobs stop, 3) pool last so
-	// nothing touches a closed pool mid-drain.
+	// 2) cancel ctx → hub closes live sockets, jobs stop, 3) wait for the
+	// hub/jobs goroutines to observe cancellation, 4) pool last so nothing
+	// touches a closed pool mid-drain.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("http shutdown", "err", err)
 	}
 	stop()
+	backgroundWG.Wait()
 	pool.Close()
 }

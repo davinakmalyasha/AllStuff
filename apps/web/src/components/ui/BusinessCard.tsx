@@ -57,7 +57,10 @@ export const BusinessCard = memo(function BusinessCard({ business: b, compare = 
             {b.distance_km !== null && b.distance_km !== undefined && (
               <span className="text-ink3">{b.distance_km.toFixed(1)} km</span>
             )}
-            <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open' : 'Closed'}</Badge>
+            {/* Trend entries carry no is_open_now — only render for real booleans. */}
+            {typeof b.is_open_now === 'boolean' && (
+              <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open' : 'Closed'}</Badge>
+            )}
           </div>
         </div>
       </Link>

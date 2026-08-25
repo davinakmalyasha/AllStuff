@@ -143,6 +143,17 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 
 // ---- admin 2FA mandate (PRD §5.9.1) ----
 
+// adminTFAEntry memoizes the enrollment decision; adminTFAEnrollment is keyed
+// by userID. The guard runs on every admin request and a live TFA lookup per
+// request dominated dashboard traffic. Nothing invalidates entries: a 60s TTL
+// is acceptable because enrollment/disable flows through /me/security paths.
+type adminTFAEntry struct {
+	enabled bool
+	at      time.Time
+}
+
+var adminTFACacheTTL = 60 * time.Second
+
 // withAdmin2FA blocks admins without enrolled 2FA from everything except
 // security/2FA enrollment endpoints, auth refresh/logout, and the WS upgrade.
 func (s *Server) withAdmin2FA(next http.Handler) http.Handler {
@@ -152,20 +163,34 @@ func (s *Server) withAdmin2FA(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		st, err := s.deps.Repos.TFA.Get(r.Context(), user.ID)
-		if err == nil && st != nil && st.EnabledAt != nil {
-			next.ServeHTTP(w, r)
-			return
+		if v, cached := adminTFAEnrollment.Load(user.ID); cached {
+			if e, ok := v.(adminTFAEntry); ok && time.Since(e.at) < adminTFACacheTTL {
+				if !e.enabled && !admin2FAExemptPath(r.URL.Path) {
+					fail(w, domain.Err2FAEnrollmentRequired)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
 		}
-		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/v1/me/security") || strings.HasPrefix(p, "/api/v1/auth/refresh") ||
-			strings.HasPrefix(p, "/api/v1/auth/logout") || p == "/api/v1/ws" ||
-			strings.HasPrefix(p, "/api/v1/auth/2fa") {
+		st, err := s.deps.Repos.TFA.Get(r.Context(), user.ID)
+		enabled := err == nil && st != nil && st.EnabledAt != nil
+		adminTFAEnrollment.Store(user.ID, adminTFAEntry{enabled: enabled, at: time.Now()})
+		if enabled || admin2FAExemptPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		fail(w, domain.Err2FAEnrollmentRequired)
 	})
+}
+
+// adminTFAEnrollment caches userID → enrollment decision for adminTFACacheTTL.
+var adminTFAEnrollment sync.Map
+
+func admin2FAExemptPath(p string) bool {
+	return strings.HasPrefix(p, "/api/v1/me/security") || strings.HasPrefix(p, "/api/v1/auth/refresh") ||
+		strings.HasPrefix(p, "/api/v1/auth/logout") || p == "/api/v1/ws" ||
+		strings.HasPrefix(p, "/api/v1/auth/2fa")
 }
 
 // ---- CORS (PRD §9.3) ----

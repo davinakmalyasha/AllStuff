@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type NotificationDTO } from '@/lib/api'
 import { NOTIF_FILTERS, NOTIF_LABELS, notifUrl } from '@/lib/notifications'
@@ -79,16 +80,16 @@ export function NotificationsPage() {
             </>
           )
           return url ? (
-            <a
+            <Link
               key={n.id}
-              href={url}
+              to={url}
               onClick={() => {
                 if (!n.is_read) void markRead.mutateAsync([n.id])
               }}
               className="block px-4 py-3 hover:bg-surface2"
             >
               {inner}
-            </a>
+            </Link>
           ) : (
             <div key={n.id} className="px-4 py-3">
               {inner}

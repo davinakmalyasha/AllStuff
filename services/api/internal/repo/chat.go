@@ -421,7 +421,8 @@ func (r *ChatRepo) ListQuickReplies(ctx context.Context, businessID string) ([]*
 
 func (r *ChatRepo) CreateQuickReply(ctx context.Context, businessID, text string) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO quick_replies (id, business_id, text) VALUES ($1, $2, $3)`,
+		INSERT INTO quick_replies (id, business_id, text, sort_order)
+		VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order)+1 FROM quick_replies WHERE business_id = $2), 0))`,
 		newUUID(), businessID, text)
 	return err
 }

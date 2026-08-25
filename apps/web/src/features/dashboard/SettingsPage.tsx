@@ -51,25 +51,24 @@ export function SettingsPage() {
   const [logo, setLogo] = useState<MediaDTO | null>(null)
   const [cover, setCover] = useState<MediaDTO | null>(null)
 
-  // Hydrate in an effect KEYED ON THE BUSINESS ID: the old render-phase
-  // `if (b && !hydrated)` never reset when the active business changed, so
-  // switching businesses showed — and saving wrote — the PREVIOUS
-  // business's values into the new one.
-  useEffect(() => {
-    if (!b) return
+  // Hydrate in an effect KEYED ON THE BUSINESS ID ONLY: the old render-phase
+  // `if (b && !hydrated)` never reset when the active business changed, and a
+  // later updated_at dep reset the form on every unrelated refetch (e.g.
+  // pause/reopen). Re-hydration after a save is done explicitly in save().
+  const hydrate = (biz: BusinessDTO) => {
     setForm({
-      name: b.name, tagline: b.tagline ?? '', description: b.description,
-      category_id: b.category_id, address: b.address, city: b.city, country: b.country,
-      lat: String(b.lat), lng: String(b.lng), timezone: b.timezone || 'UTC',
-      amenities: b.amenities ?? [],
-      special_hours: (b.special_hours as Record<string, { open: string; close: string; closed: boolean }> | undefined) ?? {},
-      price_level: b.price_level ? String(b.price_level) : '',
-      currency: b.currency, tags: b.tags.join(', '),
-      founded_year: b.founded_year ? String(b.founded_year) : '',
-      ...Object.fromEntries(Object.entries(b.contact ?? {}).filter(([, v]) => typeof v === 'string')),
+      name: biz.name, tagline: biz.tagline ?? '', description: biz.description,
+      category_id: biz.category_id, address: biz.address, city: biz.city, country: biz.country,
+      lat: String(biz.lat), lng: String(biz.lng), timezone: biz.timezone || 'UTC',
+      amenities: biz.amenities ?? [],
+      special_hours: (biz.special_hours as Record<string, { open: string; close: string; closed: boolean }> | undefined) ?? {},
+      price_level: biz.price_level ? String(biz.price_level) : '',
+      currency: biz.currency, tags: biz.tags.join(', '),
+      founded_year: biz.founded_year ? String(biz.founded_year) : '',
+      ...Object.fromEntries(Object.entries(biz.contact ?? {}).filter(([, v]) => typeof v === 'string')),
     })
     const h: Record<string, { open: string; close: string; closed: boolean }> = {}
-    for (const [day, val] of Object.entries(b.hours ?? {})) {
+    for (const [day, val] of Object.entries(biz.hours ?? {})) {
       if (val && typeof val === 'object') {
         const d = val as { open?: string; close?: string; closed?: boolean }
         h[day] = { open: d.open ?? '09:00', close: d.close ?? '17:00', closed: !!d.closed }
@@ -78,8 +77,11 @@ export function SettingsPage() {
     setHours(h)
     setLogo(null)
     setCover(null)
+  }
+  useEffect(() => {
+    if (b) hydrate(b)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [b?.id, b?.updated_at])
+  }, [b?.id])
 
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
@@ -110,7 +112,10 @@ export function SettingsPage() {
       if (cover) payload.cover_url = cover.url
       if (form.amenities) payload.amenities = form.amenities
       if (form.special_hours) payload.special_hours = form.special_hours
-      await api(`/businesses/${b.id}`, { method: 'PATCH', body: payload })
+      const updated = await api<{ business: BusinessDTO }>(`/businesses/${b.id}`, { method: 'PATCH', body: payload })
+      // Explicit re-hydrate from the server copy instead of reacting to every
+      // updated_at bump from unrelated mutations.
+      hydrate(updated.business)
       setFlash('Settings saved')
       setTimeout(() => setFlash(''), 2000)
       qc.invalidateQueries({ queryKey: ['business', b.id] })

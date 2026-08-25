@@ -1,6 +1,30 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
+/** Escape-to-close + focus management for bespoke overlays: focuses the
+ * returned ref on open and restores the previously focused element on close.
+ * onClose is kept in a ref so identity churn across renders doesn't re-run
+ * the effect (which would steal focus back from inner inputs). */
+export function useDialogA11y(open: boolean, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    if (!open) return
+    const prevFocus = document.activeElement as HTMLElement | null
+    ref.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      prevFocus?.focus?.()
+    }
+  }, [open])
+  return ref
+}
+
 /** Accessible modal: focus trap, Escape to close, body scroll lock (Batch 3). */
 export function Modal({
   open,

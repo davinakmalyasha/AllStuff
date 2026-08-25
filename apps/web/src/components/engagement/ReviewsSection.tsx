@@ -34,16 +34,19 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   })
   const [page, setPage] = useState(1)
   const [extras, setExtras] = useState<ReviewDTO[]>([])
-  // Guards the sort-switch race: an in-flight "load more" for the previous
-  // sort must not append into the new sort's list when it resolves late.
-  const [extrasSort, setExtrasSort] = useState(sort)
+  // Sort-switch race guard: the queryFn tags each response with the sort it
+  // was fetched under, so a late old-sort response can never append into the
+  // new sort's list.
   const { data: more, isFetching: moreLoading } = useQuery({
     queryKey: ['reviews-more', businessId, sort, page],
-    queryFn: () => api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`),
+    queryFn: async () => {
+      const r = await api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`)
+      return { ...r, sort }
+    },
     enabled: page > 1,
   })
   useEffect(() => {
-    if (more?.reviews.length && extrasSort === sort) setExtras((prev) => {
+    if (more?.reviews.length && more.sort === sort) setExtras((prev) => {
       const seen = new Set([...(data?.reviews ?? []).map((r) => r.id), ...prev.map((r) => r.id)])
       return [...prev, ...more.reviews.filter((r) => !seen.has(r.id))]
     })
@@ -52,7 +55,6 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   useEffect(() => {
     setPage(1)
     setExtras([])
-    setExtrasSort(sort)
   }, [sort])
   const reviews = [...(data?.reviews ?? []), ...extras]
   const [hasMore, setHasMore] = useState(true)

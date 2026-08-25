@@ -12,6 +12,8 @@ const links = [
   { to: '/admin/curation', label: 'Curation' },
   { to: '/admin/appeals', label: 'Appeals & anomalies' },
   { to: '/admin/audit', label: 'Audit trail' },
+  { to: '/admin/claims', label: 'Claims' },
+  { to: '/admin/settings', label: 'Settings' },
   { to: '/admin/analytics', label: 'Analytics' },
 ]
 

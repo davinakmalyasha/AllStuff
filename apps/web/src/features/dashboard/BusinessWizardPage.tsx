@@ -40,6 +40,13 @@ const SOCIAL_FIELDS = [
   ['telegram', 'Telegram'],
 ] as const
 
+/** Upload state only reads `url` (and truthiness); resumed drafts carry just
+ * a URL, so a minimal record is enough to keep the review step honest. */
+function mediaFromUrl(url: string | null | undefined): MediaDTO | null {
+  if (!url) return null
+  return { id: '', kind: '', original_name: '', mime: '', size: 0, width: null, height: null, url, thumb_url: null, created_at: '' }
+}
+
 interface WizardState {
   name: string
   tagline: string
@@ -132,6 +139,10 @@ export function BusinessWizardPage() {
         next.timezone = b.timezone || next.timezone || 'UTC'
         return next
       })
+      // Seed upload state from the saved draft so a resumed draft doesn't
+      // show "Missing — required" for its existing logo in the review step.
+      setLogo(mediaFromUrl(b.logo_url))
+      setCover(mediaFromUrl(b.cover_url))
       setHours((prev) => {
         const next = { ...prev }
         for (const [day, val] of Object.entries(b.hours ?? {})) {

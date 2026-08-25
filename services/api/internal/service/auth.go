@@ -223,7 +223,7 @@ func (a *Auth) maybeNewDeviceAlert(ctx context.Context, user *domain.User, ip ne
 		if ipStr != "" {
 			suffix = " (IP: " + ipStr + ")"
 		}
-		_ = a.email.Send(user.Email, "New sign-in to your account",
+		_ = a.email.Send(ctx, user.Email, "New sign-in to your account",
 			mail.WrapHTML(a.cfg.PublicURL, "New sign-in to your account",
 				fmt.Sprintf(`<p>Hi %s,</p><p>Your account was just signed in from a new device or location%s.</p>
 				<p>If this wasn't you, reset your password and revoke sessions from your security page.</p>`,
@@ -320,7 +320,7 @@ func (a *Auth) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 	link := fmt.Sprintf("%s/reset-password?token=%s", a.cfg.PublicURL, url.QueryEscape(token))
-	return a.email.Send(user.Email, "Reset your password",
+	return a.email.Send(ctx, user.Email, "Reset your password",
 		mail.WrapHTML(a.cfg.PublicURL, "Reset your password",
 			fmt.Sprintf(`<p>Hi %s,</p><p>Reset your password: <a href="%s">%s</a>.</p><p>Link expires in 15 minutes.</p>`,
 				htmlEscape(user.Name), link, link)))
@@ -419,7 +419,7 @@ func (a *Auth) sendVerificationEmail(ctx context.Context, user *domain.User) err
 		return err
 	}
 	link := fmt.Sprintf("%s/verify-email?token=%s", a.cfg.PublicURL, url.QueryEscape(token))
-	return a.email.Send(user.Email, "Verify your email",
+	return a.email.Send(ctx, user.Email, "Verify your email",
 		mail.WrapHTML(a.cfg.PublicURL, "Verify your email",
 			fmt.Sprintf(`<p>Welcome to BizVerse, %s.</p><p>Verify your email: <a href="%s">%s</a>.</p><p>Link expires in 24 hours.</p>`,
 				htmlEscape(user.Name), link, link)))
@@ -523,9 +523,12 @@ func (a *Auth) TFAStatus(ctx context.Context, userID string) (map[string]any, er
 
 // usedTOTPSteps enforces single-use TOTP: without it the same 6-digit code
 // passes repeatedly within its ±1 window (30-90s), so a phished code stays
-// valid long enough to replay. Keyed per user+timestep; entries are tiny and
-// pruned opportunistically.
+// valid long enough to replay. Keyed per user+timestep; values record when
+// the step was seen so pruning can use the step's real lifetime instead of
+// arbitrary eviction.
 var usedTOTPSteps sync.Map
+
+const usedTOTPStepTTL = 10 * time.Minute
 
 func (a *Auth) validateFreshTOTP(userID, secret, code string) bool {
 	step, ok := security.ValidateTOTPStep(secret, code)
@@ -533,13 +536,12 @@ func (a *Auth) validateFreshTOTP(userID, secret, code string) bool {
 		return false
 	}
 	key := userID + ":" + strconv.FormatInt(step, 10)
-	if _, dup := usedTOTPSteps.LoadOrStore(key, struct{}{}); dup {
+	if _, dup := usedTOTPSteps.LoadOrStore(key, time.Now()); dup {
 		return false
 	}
-	count := 0
-	usedTOTPSteps.Range(func(k, _ any) bool {
-		count++
-		if count > 4096 { // bound memory; correctness unaffected
+	cutoff := time.Now().Add(-usedTOTPStepTTL)
+	usedTOTPSteps.Range(func(k, v any) bool {
+		if seen, ok := v.(time.Time); ok && seen.Before(cutoff) {
 			usedTOTPSteps.Delete(k)
 		}
 		return true
@@ -748,7 +750,7 @@ func (a *Auth) RestoreAccount(ctx context.Context, email, password string, ip ne
 		return nil, nil, domain.ErrInvalidCreds
 	}
 	if time.Since(*deletedAt) > 14*24*time.Hour {
-		return nil, nil, domain.ErrTokenInvalid
+		return nil, nil, domain.ErrValidation.WithField("_", "The restoration window has closed.")
 	}
 	if _, err := a.repos.Exec(ctx,
 		`UPDATE users SET deleted_at = NULL, updated_at = now() WHERE id = $1`, user.ID); err != nil {
@@ -825,9 +827,12 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 		items, _ := a.repos.Engagement.ListItems(ctx, c.ID)
 		colItems = append(colItems, map[string]any{"collection": c, "items": items})
 	}
-	reviews, _ := a.repos.Query(ctx, `
+	reviews, err := a.repos.Query(ctx, `
 		SELECT id, business_id, product_id, rating, text, created_at FROM reviews
 		WHERE user_id = $1 AND deleted_at IS NULL`, userID)
+	if err != nil {
+		return nil, err
+	}
 	revRows := []any{}
 	for reviews.Next() {
 		var id, bid, pid *string
@@ -839,8 +844,11 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 		}
 	}
 	reviews.Close()
-	comments, _ := a.repos.Query(ctx, `
+	comments, err := a.repos.Query(ctx, `
 		SELECT id, business_id, text, created_at FROM comments WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
 	comRows := []any{}
 	for comments.Next() {
 		var id, bid, text string
@@ -993,7 +1001,7 @@ func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail, totp
 		return err
 	}
 	// Alert the previous address so account takeovers are visible immediately.
-	_ = a.email.Send(oldEmail, "Your email address was changed",
+	_ = a.email.Send(ctx, oldEmail, "Your email address was changed",
 		mail.WrapHTML(a.cfg.PublicURL, "Your email address was changed",
 			fmt.Sprintf(`<p>Hi %s,</p><p>The email address on your account was changed to <strong>%s</strong>.
 			If this wasn't you, reset your password immediately and contact support.</p>`,
@@ -1111,7 +1119,9 @@ func (a *Auth) checkUserStatus(u *domain.User) error {
 	case domain.UserStatusBanned:
 		return domain.ErrAccountBanned
 	case domain.UserStatusSuspended:
-		if u.SuspendedUntil == nil || time.Now().After(*u.SuspendedUntil) {
+		// NULL suspended_until = indefinite suspension; only a past date
+		// means the suspension has lapsed.
+		if u.SuspendedUntil != nil && time.Now().After(*u.SuspendedUntil) {
 			return nil // suspension expired
 		}
 		return domain.ErrAccountSuspended

@@ -46,6 +46,7 @@ var (
 	ErrRateLimited     = &Error{Code: "rate_limited", Message: "Too many attempts. Try again soon.", Status: http.StatusTooManyRequests}
 	ErrNotFound        = &Error{Code: "not_found", Message: "Resource not found.", Status: http.StatusNotFound}
 	ErrForbidden       = &Error{Code: "forbidden", Message: "You don't have permission to do this.", Status: http.StatusForbidden}
+	ErrConflict        = &Error{Code: "conflict", Message: "The request conflicts with the current state.", Status: http.StatusConflict}
 	ErrInternal        = &Error{Code: "internal_error", Message: "Something went wrong.", Status: http.StatusInternalServerError}
 )
 

@@ -156,19 +156,25 @@ func randomPasswordHash() (string, error) {
 }
 
 func (o *OAuth) uniqueUsername(ctx context.Context, base string) string {
-	candidate := sanitizeUsername(base)
-	if candidate == "" {
-		candidate = "user"
-	}
+	baseName := sanitizeUsername(base)
+	candidate := baseName
 	for i := 2; ; i++ {
 		taken, err := o.repos.Users.UsernameTaken(ctx, candidate)
-		if err != nil || !taken {
-			return candidate
+		if err != nil || taken {
+			// A lookup error is indistinguishable from a conflict: keep
+			// suffixing instead of returning an unverified candidate.
+			candidate = fmt.Sprintf("%s%d", baseName, i)
+			continue
 		}
-		candidate = fmt.Sprintf("%s%d", sanitizeUsername(base), i)
+		return candidate
 	}
 }
 
+const usernamePadAlphabet = "0123456789abcdef"
+
+// sanitizeUsername keeps [a-z0-9_] only, capped at 30 chars. Short results
+// (e.g. single-letter email locals) are padded with random hex so every
+// generated username satisfies the 3-30 rule before it reaches the DB.
 func sanitizeUsername(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
@@ -179,6 +185,19 @@ func sanitizeUsername(s string) string {
 	out := b.String()
 	if len(out) > 30 {
 		out = out[:30]
+	}
+	if len(out) < 3 {
+		pad := make([]byte, 3-len(out))
+		if _, err := rand.Read(pad); err != nil {
+			for i := range pad {
+				pad[i] = 'x'
+			}
+		} else {
+			for i := range pad {
+				pad[i] = usernamePadAlphabet[int(pad[i])%len(usernamePadAlphabet)]
+			}
+		}
+		out += string(pad)
 	}
 	return out
 }

@@ -185,6 +185,20 @@ func (r *BusinessRepo) SlugTaken(ctx context.Context, slug, excludeID string) (b
 	return exists, err
 }
 
+// ChangeSlugOnce rotates the slug only when the one-time change is still
+// unconsumed; false means a concurrent request won the race (PRD §8.2).
+// The guard lives in this single UPDATE so two requests can never both see
+// slug_changed_at IS NULL and both rotate.
+func (r *BusinessRepo) ChangeSlugOnce(ctx context.Context, id, slug string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE businesses SET slug = $2, slug_changed_at = now(), updated_at = now()
+		WHERE id = $1 AND slug_changed_at IS NULL AND deleted_at IS NULL`, id, slug)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ListFeatured returns featured verified businesses in curation order
 // (homepage strip, PRD §5.8.5).
 func (r *BusinessRepo) ListFeatured(ctx context.Context, limit int) ([]*domain.Business, error) {

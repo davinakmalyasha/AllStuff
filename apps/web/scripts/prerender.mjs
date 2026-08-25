@@ -1,12 +1,13 @@
 // Prerender public routes for SEO (B4): renders each public page with a
-// headless browser after `npm run build`, writing static HTML per route.
-// Usage: node scripts/prerender.mjs  (expects API on :8080, dist built)
+// headless browser against the production build served by `vite preview`
+// (:4173), writing static HTML per route.
+// Usage: node scripts/prerender.mjs  (expects API on :8080, `npm run preview` running)
 import { chromium } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const API = 'http://localhost:8080/api/v1'
-const APP = 'http://localhost:5173'
+const APP = 'http://localhost:4173'
 
 const routes = ['/', '/discover', '/categories', '/map', '/compare']
 
@@ -28,7 +29,8 @@ async function main() {
   for (const route of routes) {
     try {
       await page.goto(`${APP}${route}`, { waitUntil: 'networkidle', timeout: 20000 })
-      await page.waitForTimeout(300)
+      // Bounded wait: content is ready once #root has rendered any element.
+      await page.waitForSelector('#root *', { timeout: 8000 })
       const html = await page.content()
       const file = route === '/' ? 'index' : route.replace(/^\//, '').replace(/\//g, '__').replace(/[^a-z0-9_]/gi, '_')
       const dir = join('dist', 'prerendered')

@@ -10,7 +10,7 @@ import (
 	"bizverse/api/internal/util"
 )
 
-// Search â€” PRD Â§5.1.2: FTS + filters + sorts. Open-now is filtered in Go
+// Search - PRD §5.1.2: FTS + filters + sorts. Open-now is filtered in Go
 // (hours are JSONB; the candidate set per page is small).
 type Search struct {
 	repos *repo.Repos
@@ -215,7 +215,7 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	return out, total, nil
 }
 
-// Suggestions â€” autocomplete (PRD Â§5.1.2): business prefixes + category names.
+// Suggestions - autocomplete (PRD §5.1.2): business prefixes + category names.
 func (s *Search) Suggestions(ctx context.Context, q string, limit int) (map[string][]any, error) {
 	if limit <= 0 || limit > 10 {
 		limit = 10

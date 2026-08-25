@@ -11,7 +11,7 @@ import (
 	"bizverse/api/internal/util"
 )
 
-// Categories â€” tree management (PRD Â§5.8.3).
+// Categories - tree management (PRD §5.8.3).
 type Categories struct {
 	repos *repo.Repos
 }
@@ -180,7 +180,7 @@ func (s *Categories) Update(ctx context.Context, id string, in CategoryInput) (*
 				return nil, domain.ErrValidation.WithField("parent_id", "Parent must exist and be a top-level category.")
 			}
 		}
-		fields["parent_id"] = *in.ParentID
+		fields["parent_id"] = nullableString(*in.ParentID)
 	}
 	if len(fields) == 0 {
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
@@ -191,7 +191,7 @@ func (s *Categories) Update(ctx context.Context, id string, in CategoryInput) (*
 	return s.repos.Categories.GetByID(ctx, id)
 }
 
-// Delete removes a category; businesses must be moved first (PRD Â§5.8.3: no orphans).
+// Delete removes a category; businesses must be moved first (PRD §5.8.3: no orphans).
 func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string) error {	cat, err := s.repos.Categories.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -213,7 +213,7 @@ func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string)
 	if count > 0 {
 		if forceMoveTo == nil || *forceMoveTo == "" || *forceMoveTo == id {
 			return domain.ErrValidation.WithField("_",
-				"This category has businesses. Pass move_to to reassign them (PRD Â§5.8.3).")
+				"This category has businesses. Pass move_to to reassign them (PRD §5.8.3).")
 		}
 		target, err := s.repos.Categories.GetByID(ctx, *forceMoveTo)
 		if err != nil || target == nil {
@@ -278,7 +278,7 @@ func buildTree(flat []*domain.Category) []*domain.Category {
 	return roots
 }
 
-// slugify: lowercase ascii, spaces â†’ hyphens, strip others (PRD Â§8.2).
+// slugify: lowercase ascii, spaces -> hyphens, strip others (PRD §8.2).
 func slugify(s string) string {
 	var b strings.Builder
 	prevDash := false

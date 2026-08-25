@@ -36,10 +36,11 @@ const FALLBACK_CATEGORIES: { name: string; note: string; slug: string; icon: str
 ]
 
 
+// Icons only — titles/texts come from i18n at render time (landing.howStep*).
 const STEPS = [
-  { icon: Compass, title: 'Discover', text: 'Search, filter, or explore the map. Compare businesses side by side before you choose.' },
-  { icon: TrendingUp, title: 'Engage', text: 'Like, review, recommend, and chat. Real signals surface what is truly good — and hidden gems rise.' },
-  { icon: Store, title: 'Own', text: 'Business owners build a full storefront with products, branding, and chat. Zero code, zero cost.' },
+  { icon: Compass, titleKey: 'landing.howStep1Title', textKey: 'landing.howStep1Text' },
+  { icon: TrendingUp, titleKey: 'landing.howStep2Title', textKey: 'landing.howStep2Text' },
+  { icon: Store, titleKey: 'landing.howStep3Title', textKey: 'landing.howStep3Text' },
 ]
 
 const FEATURES = [
@@ -143,7 +144,7 @@ export function LandingPage() {
               aria-label={t('landing.searchPlaceholder')}
             />
             <Button size="sm" type="submit" className="shrink-0">
-              {t('landing.searchNearMe')}
+              {t('common.submit')}
             </Button>
           </form>
 
@@ -277,11 +278,11 @@ export function LandingPage() {
           </div>
           <div className="grid gap-6 md:grid-cols-3">
             {STEPS.map((s, i) => (
-              <Card key={s.title} hover className="relative">
+              <Card key={s.titleKey} hover className="relative">
                 <span className="mono-label absolute right-5 top-5">0{i + 1}</span>
                 <s.icon className="h-5 w-5 text-ink" aria-hidden />
-                <h3 className="mt-4 text-base font-semibold text-ink">{s.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink2">{s.text}</p>
+                <h3 className="mt-4 text-base font-semibold text-ink">{t(s.titleKey)}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-ink2">{t(s.textKey)}</p>
               </Card>
             ))}
           </div>

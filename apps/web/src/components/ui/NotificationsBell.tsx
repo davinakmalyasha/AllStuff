@@ -6,12 +6,14 @@ import { api, type NotificationDTO } from '@/lib/api'
 import { NOTIF_LABELS, notifUrl } from '@/lib/notifications'
 import { useAuth } from '@/stores/auth'
 import { ws } from '@/lib/ws'
+import { useDialogA11y } from '@/components/ui/Modal'
 
 /** Notification bell with unread badge + dropdown (PRD §5.7). Deep-links to targets. */
 export function NotificationsBell() {
   const qc = useQueryClient()
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
+  const panelRef = useDialogA11y(open, () => setOpen(false))
 
   const { data } = useQuery({
     queryKey: ['notifications'],
@@ -59,7 +61,14 @@ export function NotificationsBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover">
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Notifications"
+            className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-xl border border-border bg-surface shadow-cardHover outline-none"
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
               <p className="mono-label">Notifications</p>
               <div className="flex items-center gap-2">

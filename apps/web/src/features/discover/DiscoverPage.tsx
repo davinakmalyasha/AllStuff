@@ -18,6 +18,7 @@ export function DiscoverPage() {
   const { user } = useAuth()
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
+  const cityParam = params.get('city') ?? ''
   const [query, setQuery] = useState(q)
   const [showFilters, setShowFilters] = useState(false)
   const [sort, setSort] = useState<SortKey>((params.get('sort') as SortKey) ?? 'trending')
@@ -62,6 +63,7 @@ export function DiscoverPage() {
   const apply = () => {
     const next = new URLSearchParams()
     if (submitted) next.set('q', submitted)
+    if (cityParam) next.set('city', cityParam)
     for (const c of cats) next.append('category', c)
     for (const p of priceLevels) next.append('price_level', String(p))
     if (minRating) next.set('min_rating', String(minRating))
@@ -97,17 +99,17 @@ export function DiscoverPage() {
   const [page, setPage] = useState(1)
   const [extras, setExtras] = useState<BusinessDTO[]>([])
   const searchFilters = {
-    q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
+    q: submitted || undefined, city: cityParam || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
     open_now: openNow, verified_only: verifiedOnly, fully_verified_only: fullyVerified,
     has_chat: hasChat, sort: coords ? ('nearest' as const) : sort, limit: 24,
     lat: coords?.lat, lng: coords?.lng, radius_km: coords ? 25 : undefined,
   }
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
+    queryKey: ['search', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
     queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath(searchFilters)),
   })
   const { data: more, isFetching: moreLoading } = useQuery({
-    queryKey: ['search-more', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords, page],
+    queryKey: ['search-more', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords, page],
     queryFn: () => api<{ businesses: BusinessDTO[] }>(searchPath({ ...searchFilters, offset: page * 24 })),
     enabled: page > 1,
   })
@@ -123,7 +125,7 @@ export function DiscoverPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [more])
-  const filterKey = [submitted, cats.join(','), priceLevels.join(','), minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords?.lat ?? '', coords?.lng ?? ''].join('|')
+  const filterKey = [submitted, cityParam, cats.join(','), priceLevels.join(','), minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords?.lat ?? '', coords?.lng ?? ''].join('|')
   useEffect(() => {
     setPage(1)
     setExtras([])
@@ -155,8 +157,20 @@ export function DiscoverPage() {
     }
   }
 
+  // Mirror apply(): searching must update the URL so results are shareable
+  // and survive a refresh.
   const submit = (text?: string) => {
-    setSubmitted(text ?? query)
+    const value = text ?? query
+    setSubmitted(value)
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (value) next.set('q', value)
+        else next.delete('q')
+        return next
+      },
+      { replace: true },
+    )
     setSuggestOpen(false)
     inputRef.current?.blur()
   }

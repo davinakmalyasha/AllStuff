@@ -12,6 +12,7 @@ class WsClient {
   private handlers = new Map<string, Set<Handler>>()
   private subscribed = new Set<string>()
   private reconnectDelay = 1000
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private closed = false
   private queue: WsFrame[] = []
   private statusListeners = new Set<(connected: boolean) => void>()
@@ -35,7 +36,15 @@ class WsClient {
     // close() is no longer terminal: a fresh connect() after logout/login
     // must work, so clear the flag here.
     this.closed = false
+    // Re-entry guard: never open a second socket while one exists or a
+    // handshake is in flight.
     if (this.ws) return
+    // An explicit connect() supersedes any scheduled retry (e.g. re-login
+    // before the backoff timer fires).
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/api/v1/ws`)
     this.ws = ws
@@ -57,7 +66,12 @@ class WsClient {
       this.setConnected(false)
       this.ws = null
       if (!this.closed) {
-        setTimeout(() => this.connect(), this.reconnectDelay)
+        // Keep the handle so close() can cancel a pending retry — otherwise a
+        // socket scheduled to reconnect revives itself after logout.
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null
+          this.connect()
+        }, this.reconnectDelay)
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
       }
     }
@@ -100,6 +114,10 @@ class WsClient {
   /** Disconnect now. A later connect() reopens cleanly. */
   close() {
     this.closed = true
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     this.ws?.close()
     this.ws = null
     this.setConnected(false)

@@ -25,8 +25,13 @@ import { safeExternalUrl } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
 import { copyText } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
+import { useDialogA11y } from '@/components/ui/Modal'
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '❌', '🤔', '👏', '😍', '😎', '💯', '🥳', '🤝', '👌', '😅', '🙌']
+
+// Monotonic temp ids: `-Date.now()` collided when two messages were sent in
+// the same millisecond (duplicate React keys broke reconciliation).
+let tempIdCounter = 0
 
 /** Link previews carry user-pasted URLs: scheme-allowlisted before render. */
 function LinkPreview({ preview }: { preview: Record<string, unknown> }) {
@@ -62,6 +67,8 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const debouncedSearchQ = useDebouncedValue(searchQ, 250)
   const [pendingFile, setPendingFile] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollBodyRef = useRef<HTMLDivElement>(null)
+  const didInitialScroll = useRef(false)
   const typingTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const { data, isLoading } = useQuery({
@@ -133,8 +140,19 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }, [id, user?.id, qc])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, typing])
+    const el = scrollBodyRef.current
+    if (!el) return
+    if (!didInitialScroll.current) {
+      // Initial load lands on the newest message instantly (no animation).
+      didInitialScroll.current = true
+      bottomRef.current?.scrollIntoView()
+      return
+    }
+    // Otherwise follow only while the reader is already near the bottom —
+    // scrolling up to read history must not be yanked back on every frame.
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distance < 120) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length])
 
   // Typing signal: throttled to one POST per 2.5s while actively typing —
   // the old per-keystroke send fired ~40 requests for a single message.
@@ -156,7 +174,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     // Optimistic append: without it a dropped socket made sent messages
     // vanish (they only ever appeared via the WS echo).
     const temp: ChatMessageDTO = {
-      id: -Date.now(),
+      id: --tempIdCounter,
       thread_id: id,
       sender_id: user?.id ?? '',
       sender_role: businessMode ? 'owner' : 'user',
@@ -212,6 +230,24 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const [recording, setRecording] = useState(false)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recTimerRef = useRef<number | null>(null)
+
+  // Unmount cleanup: stop a live recording, release every mic track and the
+  // hard-stop timer — navigating away mid-recording used to hold the mic.
+  useEffect(() => {
+    return () => {
+      const rec = recorderRef.current
+      if (rec && rec.state !== 'inactive') {
+        rec.onstop = null
+        rec.stop()
+      }
+      rec?.stream.getTracks().forEach((t) => t.stop())
+      recorderRef.current = null
+      if (recTimerRef.current !== null) {
+        clearTimeout(recTimerRef.current)
+        recTimerRef.current = null
+      }
+    }
+  }, [])
 
   const toggleVoice = async () => {
     if (recording) {
@@ -306,8 +342,14 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }, [pinnedData])
 
   const pin = async (messageId: number, on: boolean) => {
-    await api(`/threads/${id}/pin/${messageId}`, { method: on ? 'PUT' : 'DELETE' })
-    setPinnedIds((prev) => (on ? [...prev, messageId] : prev.filter((x) => x !== messageId)))
+    try {
+      await api(`/threads/${id}/pin/${messageId}`, { method: on ? 'PUT' : 'DELETE' })
+      setPinnedIds((prev) => (on ? [...prev, messageId] : prev.filter((x) => x !== messageId)))
+    } catch {
+      toast.error('Could not update the pin.')
+    }
+    // Refetch either way so the optimistic set reconciles with server truth.
+    void qc.invalidateQueries({ queryKey: ['pinned', id] })
   }
 
   const { data: searchRes } = useQuery({
@@ -316,14 +358,10 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     enabled: searching && debouncedSearchQ.trim().length >= 2,
   })
 
-  // Thread mute (PRD §5.5.1): optimistic toggle; server keeps muted_until.
-  // Seeded from the thread payload — a hardcoded `false` showed the wrong
-  // bell state after reload and sent the wrong verb on first click.
+  // Thread mute (PRD §5.5.1): optimistic toggle only. Neither the thread
+  // detail nor list payloads carry muted state client-side, so there is no
+  // server value to seed from — the bell starts unmuted on each visit.
   const [muted, setMuted] = useState(false)
-  useEffect(() => {
-    const t = data?.thread as { muted_until?: string | null } | undefined
-    if (t) setMuted(!!t.muted_until)
-  }, [data])
   const toggleMute = async () => {
     const next = !muted
     setMuted(next)
@@ -338,11 +376,12 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
 
   // Pinned conversation (PRD §5.5.1, max 5): header toggle.
   const [pinnedThread, setPinnedThread] = useState(false)
+  const [pinnedTick, setPinnedTick] = useState(0)
   useEffect(() => {
     api<{ threads: Array<{ id: string }> }>(`/me/pinned-threads`)
       .then((r) => setPinnedThread(r.threads.some((t) => t.id === id)))
       .catch(() => undefined)
-  }, [id])
+  }, [id, pinnedTick])
   const togglePinThread = async () => {
     const next = !pinnedThread
     setPinnedThread(next)
@@ -353,6 +392,8 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       setPinnedThread(!next)
       toast.error(next ? 'Pin limit is 5 conversations.' : 'Could not unpin.')
     }
+    // Re-sync from the pinned-threads list so optimism converges on truth.
+    setPinnedTick((t) => t + 1)
   }
 
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
@@ -397,7 +438,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       )}
 
       {/* Messages */}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      <div ref={scrollBodyRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {display.map((m) => (
           <MessageRow
             key={m.id}
@@ -411,6 +452,8 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             menuOpen={menuFor === m.id}
             setMenuOpen={(v) => setMenuFor(v ? m.id : null)}
             pickerOpen={pickerFor === m.id}
+            togglePicker={() => setPickerFor((v) => (v === m.id ? null : m.id))}
+            closePicker={() => setPickerFor(null)}
             setPicker={(emoji) => void react(m, emoji)}
             replyTarget={m.reply_to_id ? display.find((x) => x.id === m.reply_to_id) : undefined}
             showActions={!businessMode || m.sender_role !== 'owner'}
@@ -496,6 +539,8 @@ function MessageRow({
   menuOpen,
   setMenuOpen,
   pickerOpen,
+  togglePicker,
+  closePicker,
   setPicker,
   replyTarget,
   showActions,
@@ -511,11 +556,14 @@ function MessageRow({
   menuOpen: boolean
   setMenuOpen: (v: boolean) => void
   pickerOpen: boolean
+  togglePicker: () => void
+  closePicker: () => void
   setPicker: (emoji: string) => void
   replyTarget?: ChatMessageDTO
   showActions: boolean
   onJump: (id: number) => void
 }) {
+  const pickerRef = useDialogA11y(pickerOpen, closePicker)
   if (m.deleted_for === 'everyone') {
     return (
       <div className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
@@ -562,7 +610,7 @@ function MessageRow({
           <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
             <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">copy</button>
             <button onClick={onReply} className="text-[10px] text-ink3 hover:text-ink">reply</button>
-            <button onClick={() => setMenuOpen(pickerOpen ? false : !pickerOpen)} className="text-[10px] text-ink3 hover:text-ink">react</button>
+            <button onClick={togglePicker} className="text-[10px] text-ink3 hover:text-ink">react</button>
             {own && <button onClick={onEdit} className="text-[10px] text-ink3 hover:text-ink"><Pencil className="h-2.5 w-2.5 inline" /> edit</button>}
             {own && <button onClick={() => setMenuOpen(true)} className="text-[10px] text-ink3 hover:text-ink"><Trash2 className="h-2.5 w-2.5 inline" /> delete</button>}
           </div>
@@ -585,8 +633,16 @@ function MessageRow({
       )}
       {pickerOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setPicker('')} />
-          <div className="absolute bottom-0 z-50 flex gap-1 rounded-xl border border-border bg-surface p-2 shadow-cardHover">
+          {/* Backdrop only dismisses the picker — reacting never happens via it. */}
+          <div className="fixed inset-0 z-40" onClick={closePicker} />
+          <div
+            ref={pickerRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Pick a reaction"
+            className="absolute bottom-0 z-50 flex gap-1 rounded-xl border border-border bg-surface p-2 shadow-cardHover outline-none"
+          >
             {EMOJIS.map((e) => (
               <button key={e} onClick={() => setPicker(e)} className="text-lg hover:scale-125">{e}</button>
             ))}

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { useDialogA11y } from '@/components/ui/Modal'
 import { priceLabel } from './StorefrontPreview'
 
 export function ProductsPage() {
@@ -143,6 +144,8 @@ function ProductEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+  // Mounted only while open — Escape/focus handled by the shared hook.
+  const dialogRef = useDialogA11y(true, onClose)
 
   const create = async () => {
     const r = await api<{ product: ProductDTO }>(`/businesses/${businessId}/products`, {
@@ -221,7 +224,15 @@ function ProductEditor({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <Card className="my-6 w-full max-w-3xl" >
-        <div onClick={(e) => e.stopPropagation()} className="space-y-5">
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={product ? 'Edit product' : 'New product'}
+          onClick={(e) => e.stopPropagation()}
+          className="space-y-5 outline-none"
+        >
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">{product ? 'Edit product' : 'New product'}</h2>

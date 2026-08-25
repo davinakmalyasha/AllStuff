@@ -161,7 +161,8 @@ func (n *Notifier) sendEmail(notif *domain.Notification) {
 		return
 	}
 	bodyHTML := fmt.Sprintf(`<p>%s</p><p style="color:#999;font-size:12px">Manage preferences: %s/me/security</p>`, body, n.cfg.PublicURL)
-	_ = n.email.Send(to, title, email.WrapHTML(n.cfg.PublicURL, title, bodyHTML))
+	// Detached goroutine: the originating request ctx may already be done.
+	_ = n.email.Send(context.Background(), to, title, email.WrapHTML(n.cfg.PublicURL, title, bodyHTML))
 }
 
 // describe renders a human-readable title/body for email channel. The user_id

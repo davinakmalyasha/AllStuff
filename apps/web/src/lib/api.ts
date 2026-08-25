@@ -124,7 +124,8 @@ export async function api<T>(path: string, options: RequestOptions = {}, _retrie
     // Rate limited on idempotent reads: honor Retry-After (cap 60s), retry
     // once. Mutations are NOT auto-retried (non-idempotent).
     if (!_retried && res.status === 429 && !isMutation) {
-      const retryAfter = Number(res.headers.get('Retry-After') ?? '5')
+      const parsed = parseFloat(res.headers.get('Retry-After') ?? '')
+      const retryAfter = Number.isFinite(parsed) ? parsed : 30
       await new Promise((resolve) => setTimeout(resolve, Math.min(retryAfter * 1000, 60_000)))
       return api<T>(path, options, true)
     }

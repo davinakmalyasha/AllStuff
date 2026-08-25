@@ -185,6 +185,13 @@ func (r *RedisPubSub) Subscribe(ctx context.Context, onMsg func(string)) {
 		}
 		close(done)
 		conn.Close()
+		// Same backoff as dial failures: without it a dead peer (or one that
+		// refuses the handshake) spins this loop into a hot reconnect.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
 	}
 }
 
@@ -195,6 +202,9 @@ func keepalive(ctx context.Context, conn net.Conn, done <-chan struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Unblock the reader goroutine: it sits in a blocking read with
+			// up to a 10-minute deadline and only wakes on close/error.
+			conn.Close()
 			return
 		case <-done:
 			return

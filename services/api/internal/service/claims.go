@@ -74,6 +74,15 @@ func (c *Claims) Submit(ctx context.Context, userID string, in ClaimInput) (*Cla
 	} else {
 		in.BusinessID = nil
 	}
+	if in.CategoryID != "" {
+		cat, err := c.repos.Categories.GetByID(ctx, in.CategoryID)
+		if err != nil {
+			return nil, err
+		}
+		if cat == nil {
+			return nil, domain.ErrValidation.WithField("category_id", "Category not found.")
+		}
+	}
 	item := &ClaimItem{
 		ID: util.NewUUID(), UserID: userID, BusinessID: in.BusinessID, Name: in.Name,
 		CategoryID: in.CategoryID, Address: in.Address, City: in.City, Country: in.Country,
@@ -179,15 +188,20 @@ func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note st
 			// the claimer completes them in the wizard. Slug collisions are
 			// resolved with a suffix (globally unique column).
 			slug := slugify(it.Name)
+			found := false
 			for i := 0; i < 10; i++ {
 				taken, err := c.repos.Businesses.SlugTaken(ctx, slug, "")
 				if err != nil {
 					return nil, err
 				}
 				if !taken {
+					found = true
 					break
 				}
 				slug = slugify(it.Name) + "-" + util.NewUUID()[:6]
+			}
+			if !found {
+				return nil, domain.ErrInternal
 			}
 			if _, err := c.repos.Exec(ctx, `
 				INSERT INTO businesses (id, owner_id, name, slug, category_id, address, city, country, lat, lng, status)

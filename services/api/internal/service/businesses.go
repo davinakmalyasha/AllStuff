@@ -13,7 +13,7 @@ import (
 	"bizverse/api/internal/util"
 )
 
-// Businesses â€” wizard, submission, verification (PRD Â§5.4.1, Â§8.2).
+// Businesses - wizard, submission, verification (PRD §5.4.1, §8.2).
 type Businesses struct {
 	repos *repo.Repos
 }
@@ -22,7 +22,7 @@ func NewBusinesses(repos *repo.Repos) *Businesses { return &Businesses{repos: re
 
 const defaultHours = `{"mon":{"open":"09:00","close":"17:00","closed":false},"tue":{"open":"09:00","close":"17:00","closed":false},"wed":{"open":"09:00","close":"17:00","closed":false},"thu":{"open":"09:00","close":"17:00","closed":false},"fri":{"open":"09:00","close":"17:00","closed":false},"sat":{"closed":true},"sun":{"closed":true}}`
 
-// Create starts the wizard: a draft business with sane defaults (PRD Â§5.4.1).
+// Create starts the wizard: a draft business with sane defaults (PRD §5.4.1).
 func (s *Businesses) Create(ctx context.Context, ownerID string) (*domain.Business, error) {
 	var hours map[string]any
 	_ = json.Unmarshal([]byte(defaultHours), &hours)
@@ -169,7 +169,7 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 	if v, ok := in["price_level"]; ok && v != nil {
 		pl, ok := asInt(v)
 		if !ok || pl < 1 || pl > 4 {
-			return nil, domain.ErrValidation.WithField("price_level", "Price level must be 1â€“4.")
+			return nil, domain.ErrValidation.WithField("price_level", "Price level must be 1-4.")
 		}
 		fields["price_level"] = pl
 	}
@@ -262,16 +262,19 @@ func (s *Businesses) RequestSlugChange(ctx context.Context, ownerID, id string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.repos.Businesses.Update(ctx, id, map[string]any{
-		"slug":            slug,
-		"slug_changed_at": time.Now().UTC(),
-	}); err != nil {
+	// Conditional rotation: the WHERE clause re-checks the flag so only one
+	// of N racing requests flips it.
+	ok, err := s.repos.Businesses.ChangeSlugOnce(ctx, id, slug)
+	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		return nil, domain.ErrValidation.WithField("_", "Slug already changed once")
 	}
 	return s.repos.Businesses.GetByID(ctx, id)
 }
 
-// Submit validates the full draft (PRD Â§8.2 mandatory set) and moves to pending_review.
+// Submit validates the full draft (PRD §8.2 mandatory set) and moves to pending_review.
 func (s *Businesses) Submit(ctx context.Context, ownerID, id string) (*domain.Business, error) {
 	b, err := s.owned(ctx, ownerID, id)
 	if err != nil {
@@ -291,7 +294,7 @@ func (s *Businesses) Submit(ctx context.Context, ownerID, id string) (*domain.Bu
 	return s.repos.Businesses.GetByID(ctx, id)
 }
 
-// Resubmit after rejection (PRD Â§8.2: max 3 attempts).
+// Resubmit after rejection (PRD §8.2: max 3 attempts).
 func (s *Businesses) Resubmit(ctx context.Context, ownerID, id string) (*domain.Business, error) {
 	b, err := s.owned(ctx, ownerID, id)
 	if err != nil {
@@ -525,10 +528,10 @@ func (s *Businesses) uniqueSlug(ctx context.Context, name, excludeID string) (st
 	}
 }
 
-// validateForSubmission enforces the PRD Â§8.2 mandatory set.
+// validateForSubmission enforces the PRD §8.2 mandatory set.
 func (s *Businesses) validateForSubmission(b *domain.Business) error {
 	if n := len([]rune(b.Name)); n < 2 || n > 80 {
-		return domain.ErrValidation.WithField("name", "Name must be 2â€“80 characters.")
+		return domain.ErrValidation.WithField("name", "Name must be 2-80 characters.")
 	}
 	if len([]rune(b.Description)) < 50 {
 		return domain.ErrValidation.WithField("description", "Description must be at least 50 characters.")
@@ -557,7 +560,7 @@ func (s *Businesses) validateForSubmission(b *domain.Business) error {
 		}
 	}
 	if days < 5 {
-		return domain.ErrValidation.WithField("hours", "Hours must be set for at least 5 days (PRD Â§8.2).")
+		return domain.ErrValidation.WithField("hours", "Hours must be set for at least 5 days (PRD §8.2).")
 	}
 	return nil
 }

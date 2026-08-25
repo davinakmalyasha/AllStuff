@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { useDialogA11y } from '@/components/ui/Modal'
 
 export function AdminVerifyPage() {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<BusinessDTO | null>(null)
   const [tab, setTab] = useState<'pending' | 'rejected'>('pending')
+  const dialogRef = useDialogA11y(!!selected, () => setSelected(null))
 
   const { data, isLoading } = useQuery({
     queryKey: ['verify-queue', tab],
@@ -96,7 +98,15 @@ export function AdminVerifyPage() {
       {selected && b && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={() => setSelected(null)}>
           <Card className="my-8 w-full max-w-2xl" >
-            <div onClick={(e) => e.stopPropagation()}>
+            <div
+              ref={dialogRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Verification details for ${b.name}`}
+              onClick={(e) => e.stopPropagation()}
+              className="outline-none"
+            >
               <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold tracking-tight">{b.name}</h2>

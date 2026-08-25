@@ -14,9 +14,10 @@ import (
 
 // Sender is the email abstraction. Dev (no driver): logs the email (incl.
 // links) to the API console. EMAIL_DRIVER=smtp: local/dev SMTP relay such as
-// Mailpit. Prod: Resend REST API (PRD D6, §10.1).
+// Mailpit. Prod: Resend REST API (PRD D6, §10.1). ctx is honored by drivers
+// that do network I/O; detached callers may pass context.Background().
 type Sender interface {
-	Send(to, subject, html string) error
+	Send(ctx context.Context, to, subject, html string) error
 }
 
 type ResendConfig struct {
@@ -36,14 +37,14 @@ type resendSender struct {
 	cfg ResendConfig
 }
 
-func (r *resendSender) Send(to, subject, html string) error {
+func (r *resendSender) Send(ctx context.Context, to, subject, html string) error {
 	body, _ := json.Marshal(map[string]any{
 		"from":    r.cfg.From,
 		"to":      []string{to},
 		"subject": subject,
 		"html":    html,
 	})
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(ctx,
 		http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -67,8 +68,9 @@ type smtpSender struct {
 }
 
 // Send delivers via plain SMTP (Mailpit and internal relays; no TLS here by
-// design — use Resend for internet-facing delivery).
-func (s *smtpSender) Send(to, subject, html string) error {
+// design — use Resend for internet-facing delivery). net/smtp has no context
+// support, so ctx is accepted for interface parity only.
+func (s *smtpSender) Send(_ context.Context, to, subject, html string) error {
 	addr := s.cfg.SMTPAddr
 	from := s.cfg.From
 	if i := strings.Index(from, "@"); i > 0 {
@@ -102,7 +104,7 @@ type logSender struct {
 	cfg ResendConfig
 }
 
-func (l *logSender) Send(to, subject, html string) error {
+func (l *logSender) Send(_ context.Context, to, subject, html string) error {
 	// Strip tags for console readability; links stay visible.
 	slog.Info("email (dev)",
 		"to", to,

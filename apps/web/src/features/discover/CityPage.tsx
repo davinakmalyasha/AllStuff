@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type BusinessDTO, type TrendEntryDTO } from '@/lib/api'
 import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { BusinessCard } from '@/components/ui/BusinessCard'
+import { MiniMapLive } from '@/components/map/MiniMapLive'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
 
 interface CityCategory {
@@ -60,6 +61,17 @@ export function CityPage() {
       </div>
     )
   }
+
+  // Representative coordinates for the mini-map: the city's own fix, else
+  // the first ranked entry that carries coordinates. Without either there is
+  // nothing sensible to center on — omit the box.
+  const mapCoords =
+    city.lat != null && city.lng != null
+      ? { lat: city.lat, lng: city.lng }
+      : [city.top_rated, city.top]
+          .flat()
+          .map((e) => e as unknown as BusinessDTO)
+          .find((b) => b.lat != null && b.lng != null) ?? null
 
   return (
     <div className="container-page py-10">
@@ -123,17 +135,9 @@ export function CityPage() {
               ))}
             </ul>
           </div>
-          {city.lat && city.lng && (
-            <div className="overflow-hidden rounded-xl border border-border">
-              {/* staticmap.openstreetmap.de is discontinued (see MiniMapLive);
-                  hide silently when the tile never loads. */}
-              <img
-                src={`https://staticmap.openstreetmap.de/staticmap.php?center=${city.lat},${city.lng}&zoom=12&size=280x180`}
-                alt={`Map of ${city.name}`}
-                className="h-44 w-full object-cover"
-                loading="lazy"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-              />
+          {mapCoords && (
+            <div className="h-44 overflow-hidden rounded-xl border border-border">
+              <MiniMapLive lat={mapCoords.lat} lng={mapCoords.lng} name={city.name} />
             </div>
           )}
           <Link to={`/discover?city=${encodeURIComponent(city.name)}`} className="block text-sm text-ink underline underline-offset-4 hover:text-ink2">

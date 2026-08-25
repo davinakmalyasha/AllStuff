@@ -23,6 +23,7 @@ import { Card } from '@/components/ui/Card'
 import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
 import { useAuth } from '@/stores/auth'
+import { toast } from '@/components/ui/Toast'
 import { priceLabel } from '@/features/dashboard/StorefrontPreview'
 import { EngagementBar } from '@/components/engagement/EngagementBar'
 import { ReviewsSection } from '@/components/engagement/ReviewsSection'
@@ -359,16 +360,16 @@ export function BusinessPage() {
 function FollowButton({ businessId, loggedIn }: { businessId: string; loggedIn: boolean }) {
   const qc = useQueryClient()
   const [following, setFollowing] = useState(false)
-  useQuery({
+  const { data } = useQuery({
     queryKey: ['follow', businessId],
     queryFn: () => api<{ following: boolean }>(`/businesses/${businessId}/follow`),
     enabled: loggedIn,
   })
+  // Single source of truth: the query result seeds local state (the old
+  // duplicate manual fetch doubled the request on every mount).
   useEffect(() => {
-    if (loggedIn) {
-      void api<{ following: boolean }>(`/businesses/${businessId}/follow`).then((r) => setFollowing(r.following)).catch(() => undefined)
-    }
-  }, [businessId, loggedIn])
+    if (data) setFollowing(data.following)
+  }, [data])
   if (!loggedIn) return null
   return (
     <Button
@@ -400,8 +401,12 @@ function MessageButton({ businessId, loggedIn, slug }: { businessId: string; log
   return (
     <Button
       onClick={async () => {
-        const r = await api<{ thread: { id: string } }>('/threads', { method: 'POST', body: { business_id: businessId } })
-        navigate(`/me/messages/${r.thread.id}`)
+        try {
+          const r = await api<{ thread: { id: string } }>('/threads', { method: 'POST', body: { business_id: businessId } })
+          navigate(`/me/messages/${r.thread.id}`)
+        } catch {
+          toast.error('Could not start conversation')
+        }
       }}
     >
       <MessageSquare className="h-4 w-4" /> Message

@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
+import { useDialogA11y } from '@/components/ui/Modal'
 
 interface ReportDTO {
   id: string
@@ -56,6 +57,7 @@ export function AdminModerationPage() {
   const [tab, setTab] = useState<'open' | 'resolved'>('open')
   const [note, setNote] = useState('')
   const [active, setActive] = useState<ReportDTO | null>(null)
+  const dialogRef = useDialogA11y(!!active, () => setActive(null))
 
   const { data, isLoading } = useQuery({
     queryKey: ['reports', tab],
@@ -112,7 +114,15 @@ export function AdminModerationPage() {
       {active && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={() => setActive(null)}>
           <Card className="my-8 w-full max-w-lg">
-            <div onClick={(e) => e.stopPropagation()}>
+            <div
+              ref={dialogRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Report · ${active.target_type}`}
+              onClick={(e) => e.stopPropagation()}
+              className="outline-none"
+            >
               <p className="mono-label mb-2">Report · {active.target_type} · {active.target_id}</p>
               <p className="text-sm text-ink2">{active.reason}</p>
               {active.target_snippet && <p className="mt-2 rounded-lg bg-surface2 p-3 text-sm text-ink2">{active.target_snippet}</p>}

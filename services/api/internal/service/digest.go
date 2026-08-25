@@ -55,7 +55,7 @@ func (d *Digest) SendWeekly(ctx context.Context) error {
 		<p style="color:#999;font-size:12px;margin-top:16px">Unsubscribe anytime from your notification settings.</p>
 		</div></body></html>`, rows.String())
 	for _, u := range users {
-		_ = d.email.Send(u, "This week in BizVerse", html)
+		_ = d.email.Send(ctx, u, "This week in BizVerse", html)
 	}
 	return nil
 }
