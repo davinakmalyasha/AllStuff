@@ -140,27 +140,27 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <LandingPage /> },
       { path: 'discover', element: <DiscoverPage /> },
-      { path: 'leaderboards', element: <LeaderboardsPage /> },
-      { path: 'categories', element: <CategoriesPage /> },
+      { path: 'leaderboards', element: <Lazy><LeaderboardsPage /></Lazy> },
+      { path: 'categories', element: <Lazy><CategoriesPage /></Lazy> },
       { path: 'map', element: <Lazy><MapPage /></Lazy> },
       { path: 'compare', element: <Lazy><ComparePage /></Lazy> },
-      { path: 'for-business', element: <ForBusinessPage /> },
-      { path: 'claim', element: <ClaimPage /> },
+      { path: 'for-business', element: <Lazy><ForBusinessPage /></Lazy> },
+      { path: 'claim', element: <Lazy><ClaimPage /></Lazy> },
       { path: 'b/:slug', element: <Lazy><BusinessPage /></Lazy> },
       { path: 'c/:slug', element: <Lazy><CategoryPage /></Lazy> },
-      { path: 'city/:slug', element: <CityPage /> },
-      { path: 'collections/:id', element: <PublicCollectionPage /> },
-      { path: 'u/:username', element: <UserProfilePage /> },
-      { path: 'help', element: <HelpPage /> },
-      { path: 'help/business', element: <BusinessHelpPage /> },
-      { path: 'contact', element: <ContactPage /> },
-      { path: 'terms', element: <TermsPage /> },
-      { path: 'privacy', element: <PrivacyPage /> },
+      { path: 'city/:slug', element: <Lazy><CityPage /></Lazy> },
+      { path: 'collections/:id', element: <Lazy><PublicCollectionPage /></Lazy> },
+      { path: 'u/:username', element: <Lazy><UserProfilePage /></Lazy> },
+      { path: 'help', element: <Lazy><HelpPage /></Lazy> },
+      { path: 'help/business', element: <Lazy><BusinessHelpPage /></Lazy> },
+      { path: 'contact', element: <Lazy><ContactPage /></Lazy> },
+      { path: 'terms', element: <Lazy><TermsPage /></Lazy> },
+      { path: 'privacy', element: <Lazy><PrivacyPage /></Lazy> },
       {
         path: 'login',
         element: (
           <GuestOnly>
-            <LoginPage />
+            <Lazy><LoginPage /></Lazy>
           </GuestOnly>
         ),
       },
@@ -168,7 +168,7 @@ const router = createBrowserRouter([
         path: 'register',
         element: (
           <GuestOnly>
-            <RegisterPage />
+            <Lazy><RegisterPage /></Lazy>
           </GuestOnly>
         ),
       },
@@ -176,14 +176,14 @@ const router = createBrowserRouter([
         path: 'auth/restore',
         element: (
           <GuestOnly>
-            <RestorePage />
+            <Lazy><RestorePage /></Lazy>
           </GuestOnly>
         ),
       },
       { path: 'invite/:token', element: <Lazy><InviteAcceptPage /></Lazy> },
-      { path: 'verify-email', element: <VerifyEmailPage /> },
-      { path: 'forgot-password', element: <ForgotPasswordPage /> },
-      { path: 'reset-password', element: <ResetPasswordPage /> },
+      { path: 'verify-email', element: <Lazy><VerifyEmailPage /></Lazy> },
+      { path: 'forgot-password', element: <Lazy><ForgotPasswordPage /></Lazy> },
+      { path: 'reset-password', element: <Lazy><ResetPasswordPage /></Lazy> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
@@ -195,13 +195,13 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <MePage /> },
-{ path: 'collections', element: <CollectionsPage /> },
-{ path: 'security', element: <SecurityPage /> },
-{ path: 'notifications', element: <NotificationsPage /> },
-{ path: 'reviews', element: <MyReviewsPage /> },
-{ path: 'export', element: <ExportPage /> },
-{ path: 'following', element: <FollowingFeedPage /> },
+      { index: true, element: <Lazy><MePage /></Lazy> },
+      { path: 'collections', element: <Lazy><CollectionsPage /></Lazy> },
+      { path: 'security', element: <Lazy><SecurityPage /></Lazy> },
+      { path: 'notifications', element: <Lazy><NotificationsPage /></Lazy> },
+      { path: 'reviews', element: <Lazy><MyReviewsPage /></Lazy> },
+      { path: 'export', element: <Lazy><ExportPage /></Lazy> },
+      { path: 'following', element: <Lazy><FollowingFeedPage /></Lazy> },
       { path: 'messages', element: <Lazy><InboxPage /></Lazy> },
       { path: 'messages/:id', element: <Lazy><ThreadPage /></Lazy> },
       { path: '*', element: <NotFoundPage /> },
@@ -221,11 +221,11 @@ const router = createBrowserRouter([
       { path: 'products', element: <Lazy><ProductsPage /></Lazy> },
       { path: 'chats', element: <Lazy><DashboardChatsPage /></Lazy> },
       { path: 'chats/:id', element: <Lazy><ThreadPage businessMode /></Lazy> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'settings/verification', element: <VerificationSettingsPage /> },
-      { path: 'analytics', element: <AnalyticsPage /> },
-      { path: 'reviews', element: <DashboardReviewsPage /> },
-      { path: 'comments', element: <DashboardCommentsPage /> },
+      { path: 'settings', element: <Lazy><SettingsPage /></Lazy> },
+      { path: 'settings/verification', element: <Lazy><VerificationSettingsPage /></Lazy> },
+      { path: 'analytics', element: <Lazy><AnalyticsPage /></Lazy> },
+      { path: 'reviews', element: <Lazy><DashboardReviewsPage /></Lazy> },
+      { path: 'comments', element: <Lazy><DashboardCommentsPage /></Lazy> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
@@ -239,17 +239,17 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <AdminKPIPage /> },
-      { path: 'analytics', element: <AdminKPIPage /> },
+      { index: true, element: <Lazy><AdminKPIPage /></Lazy> },
+      { path: 'analytics', element: <Lazy><AdminKPIPage /></Lazy> },
       { path: 'categories', element: <Lazy><AdminCategoriesPage /></Lazy> },
       { path: 'verify', element: <Lazy><AdminVerifyPage /></Lazy> },
       { path: 'moderation', element: <Lazy><AdminModerationPage /></Lazy> },
       { path: 'users', element: <Lazy><AdminUsersPage /></Lazy> },
       { path: 'curation', element: <Lazy><AdminCurationPage /></Lazy> },
-      { path: 'appeals', element: <AdminAppealsPage /> },
-      { path: 'audit', element: <AdminAuditPage /> },
-      { path: 'claims', element: <AdminClaimsPage /> },
-      { path: 'settings', element: <AdminSettingsPage /> },
+      { path: 'appeals', element: <Lazy><AdminAppealsPage /></Lazy> },
+      { path: 'audit', element: <Lazy><AdminAuditPage /></Lazy> },
+      { path: 'claims', element: <Lazy><AdminClaimsPage /></Lazy> },
+      { path: 'settings', element: <Lazy><AdminSettingsPage /></Lazy> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

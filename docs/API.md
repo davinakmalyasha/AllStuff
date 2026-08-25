@@ -4,8 +4,9 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 
 ## Auth & accounts
 - `POST /auth/register` · `POST /auth/login` (2FA-gated: returns `challenge`) · `POST /auth/2fa/verify`
-- `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/verify-email` · `POST /auth/forgot-password` · `POST /auth/reset-password`
+- `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/verify-email` · `POST /auth/resend-verification` (always `{"sent":true}`; 5/h per account) · `POST /auth/forgot-password` · `POST /auth/reset-password`
 - `POST /auth/restore` — cancel a pending account deletion during the 14-day grace (email + password)
+- Invites: `GET /invites/{token}` (public preview: `{business_name, inviter_name, role, email}`) — accept via `POST /invites/{token}/accept` below
 - `GET /auth/oauth/google` · `GET /auth/oauth/google/callback` (redirect flow)
 - `GET /me` · `PATCH /me` · `GET /me/export` · `POST /me/delete` · `POST /me/delete/cancel` (body: `password`)
 - Security: `GET /me/security`, `POST /me/security/2fa`, `/2fa/confirm`, `DELETE /me/security/2fa`, `POST /me/security/2fa/recovery-codes`, `GET /me/security/sessions`, `DELETE /me/security/sessions/{id}`, `POST /me/security/sessions/revoke-others`
@@ -26,7 +27,7 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - `POST /businesses/{id}/slug-change` (one-time owner-requested slug change, PRD §8.2)
 - `PUT /businesses/{id}/storefront` · `GET /businesses/{id}/analytics?period=7d|30d|all`
 - Documents: `GET|POST /businesses/{id}/documents` · `DELETE /businesses/{id}/documents/{docId}`
-- Invites: `GET|POST /businesses/{id}/invites` (role: `co_owner` | `viewer`; only co_owners gain management rights) · `DELETE /businesses/{id}/invites/{inviteId}` · `POST /invites/{token}/accept`
+- Invites: `GET|POST /businesses/{id}/invites` (role: `co_owner` | `viewer`; viewer is reserved and grants no access yet — only co_owners gain management rights) · `DELETE /businesses/{id}/invites/{inviteId}` · `GET /invites/{token}` (public preview) · `POST /invites/{token}/accept` (invitee receives an email with the accept link `{PUBLIC_URL}/invite/{token}`)
 - Quick replies: `GET|POST /businesses/{id}/quick-replies` · `DELETE .../quick-replies/{replyId}`
 
 ## Products

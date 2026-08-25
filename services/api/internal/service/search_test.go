@@ -43,6 +43,30 @@ func TestIsOpenNow(t *testing.T) {
 	if isOpenNow(open, utc, "Asia/Jakarta") {
 		t.Error("Monday hours should not apply at 06:00 Tuesday local")
 	}
+
+	// Regression (audit C3): a previous-day DAYTIME window must not match
+	// today's time-of-day. Mon 09:00–17:00 with Tuesday closed: at Tue 10:00
+	// the old code matched Monday's window and reported "open".
+	daytime := map[string]any{
+		"mon": map[string]any{"open": "09:00", "close": "17:00", "closed": false},
+	}
+	tueDay := time.Date(2026, 8, 11, 10, 0, 0, 0, loc)
+	if isOpenNow(daytime, tueDay, "Asia/Jakarta") {
+		t.Error("previous-day daytime window must not leak into today (Tue 10:00 vs Mon 09-17)")
+	}
+
+	// ...but a previous-day OVERNIGHT window still covers early today.
+	nightOnly := map[string]any{
+		"mon": map[string]any{"open": "22:00", "close": "02:00", "closed": false},
+	}
+	tueEarly := time.Date(2026, 8, 11, 1, 0, 0, 0, loc)
+	if !isOpenNow(nightOnly, tueEarly, "Asia/Jakarta") {
+		t.Error("overnight Mon 22:00-02:00 should be open Tue 01:00")
+	}
+	tueLate := time.Date(2026, 8, 11, 3, 0, 0, 0, loc)
+	if isOpenNow(nightOnly, tueLate, "Asia/Jakarta") {
+		t.Error("overnight Mon 22:00-02:00 must be closed Tue 03:00")
+	}
 }
 
 func TestSlugify(t *testing.T) {

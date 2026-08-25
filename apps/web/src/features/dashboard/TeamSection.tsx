@@ -53,12 +53,15 @@ export function TeamSection() {
   return (
     <Card className="space-y-4">
       <p className="mono-label">Team & co-owners</p>
-      <p className="text-sm text-ink2">Invite people to help manage this business. Co-owners get full access; viewers see analytics only.</p>
+      <p className="text-sm text-ink2">
+        Invite people to help manage this business. Invitees get an email with an accept link. Co-owners get full
+        management access; the viewer role is not active yet and grants no access.
+      </p>
       <div className="flex items-end gap-2">
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" />
         <select value={role} onChange={(e) => setRole(e.target.value as 'co_owner' | 'viewer')} className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-ink">
           <option value="co_owner">Co-owner</option>
-          <option value="viewer">Viewer</option>
+          <option value="viewer">Viewer (coming soon)</option>
         </select>
         <Button onClick={() => void invite.mutateAsync()} disabled={!email.includes('@') || invite.isPending}>
           <UserPlus className="h-4 w-4" /> Invite

@@ -52,38 +52,40 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 
 	if q != "" {
 		// Exact-ish FTS first; trigram similarity catches typos (migration 0016).
-		// ILIKE patterns get escaped so user input matches literally.
+		// ILIKE patterns get escaped so user input matches literally. Every
+		// placeholder carries an explicit type: extended-protocol Parse cannot
+		// infer bare params in ANY()/trigram contexts (PG17 42P18).
 		qLike := util.EscapeLike(q)
 		where = append(where, `(
 			to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' ||
 				coalesce(b.description,'') || ' ' || coalesce(b.city,'') || ' ' ||
-				array_to_string(b.tags,' ')) @@ plainto_tsquery('simple', `+arg(q)+`)
-			OR b.name ILIKE '%' || `+arg(qLike)+` || '%'
-			OR b.name % `+arg(q)+`
-			OR cat.name ILIKE '%' || `+arg(qLike)+` || '%'
+				array_to_string(b.tags,' ')) @@ plainto_tsquery('simple', `+arg(q)+`::text)
+			OR b.name ILIKE '%' || `+arg(qLike)+`::text || '%'
+			OR b.name % `+arg(q)+`::text
+			OR cat.name ILIKE '%' || `+arg(qLike)+`::text || '%'
 			OR EXISTS (SELECT 1 FROM products p WHERE p.business_id = b.id AND p.is_published = true
-				AND p.deleted_at IS NULL AND to_tsvector('simple', coalesce(p.name,'')) @@ plainto_tsquery('simple', `+arg(q)+`)))`)
+				AND p.deleted_at IS NULL AND to_tsvector('simple', coalesce(p.name,'')) @@ plainto_tsquery('simple', `+arg(q)+`::text)))`)
 	}
 	if len(p.CategoryIDs) > 0 {
-		where = append(where, "b.category_id = ANY("+arg(p.CategoryIDs)+")")
+		where = append(where, "b.category_id = ANY("+arg(p.CategoryIDs)+"::uuid[])")
 	}
 	if p.City != "" {
-		where = append(where, "b.city = "+arg(p.City))
+		where = append(where, "b.city = "+arg(p.City)+"::text")
 	}
 	if p.Lat != nil && p.Lng != nil && p.RadiusKM > 0 {
 		where = append(where, `earth_distance(ll_to_earth(b.lat, b.lng),
-			ll_to_earth(`+arg(*p.Lat)+`, `+arg(*p.Lng)+`)) <= `+arg(p.RadiusKM*1000))
+			ll_to_earth(`+arg(*p.Lat)+`::float8, `+arg(*p.Lng)+`::float8)) <= `+arg(p.RadiusKM*1000)+"::float8")
 	}
 	if p.MinLng != nil && p.MinLat != nil && p.MaxLng != nil && p.MaxLat != nil {
-		where = append(where, `b.lat BETWEEN `+arg(*p.MinLat)+` AND `+arg(*p.MaxLat)+`
-			AND b.lng BETWEEN `+arg(*p.MinLng)+` AND `+arg(*p.MaxLng))
+		where = append(where, `b.lat BETWEEN `+arg(*p.MinLat)+`::float8 AND `+arg(*p.MaxLat)+`::float8
+			AND b.lng BETWEEN `+arg(*p.MinLng)+`::float8 AND `+arg(*p.MaxLng)+`::float8`)
 	}
 	if len(p.PriceLevels) > 0 {
-		where = append(where, "b.price_level = ANY("+arg(p.PriceLevels)+")")
+		where = append(where, "b.price_level = ANY("+arg(p.PriceLevels)+"::int[])")
 	}
 	if p.MinRating > 0 {
 		where = append(where, `(SELECT coalesce(avg(r.rating), 0) FROM reviews r
-			WHERE r.business_id = b.id AND r.deleted_at IS NULL) >= `+arg(p.MinRating))
+			WHERE r.business_id = b.id AND r.deleted_at IS NULL) >= `+arg(p.MinRating)+"::float8")
 	}
 	if p.OpenNow {
 		// SQL-side filter (migration 0014): keeps LIMIT/OFFSET pagination exact.
@@ -104,18 +106,35 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 			  AND cp.user_id = bo.owner_id AND cp.left_at IS NULL)`)
 	}
 
-	// True-total args: only the WHERE clause placeholders (dist/rank/limit are
-	// SELECT extras and must not leak into the COUNT query).
-	countArgs := append([]any{}, args...)
+	// True-total args: only the WHERE clause placeholders (dist/rank/order
+	// extras must not leak into the COUNT query). Every dynamic parameter
+	// carries an explicit cast AND each statement receives EXACTLY the args
+	// it references, densely numbered from $1: extended-protocol Parse cannot
+	// infer unreferenced or context-free parameters (PG17 42P18).
+	whereArgs := append([]any{}, args...)
 
-	dist := "NULL::float8 AS distance_km"
-	if p.Lat != nil && p.Lng != nil {
-		dist = "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" + arg(*p.Lat) + ", " + arg(*p.Lng) + ")) / 1000.0 AS distance_km"
-	}
-
-	rank := "0 AS ts_rank"
-	if q != "" {
-		rank = "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + arg(q) + ")) AS ts_rank"
+	// buildOrder emits the ORDER BY expression for a given sort, minting its
+	// bind params through the supplied per-statement placeholder factory.
+	buildOrder := func(add func(any) string) string {
+		switch p.Sort {
+		case "rating":
+			return `(SELECT coalesce(avg(r.rating), 0) FROM reviews r
+				WHERE r.business_id = b.id AND r.deleted_at IS NULL) DESC NULLS LAST, b.created_at DESC`
+		case "newest":
+			return "b.created_at DESC"
+		case "nearest":
+			if p.Lat != nil && p.Lng != nil {
+				return "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" +
+					add(*p.Lat) + "::float8, " + add(*p.Lng) + "::float8)) / 1000.0 ASC NULLS LAST, b.created_at DESC"
+			}
+		case "relevance":
+			if q != "" {
+				return "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + add(q) + "::text)) DESC, b.created_at DESC"
+			}
+		default: // trending: engagement velocity, then score (PRD §5.6.3)
+			return "coalesce(ts.velocity, 0) DESC, coalesce(ts.score, 0) DESC, b.verified_at DESC NULLS LAST, b.created_at DESC"
+		}
+		return "b.created_at DESC"
 	}
 
 	// Trend join: latest 24h snapshot for the default (trending) sort (PRD §5.1.2).
@@ -126,38 +145,21 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 				AND ts.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')`
 	}
 
-	// Sort expressions are self-contained (own bind params via arg()): they
-	// run in BOTH phases below, after countArgs was snapshotted, so they
-	// never leak into the COUNT query.
-	order := "b.created_at DESC"
-	switch p.Sort {
-	case "rating":
-		order = `(SELECT coalesce(avg(r.rating), 0) FROM reviews r
-			WHERE r.business_id = b.id AND r.deleted_at IS NULL) DESC NULLS LAST, b.created_at DESC`
-	case "nearest":
-		if p.Lat != nil && p.Lng != nil {
-			order = "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" +
-				arg(*p.Lat) + ", " + arg(*p.Lng) + ")) / 1000.0 ASC NULLS LAST, b.created_at DESC"
-		}
-	case "relevance":
-		if q != "" {
-			order = "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + arg(q) + ")) DESC, b.created_at DESC"
-		}
-	default: // trending: engagement velocity, then score (PRD §5.6.3)
-		order = "coalesce(ts.velocity, 0) DESC, coalesce(ts.score, 0) DESC, b.verified_at DESC NULLS LAST, b.created_at DESC"
-	}
-
 	// Phase 1: select ONLY the page's business ids. This keeps the expensive
 	// per-row hydration subqueries (like/save/recommend/review counts) out of
 	// the candidate scan entirely; sorting still evaluates its own aggregate,
 	// but once per candidate instead of five extra subqueries.
+	// LIMIT/OFFSET are inlined as validated integers (Limit clamped ≤50,
+	// Offset ≥0 by parsePositiveInt): bare LIMIT placeholders are uninferable.
+	p1 := append([]any{}, whereArgs...)
+	add1 := func(v any) string { p1 = append(p1, v); return "$" + util.Itoa(len(p1)) }
 	idSQL := `
 		SELECT b.id FROM businesses b
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
 		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY ` + order + `
-		LIMIT ` + arg(p.Limit+1) + ` OFFSET ` + arg(p.Offset)
-	idRows, err := s.repos.Query(ctx, idSQL, args...)
+		ORDER BY ` + buildOrder(add1) + `
+		LIMIT ` + util.Itoa(p.Limit+1) + ` OFFSET ` + util.Itoa(p.Offset)
+	idRows, err := s.repos.Query(ctx, idSQL, p1...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -183,14 +185,24 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	}
 
 	// Phase 2: hydrate the full row shape for exactly the page's ids.
+	p2 := []any{ids}
+	add2 := func(v any) string { p2 = append(p2, v); return "$" + util.Itoa(len(p2)) }
+	dist := "NULL::float8 AS distance_km"
+	if p.Lat != nil && p.Lng != nil {
+		dist = "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" + add2(*p.Lat) + "::float8, " + add2(*p.Lng) + "::float8)) / 1000.0 AS distance_km"
+	}
+	rank := "0 AS ts_rank"
+	if q != "" {
+		rank = "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + add2(q) + "::text)) AS ts_rank"
+	}
 	sql := `
 		SELECT ` + repo.BusinessCols + repo.BusinessCounts + `, ` + dist + `, ` + rank + `
 		FROM businesses b
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
-		WHERE b.id = ANY(` + arg(ids) + `)
-		ORDER BY ` + order
+		WHERE b.id = ANY($1::uuid[])
+		ORDER BY ` + buildOrder(add2)
 
-	rows, err := s.repos.Businesses.Search(ctx, sql, args)
+	rows, err := s.repos.Businesses.Search(ctx, sql, p2)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -211,7 +223,7 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 		SELECT count(*) FROM businesses b
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
 		WHERE ` + strings.Join(where, " AND ")
-	if err := s.repos.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+	if err := s.repos.QueryRow(ctx, countSQL, whereArgs...).Scan(&total); err != nil {
 		return out, len(out), nil // best-effort: fall back to page size
 	}
 	return out, total, nil
@@ -227,9 +239,9 @@ func (s *Search) Suggestions(ctx context.Context, q string, limit int) (map[stri
 		SELECT `+repo.BusinessCols+repo.BusinessCounts+`, NULL::float8 AS distance_km, 0 AS ts_rank
 		FROM businesses b JOIN categories cat ON cat.id = b.category_id
 		WHERE b.status = 'verified' AND b.deleted_at IS NULL
-		  AND (b.name ILIKE '%' || $1 || '%' OR b.tagline ILIKE '%' || $1 || '%')
-		ORDER BY (b.name ILIKE $1 || '%') DESC, b.created_at DESC
-		LIMIT $2`, []any{qLike, limit})
+		  AND (b.name ILIKE '%' || $1::text || '%' OR b.tagline ILIKE '%' || $1::text || '%')
+		ORDER BY (b.name ILIKE $1::text || '%') DESC, b.created_at DESC
+		LIMIT $2::bigint`, []any{qLike, limit})
 	if err != nil {
 		return nil, err
 	}
