@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { BellPlus, Search, SlidersHorizontal, X } from 'lucide-react'
 import { api, searchPath, type BusinessDTO, type CategoryDTO } from '@/lib/api'
+import { useDebouncedValue } from '@/lib/hooks'
 import { BusinessCard } from '@/components/ui/BusinessCard'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner, SkeletonCard, ErrorNote } from '@/components/ui/Spinner'
@@ -51,10 +52,11 @@ export function DiscoverPage() {
     return out
   }, [catData])
 
+  const debouncedQuery = useDebouncedValue(query, 250)
   const { data: suggest } = useQuery({
-    queryKey: ['suggest', query],
-    queryFn: () => api<{ businesses: Array<{ type: string; name: string; slug: string; category?: string; city?: string }>; categories: Array<{ type: string; name: string; slug: string; count: number }> }>(`/search/suggest?q=${encodeURIComponent(query)}`),
-    enabled: query.trim().length >= 2 && document.activeElement === inputRef.current,
+    queryKey: ['suggest', debouncedQuery],
+    queryFn: () => api<{ businesses: Array<{ type: string; name: string; slug: string; category?: string; city?: string }>; categories: Array<{ type: string; name: string; slug: string; count: number }> }>(`/search/suggest?q=${encodeURIComponent(debouncedQuery)}`),
+    enabled: debouncedQuery.trim().length >= 2 && document.activeElement === inputRef.current,
   })
 
   const apply = () => {
@@ -89,34 +91,43 @@ export function DiscoverPage() {
     )
   }
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
-    queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath({
-      q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
-      open_now: openNow, verified_only: verifiedOnly, fully_verified_only: fullyVerified,
-      has_chat: hasChat, sort: coords ? 'nearest' : sort, limit: 24,
-      lat: coords?.lat, lng: coords?.lng, radius_km: coords ? 25 : undefined,
-    })),
-  })
-
-  // Load-more (Batch 1): fetch the next offset page and merge.
+  // Load-more: both queries derive from ONE filter object — the old page-2
+  // query silently dropped coords/radius/fully_verified and used a different
+  // sort, so "Near me" became worldwide after the first 24 results.
   const [page, setPage] = useState(1)
   const [extras, setExtras] = useState<BusinessDTO[]>([])
+  const searchFilters = {
+    q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
+    open_now: openNow, verified_only: verifiedOnly, fully_verified_only: fullyVerified,
+    has_chat: hasChat, sort: coords ? ('nearest' as const) : sort, limit: 24,
+    lat: coords?.lat, lng: coords?.lng, radius_km: coords ? 25 : undefined,
+  }
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['search', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
+    queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath(searchFilters)),
+  })
   const { data: more, isFetching: moreLoading } = useQuery({
-    queryKey: ['search-more', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, hasChat, sort, page],
-    queryFn: () => api<{ businesses: BusinessDTO[] }>(searchPath({
-      q: submitted || undefined, category: cats, price_level: priceLevels, min_rating: minRating,
-      open_now: openNow, verified_only: verifiedOnly, has_chat: hasChat, sort, limit: 24, offset: page * 24,
-    })),
+    queryKey: ['search-more', submitted, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords, page],
+    queryFn: () => api<{ businesses: BusinessDTO[] }>(searchPath({ ...searchFilters, offset: page * 24 })),
     enabled: page > 1,
   })
   useEffect(() => {
-    if (more?.businesses.length) setExtras((prev) => [...prev, ...more.businesses])
+    if (more?.businesses.length) {
+      // Dedupe by id: trending reshuffles between pages otherwise produce
+      // duplicate cards.
+      setExtras((prev) => {
+        const seen = new Set([...(data?.businesses ?? []).map((b) => b.id), ...prev.map((b) => b.id)])
+        const fresh = more.businesses.filter((b) => !seen.has(b.id))
+        return [...prev, ...fresh]
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [more])
+  const filterKey = [submitted, cats.join(','), priceLevels.join(','), minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords?.lat ?? '', coords?.lng ?? ''].join('|')
   useEffect(() => {
     setPage(1)
     setExtras([])
-  }, [submitted, cats.join(','), priceLevels.join(','), minRating, openNow, verifiedOnly, hasChat, sort])
+  }, [filterKey])
 
   const all = [...(data?.businesses ?? []), ...extras]
 
@@ -371,14 +382,14 @@ export function DiscoverPage() {
             <>
               <div className="mt-2 flex flex-wrap justify-center gap-1.5">
                 {leafCats.slice(0, 6).map((c) => (
-                  <a key={c.id} href={`/c/${c.slug}`} className="rounded-full border border-border px-3 py-1 text-xs text-ink2 hover:bg-surface2">
+                  <Link key={c.id} to={`/c/${c.slug}`} className="rounded-full border border-border px-3 py-1 text-xs text-ink2 hover:bg-surface2">
                     {c.name}
-                  </a>
+                  </Link>
                 ))}
               </div>
-              <a href="/dashboard/register" className="mt-2 text-sm font-medium text-ink underline underline-offset-4 hover:text-ink2">
+              <Link to="/dashboard/register" className="mt-2 text-sm font-medium text-ink underline underline-offset-4 hover:text-ink2">
                 Add your business →
-              </a>
+              </Link>
             </>
           )}
           {hasFilters && <Button variant="secondary" size="sm" className="mt-2" onClick={() => { setCats([]); setPriceLevels([]); setMinRating(0); setOpenNow(false); setVerifiedOnly(false); setFullyVerified(false); }}>Clear filters</Button>}

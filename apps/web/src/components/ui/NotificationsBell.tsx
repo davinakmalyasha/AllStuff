@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell } from 'lucide-react'
 import { api, type NotificationDTO } from '@/lib/api'
@@ -67,9 +68,9 @@ export function NotificationsBell() {
                     Mark all read
                   </button>
                 )}
-                <a href="/me/notifications" onClick={() => setOpen(false)} className="text-xs text-ink3 hover:text-ink">
+                <Link to="/me/notifications" onClick={() => setOpen(false)} className="text-xs text-ink3 hover:text-ink">
                   See all
-                </a>
+                </Link>
               </div>
             </div>
             <div className="max-h-80 overflow-y-auto">
@@ -89,9 +90,9 @@ export function NotificationsBell() {
                   </>
                 )
                 return url ? (
-                  <a key={n.id} href={url} onClick={() => openNotification(n)} className={`block px-4 py-3 text-sm hover:bg-surface2 ${n.is_read ? 'opacity-60' : ''}`}>
+                  <Link key={n.id} to={url} onClick={() => openNotification(n)} className={`block px-4 py-3 text-sm hover:bg-surface2 ${n.is_read ? 'opacity-60' : ''}`}>
                     {inner}
-                  </a>
+                  </Link>
                 ) : (
                   <div key={n.id} className={`px-4 py-3 text-sm ${n.is_read ? 'opacity-60' : ''}`}>
                     {inner}

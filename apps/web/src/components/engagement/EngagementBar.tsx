@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, Heart, ThumbsUp } from 'lucide-react'
 import { api, type CollectionDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
+import { toast } from '@/components/ui/Toast'
 import { useAuth } from '@/stores/auth'
 
 /**
@@ -55,6 +57,16 @@ export function EngagementBar({
       setLiked(on)
       setLikeDelta((d) => d + (on ? 1 : -1))
     },
+    // Roll back optimistic state — a failed request previously left the
+    // heart filled and the count inflated forever.
+    onError: (_e, on) => {
+      setLiked(!on)
+      setLikeDelta((d) => d + (on ? -1 : 1))
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business', businessSlug] })
+      qc.invalidateQueries({ queryKey: ['my-state', businessId] })
+    },
   })
   const recMut = useMutation({
     mutationFn: (on: boolean) => api(`/recommends/${businessId}`, { method: on ? 'PUT' : 'DELETE' }),
@@ -62,15 +74,27 @@ export function EngagementBar({
       setRecommended(on)
       setRecDelta((d) => d + (on ? 1 : -1))
     },
+    onError: (_e, on) => {
+      setRecommended(!on)
+      setRecDelta((d) => d + (on ? -1 : 1))
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business', businessSlug] })
+      qc.invalidateQueries({ queryKey: ['my-state', businessId] })
+    },
   })
   const saveMut = useMutation({
     mutationFn: (collectionId: string) =>
       api(`/me/collections/items`, { method: 'POST', body: { target_type: 'business', target_id: businessId, collection_id: collectionId } }),
-    onSuccess: () => {
-      setSavedIn((prev) => [...prev, 'saved'])
+    onSuccess: (_r, collectionId) => {
+      // Track REAL collection ids — pushing the literal 'saved' string into
+      // an id list made the Save state lie after the picker closed.
+      setSavedIn((prev) => [...prev.filter((x) => x !== 'saved'), collectionId])
       setPickerOpen(false)
       qc.invalidateQueries({ queryKey: ['my-state', businessId] })
+      qc.invalidateQueries({ queryKey: ['my-collections'] })
     },
+    onError: () => toast.error('Could not save to that collection.'),
   })
   const createMut = useMutation({
     mutationFn: () => api<{ collection: CollectionDTO }>('/me/collections', { method: 'POST', body: { name: creatingName } }),
@@ -79,6 +103,7 @@ export function EngagementBar({
       setCreatingName('')
       qc.invalidateQueries({ queryKey: ['my-collections'] })
     },
+    onError: () => toast.error('Could not create the collection.'),
   })
 
   const isLiked = myState?.liked ?? liked
@@ -91,17 +116,17 @@ export function EngagementBar({
       setLikeDelta(0)
       setRecDelta(0)
     }
-  }, [myState?.liked, myState?.recommended])
+  }, [myState])
 
   if (!user) {
     return (
       <div className="flex items-center gap-2">
-        <a href={`/login?next=/b/${businessSlug}`}>
+        <Link to={`/login?next=/b/${businessSlug}`}>
           <Button variant="secondary"><Heart className="h-4 w-4" /> {counts.likes}</Button>
-        </a>
-        <a href={`/login?next=/b/${businessSlug}`}>
+        </Link>
+        <Link to={`/login?next=/b/${businessSlug}`}>
           <Button variant="secondary"><ThumbsUp className="h-4 w-4" /> {counts.recommends}</Button>
-        </a>
+        </Link>
       </div>
     )
   }

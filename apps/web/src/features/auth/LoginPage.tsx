@@ -14,7 +14,10 @@ export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
   const [params] = useSearchParams()
-  const next = params.get('next') ?? '/me'
+  // Open-redirect guard: only same-site relative paths survive. Protocol-
+  // relative ("//evil.com") and absolute URLs fall back to /me.
+  const rawNext = params.get('next') ?? '/me'
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/me'
   const { values, set } = useForm({ email: '', password: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState('')

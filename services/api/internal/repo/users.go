@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,6 +19,7 @@ type pooler interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 const UserColumns = `id, email, password_hash, name, username, avatar_url, bio, timezone,
@@ -48,6 +50,25 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 		return nil, nil
 	}
 	return u, err
+}
+
+// GetByEmailIncludingDeleted returns the account even when soft-deleted
+// (pending deletion grace period). deletedAt is nil for live accounts.
+func (r *UserRepo) GetByEmailIncludingDeleted(ctx context.Context, email string) (*domain.User, *time.Time, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+UserColumns+`, deleted_at FROM users WHERE email = $1`, email)
+	var u domain.User
+	var deletedAt *time.Time
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Username,
+		&u.AvatarURL, &u.Bio, &u.Timezone, &u.ProfileLinks, &u.EmailVerifiedAt,
+		&u.Role, &u.Status, &u.SuspendedUntil, &u.BanReason, &u.CreatedAt, &u.UpdatedAt,
+		&deletedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	u.DeletedAt = deletedAt
+	return &u, deletedAt, nil
 }
 
 func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {

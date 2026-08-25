@@ -54,12 +54,19 @@ export const useCurrency = create<CurrencyState>((set) => ({
   },
 }))
 
+// Zero-decimal currencies (ISO 4217): forcing 2 fraction digits rendered
+// "Rp 12,345.00" — noise in a primary launch market. Let Intl pick the
+// currency's default precision instead.
+const ZERO_DECIMAL = new Set(['IDR', 'VND', 'JPY', 'KRW', 'CLP', 'ISK', 'PYG', 'UGX'])
+
 export function formatMoney(amount: number, currency: string, display: string, rates: Record<string, number>): string {
   if (!rates[currency] || !rates[display]) {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
   }
   const converted = (amount / rates[currency]) * rates[display]
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: display, maximumFractionDigits: 2 }).format(converted)
+  const opts: Intl.NumberFormatOptions = { style: 'currency', currency: display }
+  if (ZERO_DECIMAL.has(display)) opts.maximumFractionDigits = 0
+  return new Intl.NumberFormat(undefined, opts).format(converted)
 }
 
 export const CURRENCIES = ['USD', 'EUR', 'GBP', 'IDR', 'SGD', 'MYR', 'THB', 'VND', 'PHP', 'JPY', 'KRW', 'AUD', 'CAD', 'INR', 'CNY', 'HKD', 'BRL']

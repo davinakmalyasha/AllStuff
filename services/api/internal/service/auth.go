@@ -14,7 +14,9 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bizverse/api/internal/config"
@@ -146,13 +148,22 @@ func (a *Auth) Register(ctx context.Context, in RegisterInput) (*domain.User, *T
 }
 
 func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (*domain.User, *TokenPair, error) {
-	user, err := a.repos.Users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(in.Email)))
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	user, err := a.repos.Users.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Constant-time-ish: always run a verify against a dummy hash to resist timing.
 	if user == nil {
-		_, _ = security.VerifyPassword(in.Password, "$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA")
+		_, _ = security.VerifyPassword(in.Password, "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA")
+		// Pending-deletion accounts are invisible to GetByEmail; tell the
+		// legitimate owner about the grace-period restore path instead of a
+		// bare "invalid credentials" (PRD §5.9.2).
+		if pend, _, derr := a.repos.Users.GetByEmailIncludingDeleted(ctx, email); derr == nil && pend != nil {
+			if ok, verr := security.VerifyPassword(in.Password, pend.PasswordHash); verr == nil && ok && pend.PasswordHash != "" {
+				return nil, nil, domain.ErrAccountPendingDeletion
+			}
+		}
 		return nil, nil, domain.ErrInvalidCreds
 	}
 	ok, err := security.VerifyPassword(in.Password, user.PasswordHash)
@@ -231,7 +242,13 @@ func (a *Auth) Refresh(ctx context.Context, refreshToken string, ip net.IP, ua s
 	if err != nil {
 		return nil, nil, err
 	}
-	if sess == nil || sess.RevokedAt != nil {
+	if sess == nil {
+		return nil, nil, domain.ErrSessionInvalid
+	}
+	if sess.RevokedAt != nil {
+		// Replay of an already-rotated refresh token is the classic theft
+		// signal: revoke the whole session family, not just reject.
+		_ = a.repos.Sessions.RevokeAllExcept(ctx, sess.UserID, "")
 		return nil, nil, domain.ErrSessionInvalid
 	}
 	user, err := a.repos.Users.GetByID(ctx, sess.UserID)
@@ -264,6 +281,10 @@ func (a *Auth) VerifyEmail(ctx context.Context, token string) error {
 	if err != nil {
 		return err
 	}
+	// Single-use: a captured verification link must not keep working.
+	if err := a.consumeToken(ctx, claims.TokenID); err != nil {
+		return err
+	}
 	user, err := a.repos.Users.GetByID(ctx, claims.UserID)
 	if err != nil {
 		return err
@@ -272,6 +293,20 @@ func (a *Auth) VerifyEmail(ctx context.Context, token string) error {
 		return domain.ErrTokenInvalid
 	}
 	return a.repos.Users.MarkEmailVerified(ctx, user.ID)
+}
+
+// consumeToken records a stateless email-token JTI as used. Reuse returns
+// ErrTokenInvalid (the INSERT conflicts → zero rows affected).
+func (a *Auth) consumeToken(ctx context.Context, jti string) error {
+	tag, err := a.repos.Exec(ctx,
+		`INSERT INTO consumed_tokens (jti) VALUES ($1) ON CONFLICT (jti) DO NOTHING`, jti)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrTokenInvalid
+	}
+	return nil
 }
 
 func (a *Auth) ForgotPassword(ctx context.Context, email string) error {
@@ -297,6 +332,11 @@ func (a *Auth) ResetPassword(ctx context.Context, token, password string) error 
 	}
 	claims, err := security.ParseToken(a.cfg.JWTSecret, token, security.TokenResetPassword)
 	if err != nil {
+		return err
+	}
+	// Single-use: a captured reset link stops working after the first use —
+	// including after the legitimate user has already rotated their password.
+	if err := a.consumeToken(ctx, claims.TokenID); err != nil {
 		return err
 	}
 	hash, err := security.HashPassword(password)
@@ -461,7 +501,7 @@ func (a *Auth) Disable2FA(ctx context.Context, userID, code string) error {
 	if serr != nil {
 		return serr
 	}
-	if !security.ValidateTOTP(secret, code) {
+	if !a.validateFreshTOTP(userID, secret, code) {
 		return domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
 	if err := a.repos.TFA.Disable(ctx, userID); err != nil {
@@ -479,6 +519,32 @@ func (a *Auth) TFAStatus(ctx context.Context, userID string) (map[string]any, er
 	}
 	enabled := st != nil && st.EnabledAt != nil
 	return map[string]any{"enabled": enabled}, nil
+}
+
+// usedTOTPSteps enforces single-use TOTP: without it the same 6-digit code
+// passes repeatedly within its ±1 window (30-90s), so a phished code stays
+// valid long enough to replay. Keyed per user+timestep; entries are tiny and
+// pruned opportunistically.
+var usedTOTPSteps sync.Map
+
+func (a *Auth) validateFreshTOTP(userID, secret, code string) bool {
+	step, ok := security.ValidateTOTPStep(secret, code)
+	if !ok {
+		return false
+	}
+	key := userID + ":" + strconv.FormatInt(step, 10)
+	if _, dup := usedTOTPSteps.LoadOrStore(key, struct{}{}); dup {
+		return false
+	}
+	count := 0
+	usedTOTPSteps.Range(func(k, _ any) bool {
+		count++
+		if count > 4096 { // bound memory; correctness unaffected
+			usedTOTPSteps.Delete(k)
+		}
+		return true
+	})
+	return true
 }
 
 // Verify2FA completes a 2FA-gated login with TOTP or a recovery code.
@@ -505,7 +571,7 @@ func (a *Auth) Verify2FA(ctx context.Context, challengeToken, code string, ip ne
 	if serr != nil {
 		return nil, nil, serr
 	}
-	if security.ValidateTOTP(secret, code) {
+	if a.validateFreshTOTP(user.ID, secret, code) {
 		return a.finishLogin(ctx, user, ip, ua)
 	}
 	// Recovery code path: codes are argon2id-hashed passwords — verify
@@ -643,10 +709,61 @@ func (a *Auth) RequestDeletion(ctx context.Context, userID, password string) err
 	return a.repos.Sessions.RevokeAllExcept(ctx, userID, "")
 }
 
-func (a *Auth) CancelDeletion(ctx context.Context, userID string) error {
-	_, err := a.repos.Exec(ctx, `
-		UPDATE users SET deleted_at = NULL, updated_at = now() WHERE id = $1`, userID)
+func (a *Auth) CancelDeletion(ctx context.Context, userID, password string) error {
+	user, err := a.repos.Users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrNotFound
+	}
+	// Require credential re-entry: a stolen access token (≤15 min window)
+	// must not be able to silently resurrect a deleted account.
+	ok, err := security.VerifyPassword(password, user.PasswordHash)
+	if err != nil || !ok {
+		return domain.ErrInvalidCreds
+	}
+	if user.DeletedAt == nil {
+		return nil
+	}
+	_, err = a.repos.Exec(ctx, `
+		UPDATE users SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND deleted_at IS NOT NULL`, userID)
 	return err
+}
+
+// RestoreAccount cancels a pending deletion with password proof and signs the
+// user back in (grace-period path of PRD §5.9.2). Anonymized accounts (past
+// 14 days) have no usable password hash and fail verification naturally.
+func (a *Auth) RestoreAccount(ctx context.Context, email, password string, ip net.IP, ua string) (*domain.User, *TokenPair, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	user, deletedAt, err := a.repos.Users.GetByEmailIncludingDeleted(ctx, email)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user == nil || deletedAt == nil || user.PasswordHash == "" {
+		return nil, nil, domain.ErrInvalidCreds
+	}
+	ok, err := security.VerifyPassword(password, user.PasswordHash)
+	if err != nil || !ok {
+		return nil, nil, domain.ErrInvalidCreds
+	}
+	if time.Since(*deletedAt) > 14*24*time.Hour {
+		return nil, nil, domain.ErrTokenInvalid
+	}
+	if _, err := a.repos.Exec(ctx,
+		`UPDATE users SET deleted_at = NULL, updated_at = now() WHERE id = $1`, user.ID); err != nil {
+		return nil, nil, err
+	}
+	fresh, err := a.repos.Users.GetByID(ctx, user.ID)
+	if err != nil || fresh == nil {
+		return nil, nil, domain.ErrInternal
+	}
+	if err := a.checkUserStatus(fresh); err != nil {
+		return nil, nil, err
+	}
+	tokens, err := a.createSession(ctx, fresh, &clientMeta{IP: ip, UA: ua})
+	if err != nil {
+		return nil, nil, err
+	}
+	a.logger.Info("account restored", "user", fresh.ID)
+	return fresh, tokens, nil
 }
 
 // PurgeExpiredDeletions anonymizes accounts past the 14-day grace
@@ -832,7 +949,10 @@ func (a *Auth) ChangePassword(ctx context.Context, userID, current, newPass, kee
 	return a.repos.Sessions.RevokeAllExcept(ctx, userID, keepSessionID)
 }
 
-func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {
+// ChangeEmail requires the current password, a valid TOTP code when 2FA is
+// enrolled, and always notifies the OLD address — otherwise a hijacked
+// session plus a leaked password could permanently lock the real owner out.
+func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail, totpCode string) error {
 	newEmail = strings.ToLower(strings.TrimSpace(newEmail))
 	if !emailRe.MatchString(newEmail) {
 		return domain.ErrValidation.WithField("email", "Enter a valid email address.")
@@ -845,6 +965,19 @@ func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail strin
 	if err != nil || !ok {
 		return domain.ErrInvalidCreds
 	}
+	st, err := a.repos.TFA.Get(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if st != nil && st.EnabledAt != nil {
+		secret, serr := a.openSecret(st.SecretEncrypted)
+		if serr != nil {
+			return serr
+		}
+		if !a.validateFreshTOTP(userID, secret, totpCode) {
+			return domain.ErrValidation.WithField("code", "Code is invalid.")
+		}
+	}
 	existing, err := a.repos.Users.GetByEmail(ctx, newEmail)
 	if err != nil {
 		return err
@@ -852,9 +985,16 @@ func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail strin
 	if existing != nil {
 		return domain.ErrEmailTaken
 	}
+	oldEmail := user.Email
 	if err := a.repos.Users.UpdateEmail(ctx, userID, newEmail); err != nil {
 		return err
 	}
+	// Alert the previous address so account takeovers are visible immediately.
+	_ = a.email.Send(oldEmail, "Your email address was changed",
+		mail.WrapHTML(a.cfg.PublicURL, "Your email address was changed",
+			fmt.Sprintf(`<p>Hi %s,</p><p>The email address on your account was changed to <strong>%s</strong>.
+			If this wasn't you, reset your password immediately and contact support.</p>`,
+				htmlEscape(user.Name), htmlEscape(newEmail))))
 	updated, _ := a.repos.Users.GetByID(ctx, userID)
 	if updated != nil {
 		_ = a.sendVerificationEmail(ctx, updated)
@@ -875,7 +1015,7 @@ func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string)
 	if serr != nil {
 		return nil, serr
 	}
-	if !security.ValidateTOTP(secret, code) {
+	if !a.validateFreshTOTP(userID, secret, code) {
 		return nil, domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
 	codes := make([]string, 10)

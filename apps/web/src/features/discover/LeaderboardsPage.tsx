@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { TrendingUp } from 'lucide-react'
 import { api, type TrendEntryDTO } from '@/lib/api'
@@ -69,7 +70,7 @@ export function LeaderboardsPage() {
       ) : (
         <Card className="divide-y divide-border p-0">
           {(entries ?? []).map((e, i) => (
-            <a key={e.id} href={`/b/${e.slug}`} className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface2">
+            <Link key={e.id} to={`/b/${e.slug}`} className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface2">
               <span className="w-8 font-mono text-sm text-ink3">{i + 1}</span>
               {e.logo_url ? <img src={e.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover" /> : <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface2 text-sm font-semibold">{e.name.charAt(0)}</span>}
               <span className="min-w-0 flex-1">
@@ -80,7 +81,7 @@ export function LeaderboardsPage() {
               {e.is_rising && <Badge tone="attention">Rising</Badge>}
               <span className="font-mono text-sm text-ink">{e.score.toFixed(1)}</span>
               {e.velocity !== 0 && <span className="w-16 text-right font-mono text-xs text-ink3">▲{e.velocity.toFixed(1)}</span>}
-            </a>
+            </Link>
           ))}
           {(entries?.length ?? 0) === 0 && <p className="px-5 py-10 text-center text-sm text-ink3">No data yet — signals build with engagement.</p>}
         </Card>

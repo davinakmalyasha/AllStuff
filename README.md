@@ -78,7 +78,8 @@ npx playwright test          # E2E smoke: register/login, discover, storefront, 
 - ✅ Currency conversion (live rates), Google OAuth, Web Push, account deletion with grace
 - ✅ User profiles, follow feed, Q&A, review photos, owner announcements, weekly digest
 - ✅ Help center, contact + appeals, admin KPIs, co-owner invites, link previews, pinned messages
-- ✅ Code-splitting, CI (vet/test/migrate/E2E), OG images, prerender script
+- ✅ Code-splitting, CI (vet/test/lint/migrate/E2E), OG images, prerender script
+- ✅ 2026-08 audit hardening: single-use email tokens, per-account throttles, chat-media authz, streaming uploads, WS chain fix + regression test, job idempotency & retention (see ARCHITECTURE.md)
 
 ## Structure
 

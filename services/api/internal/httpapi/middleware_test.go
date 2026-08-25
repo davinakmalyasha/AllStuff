@@ -5,12 +5,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"bizverse/api/internal/config"
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/ratelimit"
+	"bizverse/api/internal/security"
+	"bizverse/api/internal/ws"
 
 	"github.com/gorilla/websocket"
 )
@@ -133,6 +137,53 @@ func TestWSUpgradeThroughChain(t *testing.T) {
 	}
 	if resp != nil && resp.StatusCode >= 500 {
 		t.Fatalf("upgrade broke in middleware: %v (%d)", err, resp.StatusCode)
+	}
+}
+
+// REGRESSION (C1): the access-log recorder implemented neither Hijacker nor
+// Flusher, so every authenticated WebSocket upgrade through api.Handler()
+// failed with "websocket: response does not implement http.Hijacker" — all
+// realtime features were silently dead in production wiring. The old test
+// never authenticated, so it only exercised the 401 path and masked the bug.
+func TestWSUpgradeAuthenticatedThroughChain(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	deps := Deps{
+		Config:      config.Config{JWTSecret: "test-secret-not-for-prod", AppEnv: "dev"},
+		Logger:      logger,
+		RateLimiter: ratelimit.NewInMemory(),
+		Hub:         ws.NewHub(logger, nil),
+	}
+	s := NewServer(deps)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	user := &domain.User{ID: "11111111-1111-4111-8111-111111111111", Role: domain.RoleUser}
+	token, _, err := security.IssueToken(deps.Config.JWTSecret, security.TokenAccess, user, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	header := http.Header{}
+	header.Add("Cookie", cookieAccess+"="+token)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+			resp.Body.Close()
+		}
+		t.Fatalf("authenticated WS upgrade must succeed through the chain: %v (status=%d)", err, status)
+	}
+	defer conn.Close()
+
+	var f Frame
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.ReadJSON(&f); err != nil {
+		t.Fatalf("no welcome frame after upgrade: %v", err)
+	}
+	if f.Type != "welcome" {
+		t.Fatalf("expected welcome frame, got %q", f.Type)
 	}
 }
 

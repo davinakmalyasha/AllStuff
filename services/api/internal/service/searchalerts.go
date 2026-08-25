@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"bizverse/api/internal/config"
@@ -57,7 +58,9 @@ func (a *SearchAlerts) SendDaily(ctx context.Context) error {
 
 	for _, al := range alerts {
 		if err := a.sendOne(ctx, al); err != nil {
-			// One failing alert never blocks the rest.
+			// One failing alert never blocks the rest — but log it so
+			// silent data loss is at least visible.
+			slog.Warn("search alert send failed", "alert", al.id, "err", err)
 			continue
 		}
 	}
@@ -82,17 +85,17 @@ func (a *SearchAlerts) sendOne(ctx context.Context, al alertRow) error {
 			break
 		}
 	}
-	// Remember the current result set for the next diff.
-	nowIDs := make([]string, 0, len(results))
-	for _, b := range results {
-		nowIDs = append(nowIDs, b.ID)
-	}
-	_, _ = a.repos.Exec(ctx, `
-		UPDATE saved_searches SET last_result_ids = $2, last_sent_at = now(), updated_at = now() WHERE id = $1`,
-		al.id, nowIDs)
 
 	if len(fresh) == 0 {
-		return nil // nothing new; state updated for the next run
+		// Nothing new: still advance the seen-set so stale entries drop.
+		nowIDs := make([]string, 0, len(results))
+		for _, b := range results {
+			nowIDs = append(nowIDs, b.ID)
+		}
+		_, _ = a.repos.Exec(ctx, `
+			UPDATE saved_searches SET last_result_ids = $2, last_sent_at = now(), updated_at = now() WHERE id = $1`,
+			al.id, nowIDs)
+		return nil
 	}
 
 	var sb strings.Builder
@@ -108,7 +111,20 @@ func (a *SearchAlerts) sendOne(ctx context.Context, al alertRow) error {
 	sb.WriteString(`</ul><p style="color:#999;font-size:12px">Manage alerts: ` + a.cfg.PublicURL + `/me</p>`)
 
 	title := fmt.Sprintf("New matches for %q", al.name)
-	return a.email.Send(al.email, title, email.WrapHTML(a.cfg.PublicURL, title, sb.String()))
+	if err := a.email.Send(al.email, title, email.WrapHTML(a.cfg.PublicURL, title, sb.String())); err != nil {
+		return err
+	}
+	// Persist the diff-state ONLY after a successful send — previously the
+	// marker was written first, so a failed email meant those matches were
+	// marked seen and never delivered.
+	nowIDs := make([]string, 0, len(results))
+	for _, b := range results {
+		nowIDs = append(nowIDs, b.ID)
+	}
+	_, _ = a.repos.Exec(ctx, `
+		UPDATE saved_searches SET last_result_ids = $2, last_sent_at = now(), updated_at = now() WHERE id = $1`,
+		al.id, nowIDs)
+	return nil
 }
 
 // paramsFromQuery converts a saved-search query JSON to SearchParams.

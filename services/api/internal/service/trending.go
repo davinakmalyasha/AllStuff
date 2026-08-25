@@ -90,11 +90,11 @@ func (t *Trending) Compute(ctx context.Context) error {
 		if _, err := t.repos.Exec(ctx, `
 			INSERT INTO trend_snapshots (id, period, business_id, score, taken_at)
 			SELECT gen_random_uuid(), $1, b.id,
-				coalesce(SUM(e.weight * exp(-$2 * EXTRACT(EPOCH FROM (now() - e.occurred_at)) / 3600.0)), 0),
+				coalesce(SUM(e.weight * exp(-$2::float8 * EXTRACT(EPOCH FROM (now() - e.occurred_at)) / 3600.0)), 0),
 				now()
 			FROM businesses b
 			LEFT JOIN engagement_events e ON e.target_type='business' AND e.target_id = b.id
-				AND e.occurred_at > now() - ($3 * interval '1 hour') AND e.flagged = false
+				AND e.occurred_at > now() - ($3::float8 * interval '1 hour') AND e.flagged = false
 			WHERE b.status = 'verified' AND b.deleted_at IS NULL
 			GROUP BY b.id`,
 			w.period, w.lambda, w.hours); err != nil {

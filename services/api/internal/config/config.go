@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 
 	"bizverse/api/internal/security"
@@ -23,6 +24,11 @@ type Config struct {
 	WSOrigins []string
 	// TrustXForwardedFor: only set behind a proxy that strips spoofed values.
 	TrustXForwardedFor bool
+	// RateLimitGlobal overrides the default 120 req/min/IP global bucket.
+	// Useful behind corporate NAT/proxies where many users share one egress
+	// IP, and for E2E runs where all browser traffic funnels through the
+	// dev-server proxy.
+	RateLimitGlobal int
 	// RedisURL enables multi-instance WS fan-out ("" = single instance).
 	RedisURL string
 
@@ -58,6 +64,7 @@ func Load() Config {
 		CORSOrigins:   splitCSV(env("CORS_ORIGINS", "http://localhost:5173")),
 		WSOrigins:     splitCSV(env("WS_ORIGINS", "")),
 		TrustXForwardedFor: env("TRUST_X_FORWARDED_FOR", "false") == "true",
+		RateLimitGlobal:    envInt("RATELIMIT_GLOBAL", 120),
 		RedisURL:           os.Getenv("REDIS_URL"),
 		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
 		EmailFrom:     env("EMAIL_FROM", "no-reply@bizverse.app"),
@@ -100,6 +107,16 @@ func (c Config) Validate() error {
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+		slog.Warn("invalid RATELIMIT_GLOBAL; using default", "value", v)
 	}
 	return fallback
 }

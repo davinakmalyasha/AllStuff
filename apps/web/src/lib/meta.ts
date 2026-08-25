@@ -43,7 +43,11 @@ export function useJsonLd(data: Record<string, unknown> | null) {
     const script = document.createElement('script')
     script.id = id
     script.type = 'application/ld+json'
-    script.textContent = JSON.stringify(data)
+    // Escape "<" so user-controlled fields (business names/descriptions)
+    // cannot close the script tag. textContent is safe in the live DOM, but
+    // the prerender step serializes page.content() into static HTML where a
+    // raw "</script>" inside the JSON would break out into stored XSS.
+    script.textContent = JSON.stringify(data).replace(/</g, '\\u003c')
     document.head.appendChild(script)
     return () => {
       document.getElementById(id)?.remove()

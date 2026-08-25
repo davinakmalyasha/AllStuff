@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Heart, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -121,7 +122,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
     <div key={c.id} className={depth > 0 ? 'ml-6 mt-2' : 'mt-2'}>
       <div className="rounded-lg border border-border p-3">
         <div className="flex items-center gap-2">
-          <a href={`/u/${c.author_username}`} className="text-xs font-medium text-ink hover:underline">{c.author_name}</a>
+          <Link to={`/u/${c.author_username}`} className="text-xs font-medium text-ink hover:underline">{c.author_name}</Link>
           <span className="text-[10px] text-ink3">@{c.author_username}</span>
           <span className="ml-auto text-[10px] text-ink3">{new Date(c.created_at).toLocaleString()}</span>
         </div>
@@ -218,7 +219,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
       )}
       {!user && (
         <p className="mb-4 text-sm text-ink3">
-          <a href={`/login?next=${window.location.pathname}`} className="underline underline-offset-4 hover:text-ink">Sign in</a> to join the conversation.
+          <Link to={`/login?next=${window.location.pathname}`} className="underline underline-offset-4 hover:text-ink">Sign in</Link> to join the conversation.
         </p>
       )}
       {!data?.comments.length ? (
@@ -244,7 +245,7 @@ function renderMentions(text: string) {
   const parts = text.split(/(@[a-z0-9_]{3,30})/g)
   return parts.map((p, i) =>
     /^@[a-z0-9_]{3,30}$/.test(p) ? (
-      <a key={i} href={`/u/${p.slice(1)}`} className="font-medium text-ink hover:underline">{p}</a>
+      <Link key={i} to={`/u/${p.slice(1)}`} className="font-medium text-ink hover:underline">{p}</Link>
     ) : (
       <span key={i}>{p}</span>
     ),

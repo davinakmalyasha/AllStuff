@@ -1,8 +1,8 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BellPlus, BellRing } from 'lucide-react'
 import { api, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { BusinessCard } from '@/components/ui/BusinessCard'
 import { Button } from '@/components/ui/Button'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
@@ -13,7 +13,7 @@ export function CategoryPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['category', slug],
     queryFn: () =>
       api<{ category: CategoryDTO; breadcrumbs: CategoryDTO[]; leaderboard: TrendEntryDTO[]; updated_at: string }>(
@@ -43,6 +43,7 @@ export function CategoryPage() {
   )
 
   if (isLoading) return <PageSpinner />
+  if (isError) return <ErrorNote onRetry={() => void refetch()} />
   if (!cat) {
     return (
       <div className="container-page flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
@@ -55,11 +56,11 @@ export function CategoryPage() {
   return (
     <div className="container-page py-10">
       <nav className="mb-2 flex items-center gap-1.5 text-xs text-ink3" aria-label="Breadcrumb">
-        <a href="/categories" className="hover:text-ink">Categories</a>
+        <Link to="/categories" className="hover:text-ink">Categories</Link>
         {data?.breadcrumbs.map((c) => (
           <span key={c.id} className="flex items-center gap-1.5">
             <span>/</span>
-            <a href={`/c/${c.slug}`} className={c.slug === slug ? 'text-ink' : 'hover:text-ink'}>{c.name}</a>
+            <Link to={`/c/${c.slug}`} className={c.slug === slug ? 'text-ink' : 'hover:text-ink'}>{c.name}</Link>
           </span>
         ))}
       </nav>

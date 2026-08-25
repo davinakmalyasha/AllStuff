@@ -64,6 +64,7 @@ export function BusinessWizardPage() {
   const [form, setForm] = useState<WizardState>({
     name: '', tagline: '', description: '', category_id: '',
     address: '', city: '', country: '', lat: '', lng: '',
+    timezone: 'UTC',
     phone: '', email: '', website: '', whatsapp: '',
     instagram: '', tiktok: '', facebook: '', x: '', youtube: '', line: '', telegram: '',
   })
@@ -125,6 +126,10 @@ export function BusinessWizardPage() {
         next.country = b.country
         next.lat = b.lat ? String(b.lat) : ''
         next.lng = b.lng ? String(b.lng) : ''
+        // Carry the draft's timezone through resume — without this the
+        // Location step silently flipped an Asia/Jakarta business back to
+        // UTC on save.
+        next.timezone = b.timezone || next.timezone || 'UTC'
         return next
       })
       setHours((prev) => {

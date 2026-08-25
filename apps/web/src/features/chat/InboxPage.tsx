@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, Pin, Plus, Search, WifiOff } from 'lucide-react'
 import { api, type ThreadListItemDTO } from '@/lib/api'
+import { useDebouncedValue } from '@/lib/hooks'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
@@ -14,6 +15,7 @@ export function InboxPage({ businessId }: { businessId?: string }) {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [connected, setConnected] = useState(true)
+  const debouncedQ = useDebouncedValue(q, 250)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['threads', businessId ?? 'all'],
@@ -21,9 +23,9 @@ export function InboxPage({ businessId }: { businessId?: string }) {
   })
 
   const { data: hits } = useQuery({
-    queryKey: ['msg-search', q],
-    queryFn: () => api<{ messages: Array<{ id: number; thread_id: string; body: string | null; created_at: string }> }>(`/messages/search?q=${encodeURIComponent(q)}`),
-    enabled: q.trim().length >= 2,
+    queryKey: ['msg-search', debouncedQ],
+    queryFn: () => api<{ messages: Array<{ id: number; thread_id: string; body: string | null; created_at: string }> }>(`/messages/search?q=${encodeURIComponent(debouncedQ)}`),
+    enabled: debouncedQ.trim().length >= 2,
   })
 
   useEffect(() => {

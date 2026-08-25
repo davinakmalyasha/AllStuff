@@ -3,6 +3,7 @@
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -145,10 +146,18 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 		fields["contact"] = contact
 	}
 	if v, ok := in["logo_url"]; ok {
-		fields["logo_url"] = asString(v)
+		u := strings.TrimSpace(asString(v))
+		if u != "" && !safeMediaRef(u) {
+			return nil, domain.ErrValidation.WithField("logo_url", "Logo must be an uploaded media path or https image URL.")
+		}
+		fields["logo_url"] = u
 	}
 	if v, ok := in["cover_url"]; ok {
-		fields["cover_url"] = asString(v)
+		u := strings.TrimSpace(asString(v))
+		if u != "" && !safeMediaRef(u) {
+			return nil, domain.ErrValidation.WithField("cover_url", "Cover must be an uploaded media path or https image URL.")
+		}
+		fields["cover_url"] = u
 	}
 	if v, ok := in["gallery"]; ok && v != nil {
 		gallery, err := asStringSlice(v)
@@ -189,18 +198,54 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
 	}
 	// Category switches on verified listings require re-verification
-	// (PRD §5.4.4): the listing goes back to the review queue.
+	// (PRD §5.4.4): the listing goes back to the review queue. The status
+	// reset runs as part of the same transaction — the repo's PATCH
+	// whitelist deliberately rejects status columns.
+	recategorize := false
 	if cid, changed := fields["category_id"]; changed && b.Status == domain.BusinessVerified {
 		if asString(cid) != b.CategoryID {
-			fields["status"] = string(domain.BusinessPending)
-			fields["verification_level"] = nil
-			fields["verified_at"] = nil
+			recategorize = true
 		}
 	}
-	if err := s.repos.Businesses.Update(ctx, id, fields); err != nil {
+	if recategorize {
+		tx, err := s.repos.Pool().Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback(ctx)
+		txr := repo.NewForTx(tx)
+		if err := txr.Businesses.Update(ctx, id, fields); err != nil {
+			return nil, err
+		}
+		if err := txr.Businesses.SetStatus(ctx, id, domain.BusinessPending, map[string]any{
+			"verification_level": nil,
+			"verified_at":        nil,
+		}); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+	} else if err := s.repos.Businesses.Update(ctx, id, fields); err != nil {
 		return nil, err
 	}
 	return s.repos.Businesses.GetByID(ctx, id)
+}
+
+// safeMediaRef allows only internal media references and plain https images
+// in owner-controlled URL fields (logo_url/cover_url). Anything else is
+// rejected at write time — these values end up inside SVG share cards and
+// storefront HTML where script-bearing schemes would become stored XSS.
+func safeMediaRef(u string) bool {
+	pu, err := url.Parse(strings.TrimSpace(u))
+	if err != nil {
+		return false
+	}
+	if pu.Scheme == "" && pu.Host == "" {
+		// Relative reference: only internal media endpoints, no traversal.
+		return strings.HasPrefix(pu.Path, "/api/v1/media/") && !strings.Contains(u, "..")
+	}
+	return pu.Scheme == "https" && pu.Host != ""
 }
 
 // RequestSlugChange implements PRD §8.2: slugs are immutable except for a
@@ -328,10 +373,15 @@ func (s *Businesses) GetPublic(ctx context.Context, slug string) (*domain.Busine
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
 	}
-	if b.Status == domain.BusinessClosed || b.Status == domain.BusinessDraft {
+	// Public pages whitelist visible statuses. Hiding only closed/draft left
+	// suspended/pending/rejected listings fully readable by direct URL,
+	// which defeats admin suspension (moderation bypass).
+	switch b.Status {
+	case domain.BusinessVerified, domain.BusinessPaused:
+		return b, nil
+	default:
 		return nil, domain.ErrNotFound
 	}
-	return b, nil
 }
 
 // ---- storefront draft & publish (PRD §5.4.2, §10.5) ----

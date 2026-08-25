@@ -2,6 +2,8 @@ package ws
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -18,6 +20,11 @@ import (
 type Hub struct {
 	logger *slog.Logger
 
+	// instanceID tags frames this process publishes so the Redis subscriber
+	// can skip its own echoes (Redis delivers publishes back to the
+	// publishing connection too — without this every frame amplifies).
+	instanceID string
+
 	mu sync.RWMutex
 	// userID → live connections (multi-device: every tab/device gets frames).
 	conns map[string]map[*conn]struct{}
@@ -26,6 +33,10 @@ type Hub struct {
 
 	// pubsub fans frames out to other instances (nil = single-instance dev).
 	pubsub *RedisPubSub
+
+	// authorizeSubscribe, when set, filters thread IDs a connection may
+	// subscribe to (membership check). Nil = allow all (tests only).
+	authorizeSubscribe func(userID string, threadIDs []string) []string
 }
 
 type conn struct {
@@ -81,6 +92,12 @@ func NewHub(logger *slog.Logger, allowedOrigins []string) *Hub {
 	return NewHubWithRedis(logger, allowedOrigins, nil)
 }
 
+// SetAuthorizeSubscribe installs the thread-membership filter used for
+// `subscribe` frames (must be called before Serve traffic).
+func (h *Hub) SetAuthorizeSubscribe(fn func(userID string, threadIDs []string) []string) {
+	h.authorizeSubscribe = fn
+}
+
 // NewHubWithRedis wires optional Redis fan-out.
 func NewHubWithRedis(logger *slog.Logger, allowedOrigins []string, pubsub *RedisPubSub) *Hub {
 	allowed := map[string]bool{}
@@ -89,10 +106,13 @@ func NewHubWithRedis(logger *slog.Logger, allowedOrigins []string, pubsub *Redis
 			allowed[o] = true
 		}
 	}
+	id := make([]byte, 8)
+	_, _ = rand.Read(id)
 	return &Hub{
-		logger: logger,
-		conns:  map[string]map[*conn]struct{}{},
-		pubsub: pubsub,
+		logger:     logger,
+		instanceID: hex.EncodeToString(id),
+		conns:      map[string]map[*conn]struct{}{},
+		pubsub:     pubsub,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 4096,
@@ -115,23 +135,25 @@ func NewHubWithRedis(logger *slog.Logger, allowedOrigins []string, pubsub *Redis
 }
 
 // Run starts the hub. With Redis configured, a subscriber goroutine relays
-// frames published by other instances (ARCHITECTURE §3, M5 fan-out).
+// frames published by OTHER instances (ARCHITECTURE §3, M5 fan-out). Frames
+// carrying this instance's own tag are dropped — Redis redelivers publishes
+// to the publishing connection, which would otherwise loop exponentially.
 func (h *Hub) Run(ctx context.Context) {
 	if h.pubsub != nil {
 		go h.pubsub.Subscribe(ctx, func(payload string) {
-			var f Frame
-			if err := json.Unmarshal([]byte(payload), &f); err != nil {
-				return
-			}
-			// Envelope: {user_id, frame}
+			// Envelope: {from, user_id, frame}
 			var env struct {
+				From   string `json:"from"`
 				UserID string `json:"user_id"`
 				Frame  Frame  `json:"frame"`
 			}
 			if err := json.Unmarshal([]byte(payload), &env); err != nil || env.UserID == "" {
 				return
 			}
-			h.SendToUser(env.UserID, env.Frame)
+			if env.From == h.instanceID {
+				return // our own publish; locals were already delivered
+			}
+			h.deliverLocal(env.UserID, env.Frame)
 		})
 	}
 	<-ctx.Done()
@@ -185,14 +207,25 @@ func (h *Hub) readPump(c *conn) {
 		case "ping":
 			h.sendTo(c, Frame{ID: f.ID, Type: "pong"})
 		case "subscribe":
-			// Opt-in thread signals (typing) for this connection.
+			// Opt-in thread signals (typing) for this connection. IDs are
+			// filtered through the membership check: without it any
+			// authenticated user could subscribe to arbitrary threads and
+			// receive presence signals for conversations they're not in.
 			var p struct {
 				ThreadIDs []string `json:"thread_ids"`
 			}
 			if f.Payload != nil {
 				if raw, err := json.Marshal(f.Payload); err == nil {
 					if json.Unmarshal(raw, &p) == nil && len(p.ThreadIDs) > 0 {
-						c.subscribeThreads(p.ThreadIDs)
+						if len(p.ThreadIDs) > 50 {
+							p.ThreadIDs = p.ThreadIDs[:50]
+						}
+						if h.authorizeSubscribe != nil {
+							p.ThreadIDs = h.authorizeSubscribe(c.userID, p.ThreadIDs)
+						}
+						if len(p.ThreadIDs) > 0 {
+							c.subscribeThreads(p.ThreadIDs)
+						}
 					}
 				}
 			}
@@ -247,9 +280,8 @@ func (h *Hub) sendTo(c *conn, f Frame) {
 	}
 }
 
-// SendToUser delivers a frame to every live connection of the user
-// (multi-device). With Redis configured it also publishes for other instances.
-func (h *Hub) SendToUser(userID string, f Frame) {
+// deliverLocal sends a frame to this instance's connections only.
+func (h *Hub) deliverLocal(userID string, f Frame) {
 	h.mu.RLock()
 	conns := make([]*conn, 0, len(h.conns[userID]))
 	for c := range h.conns[userID] {
@@ -259,8 +291,16 @@ func (h *Hub) SendToUser(userID string, f Frame) {
 	for _, c := range conns {
 		h.sendTo(c, f)
 	}
+}
+
+// SendToUser delivers a frame to every live connection of the user
+// (multi-device). With Redis configured it also publishes for other
+// instances; the envelope carries this instance's tag so the publisher's own
+// subscriber ignores the echo.
+func (h *Hub) SendToUser(userID string, f Frame) {
+	h.deliverLocal(userID, f)
 	if h.pubsub != nil {
-		env, err := json.Marshal(map[string]any{"user_id": userID, "frame": f})
+		env, err := json.Marshal(map[string]any{"from": h.instanceID, "user_id": userID, "frame": f})
 		if err == nil {
 			h.pubsub.Publish(context.Background(), string(env))
 		}

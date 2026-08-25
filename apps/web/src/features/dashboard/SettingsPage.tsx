@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Loader2, Pause, Play, XCircle } from 'lucide-react'
 import { api, uploadMedia, type BusinessDTO, type CategoryDTO, type MediaDTO } from '@/lib/api'
@@ -45,14 +45,18 @@ export function SettingsPage() {
 
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [hours, setHours] = useState<Record<string, { open: string; close: string; closed: boolean }>>({})
-  const [hydrated, setHydrated] = useState(false)
   const [saving, setSaving] = useState(false)
   const [flash, setFlash] = useState('')
   const [error, setError] = useState('')
   const [logo, setLogo] = useState<MediaDTO | null>(null)
   const [cover, setCover] = useState<MediaDTO | null>(null)
 
-  if (b && !hydrated) {
+  // Hydrate in an effect KEYED ON THE BUSINESS ID: the old render-phase
+  // `if (b && !hydrated)` never reset when the active business changed, so
+  // switching businesses showed — and saving wrote — the PREVIOUS
+  // business's values into the new one.
+  useEffect(() => {
+    if (!b) return
     setForm({
       name: b.name, tagline: b.tagline ?? '', description: b.description,
       category_id: b.category_id, address: b.address, city: b.city, country: b.country,
@@ -72,8 +76,10 @@ export function SettingsPage() {
       }
     }
     setHours(h)
-    setHydrated(true)
-  }
+    setLogo(null)
+    setCover(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b?.id, b?.updated_at])
 
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
@@ -89,6 +95,9 @@ export function SettingsPage() {
         name: form.name, tagline: form.tagline, description: form.description,
         category_id: form.category_id, address: form.address, city: form.city, country: form.country,
         lat: form.lat ? Number(form.lat) : 0, lng: form.lng ? Number(form.lng) : 0,
+        // The timezone select rendered but was never sent — owners "saved" it
+        // and watched it revert, leaving open-now computed in UTC.
+        timezone: str(form.timezone) || 'UTC',
         price_level: form.price_level ? Number(form.price_level) : null,
         currency: form.currency, tags: String(form.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean),
         founded_year: form.founded_year ? Number(form.founded_year) : null,

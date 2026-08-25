@@ -5,10 +5,13 @@ import type { BusinessDTO } from '@/lib/api'
 import { Badge } from './Badge'
 import { useCompare } from '@/stores/compare'
 
-/** Business card used across search results, category pages, and similar lists. */
+/** Business card used across search results, category pages, and similar lists.
+ * memo() only pays off with a boolean store selector: subscribing every card
+ * to the whole compare store re-rendered entire 24-100 card grids twice per
+ * tray toggle. */
 export const BusinessCard = memo(function BusinessCard({ business: b, compare = false }: { business: BusinessDTO; compare?: boolean }) {
-  const { ids, toggle } = useCompare()
-  const inCompare = ids.includes(b.id)
+  const inCompare = useCompare((s) => s.ids.includes(b.id))
+  const toggle = useCompare((s) => s.toggle)
   return (
     <div className="card group relative p-4 transition-shadow duration-200 hover:shadow-cardHover">
       {compare && (

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
 )
 
 // Currency — read-time conversion (PRD D5). Rates synced hourly from a free
@@ -21,9 +21,16 @@ type Currency struct {
 func NewCurrency(repos *repo.Repos) *Currency { return &Currency{repos: repos} }
 
 // Sync fetches USD-based rates from open.er-api.com (free, no key).
+// Single batched upsert (was ~160 individual Execs per hour) with a
+// ctx-bound request so shutdown can cancel the fetch, and sanity-checked
+// rates (≤0 would poison downstream division/inversion math).
 func (c *Currency) Sync(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://open.er-api.com/v6/latest/USD", nil)
+	if err != nil {
+		return err
+	}
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get("https://open.er-api.com/v6/latest/USD")
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -45,17 +52,26 @@ func (c *Currency) Sync(ctx context.Context) error {
 	if payload.Result != "success" || len(payload.Rates) == 0 {
 		return fmt.Errorf("rates feed: unexpected payload")
 	}
+
+	codes := make([]string, 0, len(payload.Rates))
+	vals := make([]float64, 0, len(payload.Rates))
 	for code, rate := range payload.Rates {
-		_, err := c.repos.Exec(ctx, `
-			INSERT INTO currency_rates (id, code, rate_usd, fetched_at)
-			VALUES ($1, $2, $3, now())
-			ON CONFLICT (code) DO UPDATE SET rate_usd = EXCLUDED.rate_usd, fetched_at = now()`,
-			util.NewUUID(), code, rate)
-		if err != nil {
-			return err
+		if rate <= 0 || len(code) != 3 || code != strings.ToUpper(code) {
+			continue
 		}
+		codes = append(codes, code)
+		vals = append(vals, rate)
 	}
-	return nil
+	if len(codes) == 0 {
+		return fmt.Errorf("rates feed: no valid rates")
+	}
+	_, err = c.repos.Exec(ctx, `
+		INSERT INTO currency_rates (id, code, rate_usd, fetched_at)
+		SELECT gen_random_uuid(), t.code, t.rate, now()
+		FROM unnest($1::char(3)[], $2::float8[]) AS t(code, rate)
+		ON CONFLICT (code) DO UPDATE SET rate_usd = EXCLUDED.rate_usd, fetched_at = now()`,
+		codes, vals)
+	return err
 }
 
 // Rates returns the full rate map + freshness.

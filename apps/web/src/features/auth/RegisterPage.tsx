@@ -14,7 +14,9 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const { register } = useAuth()
   const [params] = useSearchParams()
-  const next = params.get('next') ?? '/me'
+  // Open-redirect guard: only same-site relative paths survive.
+  const rawNext = params.get('next') ?? '/me'
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/me'
   const { values, set } = useForm({
     email: '',
     password: '',

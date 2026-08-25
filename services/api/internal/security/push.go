@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -41,10 +42,15 @@ func GenerateVAPIDKeypair() (*VAPIDKeypair, error) {
 	}, nil
 }
 
-func (k *VAPIDKeypair) vapidJWT(subject string) (string, error) {
+// ErrSubscriptionGone: the push service answered 404/410 — the subscription
+// is dead and must be deleted (RFC 8030 §5). Senders treat this as a prune
+// signal, not a success.
+var ErrSubscriptionGone = errors.New("push subscription expired")
+
+func (k *VAPIDKeypair) vapidJWT(subject, audience string) (string, error) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"ES256","typ":"JWT"}`))
 	now := time.Now().Unix()
-	claims, _ := json.Marshal(map[string]any{"aud": "https://fcm.googleapis.com", "exp": now + 12*3600, "sub": subject})
+	claims, _ := json.Marshal(map[string]any{"aud": audience, "exp": now + 12*3600, "sub": subject})
 	body := header + "." + base64.RawURLEncoding.EncodeToString(claims)
 	hash := sha256.Sum256([]byte(body))
 	r, s, err := ecdsa.Sign(rand.Reader, k.PrivateKey, hash[:])
@@ -90,8 +96,14 @@ type PushSubscription struct {
 }
 
 // pushClient is bounded so a hostile subscription endpoint cannot stall the
-// request path or probe internal networks indefinitely.
-var pushClient = &http.Client{Timeout: 10 * time.Second}
+// request path or probe internal networks indefinitely. Redirects are off:
+// an endpoint could otherwise bounce requests past subscribe-time SSRF checks.
+var pushClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 // ValidPushEndpoint enforces an https URL on a public host — subscription
 // endpoints are user-supplied, so without this check Send becomes an SSRF
@@ -184,7 +196,7 @@ func (k *VAPIDKeypair) Send(sub PushSubscription, subject, title, body string, d
 	bodyBuf.Write(ciphertext)
 	bodyBuf.WriteByte(0x02) // padding delimiter
 
-	jwt, err := k.vapidJWT(subject)
+	jwt, err := k.vapidJWT(subject, endpointAudience(sub.Endpoint))
 	if err != nil {
 		return err
 	}
@@ -204,10 +216,24 @@ func (k *VAPIDKeypair) Send(sub PushSubscription, subject, title, body string, d
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 && resp.StatusCode != 404 && resp.StatusCode != 410 {
+	switch {
+	case resp.StatusCode == 404 || resp.StatusCode == 410:
+		return ErrSubscriptionGone
+	case resp.StatusCode >= 300:
 		return fmt.Errorf("push: %s", resp.Status)
 	}
 	return nil
+}
+
+// endpointAudience derives the VAPID aud claim from the push service origin.
+// A hardcoded FCM audience fails validation at Mozilla/Mozilla-derived and
+// Apple relays (RFC 8292: aud MUST be the origin of the subscription URI).
+func endpointAudience(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "https://fcm.googleapis.com"
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 func hkdfSHA256(secret, salt, info []byte) []byte {

@@ -1,7 +1,7 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, type BusinessDTO, type TrendEntryDTO } from '@/lib/api'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { BusinessCard } from '@/components/ui/BusinessCard'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
 
@@ -28,7 +28,7 @@ interface CityPageDTO {
 export function CityPage() {
   const { slug = '' } = useParams()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['city', slug],
     queryFn: () => api<{ city: CityPageDTO }>(`/cities/${slug}`),
   })
@@ -50,6 +50,8 @@ export function CityPage() {
   )
 
   if (isLoading) return <PageSpinner />
+  // Server errors rendered as "404" hid outages; distinguish and offer retry.
+  if (isError) return <ErrorNote message="Something went wrong loading this city." onRetry={() => void refetch()} />
   if (!city) {
     return (
       <div className="container-page flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
@@ -113,16 +115,18 @@ export function CityPage() {
             <ul className="space-y-1.5">
               {city.categories.map((c) => (
                 <li key={c.category_id}>
-                  <a href={`/c/${c.category_slug}`} className="flex items-center justify-between text-sm text-ink2 hover:text-ink">
+                  <Link to={`/c/${c.category_slug}`} className="flex items-center justify-between text-sm text-ink2 hover:text-ink">
                     <span>{c.category_name}</span>
                     <span className="font-mono text-xs text-ink3">{c.count}</span>
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
           </div>
           {city.lat && city.lng && (
             <div className="overflow-hidden rounded-xl border border-border">
+              {/* staticmap.openstreetmap.de is discontinued (see MiniMapLive);
+                  hide silently when the tile never loads. */}
               <img
                 src={`https://staticmap.openstreetmap.de/staticmap.php?center=${city.lat},${city.lng}&zoom=12&size=280x180`}
                 alt={`Map of ${city.name}`}
@@ -132,9 +136,9 @@ export function CityPage() {
               />
             </div>
           )}
-          <a href={`/discover?city=${encodeURIComponent(city.name)}`} className="block text-sm text-ink underline underline-offset-4 hover:text-ink2">
+          <Link to={`/discover?city=${encodeURIComponent(city.name)}`} className="block text-sm text-ink underline underline-offset-4 hover:text-ink2">
             Browse all in {city.name} →
-          </a>
+          </Link>
         </aside>
       </div>
     </div>

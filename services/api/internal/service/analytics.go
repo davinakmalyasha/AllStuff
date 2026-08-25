@@ -97,15 +97,15 @@ func (a *Analytics) ForBusiness(ctx context.Context, ownerID, businessID, period
 		out.Series = fillSeries(out.Series, days)
 	}
 
-	// Top products by engagement (single grouped query, no N+1).
-	prods, err := a.repos.Products.ListByBusiness(ctx, businessID)
-	if err == nil {
+	// Top products by engagement — scoped to THIS business's products.
+	// The old query aggregated likes/events across the entire platform
+	// (every analytics page view scanned the global tables).
+	if prods, err := a.repos.Products.ListByBusiness(ctx, businessID); err == nil && len(prods) > 0 {
 		rows, qerr := a.repos.Query(ctx, `
-			SELECT l.target_id,
-				(SELECT count(*) FROM likes l2 WHERE l2.target_type='product' AND l2.target_id = l.target_id),
-				(SELECT count(*) FROM engagement_events e WHERE e.target_type='product' AND e.target_id = l.target_id AND e.signal='view')
-			FROM (SELECT DISTINCT target_id FROM likes WHERE target_type='product'
-				UNION SELECT target_id FROM engagement_events WHERE target_type='product' AND signal='view') l`)
+			SELECT p.id,
+				(SELECT count(*) FROM likes l2 WHERE l2.target_type='product' AND l2.target_id = p.id),
+				(SELECT count(*) FROM engagement_events e WHERE e.target_type='product' AND e.target_id = p.id AND e.signal='view')
+			FROM products p WHERE p.business_id = $1`, businessID)
 		counts := map[string]ProductCount{}
 		if qerr == nil {
 			for rows.Next() {
@@ -136,13 +136,18 @@ func (a *Analytics) ForBusiness(ctx context.Context, ownerID, businessID, period
 
 	// Leaderboard position: global rank from the 7d snapshot, category rank
 	// from the 24h snapshot (populated by the trending job, PRD §5.6.3).
-	_ = a.repos.QueryRow(ctx, `
+	// Scan into scalars — the previous single-destination Scan for two
+	// columns errored (silently discarded) and left Leaderboard nil forever.
+	var gRank, cRank *int
+	if err := a.repos.QueryRow(ctx, `
 		SELECT
 			(SELECT rank_global FROM trend_snapshots WHERE business_id = $1 AND period='7d'
 			 ORDER BY taken_at DESC LIMIT 1),
 			(SELECT rank_category FROM trend_snapshots WHERE business_id = $1 AND period='24h'
 			 ORDER BY taken_at DESC LIMIT 1)`, businessID).
-		Scan(&out.Leaderboard)
+		Scan(&gRank, &cRank); err == nil && (gRank != nil || cRank != nil) {
+		out.Leaderboard = &LeaderboardPos{Global: gRank, Category: cRank}
+	}
 
 	return out, nil
 }

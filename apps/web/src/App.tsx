@@ -6,7 +6,7 @@ import {
   RouterProvider,
   useLocation,
 } from 'react-router-dom'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import '@/lib/i18n'
@@ -69,14 +69,9 @@ import { PageSpinner } from '@/components/ui/Spinner'
 import { CurrencyProvider } from '@/components/CurrencyProvider'
 import { ToastStack } from '@/components/ui/Toast'
 import { api, type BusinessDTO } from '@/lib/api'
+import { queryClient } from '@/lib/queryClient'
 import { useAuth } from '@/stores/auth'
 import { hydrateCompare } from '@/stores/compare'
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
-  },
-})
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -106,8 +101,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
-  if (!user?.is_admin) return <Navigate to="/" replace />
+  const { user, initialized } = useAuth()
+  // Check initialized too: without it this guard bounces admins to "/" while
+  // booting whenever it's ever mounted outside RequireAuth after a refactor.
+  if (!initialized || !user?.is_admin) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -307,7 +304,9 @@ function Bootstrap() {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: String(msg), stack: err?.stack ?? `${src}:${line}:${col}`, url: window.location.href }),
+          // Strip query + hash: URLs here carry ?token= recovery secrets that
+          // must not land in server-side error logs.
+          body: JSON.stringify({ message: String(msg), stack: err?.stack ?? `${src}:${line}:${col}`, url: window.location.origin + window.location.pathname }),
         })
       } catch {
         /* noop */
@@ -318,7 +317,7 @@ function Bootstrap() {
   // Compare tray follows the account across devices (PRD §5.1.5).
   useEffect(() => {
     if (user) void hydrateCompare()
-  }, [user?.id])
+  }, [user])
   return (
     <>
       <CurrencyProvider />
@@ -332,12 +331,15 @@ function Bootstrap() {
   )
 }
 
-/** Keeps one WS connection open for authed users: chat + notification.new. */
+/** Keeps one WS connection open for authed users: chat + notification.new.
+ * Disconnects on logout — previously a zombie socket stayed connected (and
+ * reconnecting forever) after the session ended. */
 function LiveEvents() {
   const { user } = useAuth()
   useEffect(() => {
     if (!user) return
     ws.connect()
+    return () => ws.close()
   }, [user])
   return null
 }
@@ -358,10 +360,10 @@ function TabTitle() {
   })
   useEffect(() => {
     const unread = (notif?.unread ?? 0) + (threads?.threads ?? []).reduce((a, t) => a + t.unread, 0)
-    if (unread > 0) {
-      const base = document.title.replace(/^\(\d+\) /, '')
-      document.title = `(${unread}) ${base}`
-    }
+    const base = document.title.replace(/^\(\d+\) /, '')
+    // Always assign: the prefix must also CLEAR when unread hits 0
+    // (previously "(3) BizVerse" stuck forever after catching up).
+    document.title = unread > 0 ? `(${unread}) ${base}` : base
   }, [notif, threads])
   return null
 }

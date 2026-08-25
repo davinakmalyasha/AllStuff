@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import { api, type UserDTO } from '@/lib/api'
+import { queryClient } from '@/lib/queryClient'
+import { ws } from '@/lib/ws'
+import { resetCompareSession } from '@/stores/compare'
 
 interface AuthState {
   user: UserDTO | null
@@ -39,6 +42,12 @@ export const useAuth = create<AuthState>((set) => ({
       await api('/auth/logout', { method: 'POST' })
     } finally {
       set({ user: null })
+      // Cross-account bleed: without this the next user on a shared machine
+      // saw the previous user's threads/notifications flash from cache, and
+      // a zombie WebSocket kept reconnecting forever.
+      queryClient.clear()
+      ws.close()
+      resetCompareSession()
     }
   },
 

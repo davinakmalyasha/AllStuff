@@ -276,14 +276,14 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// All public business pages.
-	biz, err := s.deps.Repos.Businesses.ByStatus(r.Context(), []string{"verified"}, 100000, 0)
+	// All public business pages (slugs only — no JSONB row scans).
+	slugs, err := s.deps.Repos.Businesses.PublicSlugs(r.Context(), "verified", 100000)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	for _, b := range biz {
-		sb.WriteString(`  <url><loc>` + base + `/b/` + b.Slug + `</loc></url>` + "\n")
+	for _, slug := range slugs {
+		sb.WriteString(`  <url><loc>` + base + `/b/` + slug + `</loc></url>` + "\n")
 	}
 	sb.WriteString(`</urlset>`)
 

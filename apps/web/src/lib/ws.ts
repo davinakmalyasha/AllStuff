@@ -5,6 +5,8 @@ type WsFrame = { id?: string; type: string; payload?: unknown }
 
 type Handler = (frame: WsFrame) => void
 
+const MAX_QUEUED = 50
+
 class WsClient {
   private ws: WebSocket | null = null
   private handlers = new Map<string, Set<Handler>>()
@@ -30,7 +32,10 @@ class WsClient {
   }
 
   connect() {
-    if (this.ws || this.closed) return
+    // close() is no longer terminal: a fresh connect() after logout/login
+    // must work, so clear the flag here.
+    this.closed = false
+    if (this.ws) return
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/api/v1/ws`)
     this.ws = ws
@@ -74,17 +79,32 @@ class WsClient {
     }
   }
 
+  /** Stop receiving signals for a thread the tab navigated away from —
+   * without this the subscription set grows for the whole session and every
+   * reconnect resubscribes to every thread ever opened. */
+  unsubscribe(threadId: string) {
+    this.subscribed.delete(threadId)
+  }
+
   send(frame: WsFrame) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame))
     } else {
+      // Bound the offline queue; a capped buffer beats unbounded memory and
+      // stale replays.
       this.queue.push(frame)
+      if (this.queue.length > MAX_QUEUED) this.queue.shift()
     }
   }
 
+  /** Disconnect now. A later connect() reopens cleanly. */
   close() {
     this.closed = true
     this.ws?.close()
+    this.ws = null
+    this.setConnected(false)
+    this.subscribed.clear()
+    this.queue = []
   }
 }
 

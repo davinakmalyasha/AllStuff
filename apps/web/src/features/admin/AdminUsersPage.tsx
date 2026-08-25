@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useDebouncedValue } from '@/lib/hooks'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -21,10 +22,11 @@ interface AdminUserDTO {
 export function AdminUsersPage() {
   const qc = useQueryClient()
   const [q, setQ] = useState('')
+  const debouncedQ = useDebouncedValue(q, 250)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-users', q],
-    queryFn: () => api<{ users: AdminUserDTO[] }>(`/admin/users?q=${encodeURIComponent(q || '%')}&limit=30`),
+    queryKey: ['admin-users', debouncedQ],
+    queryFn: () => api<{ users: AdminUserDTO[] }>(`/admin/users?q=${encodeURIComponent(debouncedQ || '%')}&limit=30`),
   })
 
   const action = useMutation({

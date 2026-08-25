@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,20 +91,24 @@ func (c *Claims) Submit(ctx context.Context, userID string, in ClaimInput) (*Cla
 }
 
 // List returns claims for the admin queue (open first) or a user's own.
+// Placeholders are built positionally so the user filter and LIMIT/OFFSET
+// can never swap bind-parameter order.
 func (c *Claims) List(ctx context.Context, userID string, admin bool, limit, offset int) ([]*ClaimItem, error) {
 	where := ""
-	args := []any{limit, offset}
+	args := []any{}
 	if !admin {
-		where = "WHERE cl.user_id = $3"
-		args = append([]any{userID}, args...)
+		where = "WHERE cl.user_id = $1"
+		args = append(args, userID)
 	}
+	args = append(args, limit, offset)
+	limitPh, offsetPh := "$"+strconv.Itoa(len(args)-1), "$"+strconv.Itoa(len(args))
 	rows, err := c.repos.Query(ctx, `
 		SELECT cl.id, cl.user_id, cl.business_id, cl.name, cl.category_id, cl.address, cl.city,
 			cl.country, cl.website, cl.evidence, cl.status, cl.note, cl.created_at, cl.decided_at,
 			u.name, u.email
 		FROM business_claims cl JOIN users u ON u.id = cl.user_id
 		`+where+`
-		ORDER BY cl.created_at DESC LIMIT $1 OFFSET $2`, args...)
+		ORDER BY cl.created_at DESC LIMIT `+limitPh+` OFFSET `+offsetPh, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,32 +143,81 @@ func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note st
 		var draftID string
 		if it.BusinessID != nil && *it.BusinessID != "" {
 			draftID = *it.BusinessID
-		} else {
-			draftID = util.NewUUID()
-			_, err := c.repos.Exec(ctx, `
-				INSERT INTO businesses (id, owner_id, name, slug, category_id, address, city, country, status)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')`,
-				draftID, it.UserID, it.Name, slugify(it.Name), nullableString(it.CategoryID),
-				it.Address, it.City, it.Country)
+			// Transfer ownership of the unowned listing atomically with the
+			// decision flip — previously the claimer was told they won while
+			// owner_id never changed.
+			tx, err := c.repos.Pool().Begin(ctx)
 			if err != nil {
 				return nil, err
 			}
-		}
-		_, err := c.repos.Exec(ctx, `
-			UPDATE business_claims SET status='approved', decided_by=$2, decided_at=now(), note=$3 WHERE id=$1`,
-			claimID, adminID, note)
-		if err != nil {
-			return nil, err
+			defer tx.Rollback(ctx)
+			txr := repo.NewForTx(tx)
+			ct, err := txr.Exec(ctx,
+				`UPDATE businesses SET owner_id=$2, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`,
+				draftID, it.UserID)
+			if err != nil {
+				return nil, err
+			}
+			if ct.RowsAffected() == 0 {
+				return nil, domain.ErrNotFound
+			}
+			res, err := txr.Exec(ctx, `
+				UPDATE business_claims SET status='approved', decided_by=$2, decided_at=now(), note=$3
+				WHERE id=$1 AND status='open'`, claimID, adminID, note)
+			if err != nil {
+				return nil, err
+			}
+			if res.RowsAffected() == 0 {
+				return nil, domain.ErrValidation.WithField("_", "Claim already decided.")
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+		} else {
+			draftID = util.NewUUID()
+			// Drafts need placeholder coordinates (NOT NULL schema columns);
+			// the claimer completes them in the wizard. Slug collisions are
+			// resolved with a suffix (globally unique column).
+			slug := slugify(it.Name)
+			for i := 0; i < 10; i++ {
+				taken, err := c.repos.Businesses.SlugTaken(ctx, slug, "")
+				if err != nil {
+					return nil, err
+				}
+				if !taken {
+					break
+				}
+				slug = slugify(it.Name) + "-" + util.NewUUID()[:6]
+			}
+			if _, err := c.repos.Exec(ctx, `
+				INSERT INTO businesses (id, owner_id, name, slug, category_id, address, city, country, lat, lng, status)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 'draft')`,
+				draftID, it.UserID, it.Name, slug, nullableString(it.CategoryID),
+				it.Address, it.City, it.Country); err != nil {
+				return nil, err
+			}
+			res, err := c.repos.Exec(ctx, `
+				UPDATE business_claims SET status='approved', decided_by=$2, decided_at=now(), note=$3
+				WHERE id=$1 AND status='open'`, claimID, adminID, note)
+			if err != nil {
+				return nil, err
+			}
+			if res.RowsAffected() == 0 {
+				return nil, domain.ErrValidation.WithField("_", "Claim already decided.")
+			}
 		}
 		c.notifier.Create(ctx, it.UserID, "claim_result", map[string]any{
 			"claim_id": claimID, "decision": "approved", "business_id": draftID,
 		})
 	case "reject":
-		_, err := c.repos.Exec(ctx, `
-			UPDATE business_claims SET status='rejected', decided_by=$2, decided_at=now(), note=$3 WHERE id=$1`,
-			claimID, adminID, note)
+		res, err := c.repos.Exec(ctx, `
+			UPDATE business_claims SET status='rejected', decided_by=$2, decided_at=now(), note=$3
+			WHERE id=$1 AND status='open'`, claimID, adminID, note)
 		if err != nil {
 			return nil, err
+		}
+		if res.RowsAffected() == 0 {
+			return nil, domain.ErrValidation.WithField("_", "Claim already decided.")
 		}
 		c.notifier.Create(ctx, it.UserID, "claim_result", map[string]any{
 			"claim_id": claimID, "decision": "rejected", "note": note,

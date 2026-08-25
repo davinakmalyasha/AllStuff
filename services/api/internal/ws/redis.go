@@ -29,6 +29,13 @@ type RedisPubSub struct {
 	mu      sync.Mutex
 	pubConn net.Conn
 	pubBr   *bufio.Reader
+
+	// pubQueue decouples publishers (request handlers) from the network:
+	// with I/O under one mutex inside Publish, a degraded Redis stalled every
+	// notifying handler up to ~15s each, sequentially. The writer goroutine
+	// drains the queue; overflow drops frames (WS clients resync via REST).
+	pubOnce  sync.Once
+	pubQueue chan string
 }
 
 func NewRedisPubSub(redisURL, channel string, logger *slog.Logger) (*RedisPubSub, error) {
@@ -68,10 +75,26 @@ func (r *RedisPubSub) dial() (net.Conn, error) {
 	return conn, nil
 }
 
-// Publish sends a raw frame payload to the channel (fire-and-forget) over a
-// persistent connection; failed publishes drop the conn so the next call
-// redials.
+// Publish queues a raw frame payload for async delivery to the channel.
 func (r *RedisPubSub) Publish(_ context.Context, payload string) {
+	r.pubOnce.Do(func() {
+		r.pubQueue = make(chan string, 256)
+		go r.writeLoop()
+	})
+	select {
+	case r.pubQueue <- payload:
+	default:
+		r.logger.Warn("redis publish queue full; dropping frame")
+	}
+}
+
+func (r *RedisPubSub) writeLoop() {
+	for payload := range r.pubQueue {
+		r.publishSync(payload)
+	}
+}
+
+func (r *RedisPubSub) publishSync(payload string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

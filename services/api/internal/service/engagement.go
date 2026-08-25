@@ -215,19 +215,24 @@ func (s *Engagement) CreateComment(ctx context.Context, userID, businessID, pare
 	if err != nil {
 		return nil, err
 	}
-	// mentions → notifications (§5.7)
+	// mentions → notifications (§5.7); dedupe repeated @names in one comment
+	seenMention := map[string]bool{}
 	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if seenMention[m[1]] {
+			continue
+		}
+		seenMention[m[1]] = true
 		u, err := s.repos.Users.GetByUsername(ctx, m[1])
 		if err == nil && u != nil && u.ID != userID {
 			s.notifier.Create(ctx, u.ID, "comment_mention", map[string]any{
-				"comment_id": c.ID, "business_id": businessID, "by": userID,
+				"comment_id": c.ID, "business_id": businessID, "business_slug": b.Slug, "by": userID,
 			})
 		}
 	}
 	// owner notified
 	if b.OwnerID != userID {
 		s.notifier.Create(ctx, b.OwnerID, "comment_on_business", map[string]any{
-			"comment_id": c.ID, "business_id": businessID, "by": userID,
+			"comment_id": c.ID, "business_id": businessID, "business_slug": b.Slug, "by": userID,
 		})
 	}
 	key := fmt.Sprintf("%s:business:%s:comment:%s", userID, businessID, time.Now().Format("2006-01-02"))
@@ -344,6 +349,12 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 		return nil, domain.ErrValidation.WithField("image_ids", "Max 6 photos per review.")
 	}
 	if err := s.repos.Engagement.CreateReview(ctx, businessID, productID, userID, rating, text, imageIDs); err != nil {
+		// The partial unique indexes back the check-then-insert above; a
+		// concurrent duplicate submit surfaces as a constraint violation —
+		// translate it into a friendly 409 instead of a generic 500.
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+			return nil, domain.ErrValidation.WithField("_", "You already reviewed this. Edit it instead (PRD §8.4).")
+		}
 		return nil, err
 	}
 	// review event feeds trending
@@ -352,14 +363,19 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 	// notify owner (product reviews get their own type, PRD §5.7)
 	if b.OwnerID != userID {
 		ntype := "review_posted"
-		payload := map[string]any{"business_id": businessID, "by": userID, "rating": rating}
+		payload := map[string]any{"business_id": businessID, "business_slug": b.Slug, "by": userID, "rating": rating}
 		if productID != nil && *productID != "" {
 			ntype = "product_review"
 			payload["product_id"] = *productID
 		}
 		s.notifier.Create(ctx, b.OwnerID, ntype, payload)
 	}
-	created, _ := s.repos.Engagement.GetReviewByUser(ctx, businessID, productID, userID)
+	created, err := s.repos.Engagement.GetReviewByUser(ctx, businessID, productID, userID)
+	if err != nil || created == nil {
+		// The write committed; never hand a nil entity to the handler
+		// (previously produced {"review": null} with a 201).
+		return nil, domain.ErrInternal
+	}
 	return created, nil
 }
 
@@ -504,11 +520,13 @@ func (s *Engagement) ToggleHelpful(ctx context.Context, userID, reviewID string,
 	if err := s.repos.Engagement.SetHelpful(ctx, reviewID, userID, vote); err != nil {
 		return err
 	}
-	// notify the author when the vote is positive (PRD §5.7)
+	// notify the author when the vote is positive (PRD §5.7) — deduped so
+	// vote toggling doesn't flood (and email) the author on every flip.
 	if vote == 1 {
-		s.notifier.Create(ctx, rw.UserID, "helpful_vote", map[string]any{
-			"review_id": reviewID, "business_id": rw.BusinessID, "by": userID,
-		})
+		s.notifier.CreateDeduped(ctx, rw.UserID, "helpful_vote",
+			fmt.Sprintf("helpful:%s:%s", reviewID, userID), 30*24*time.Hour, map[string]any{
+				"review_id": reviewID, "business_id": rw.BusinessID, "by": userID,
+			})
 	}
 	return nil
 }

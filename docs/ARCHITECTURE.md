@@ -2,18 +2,33 @@
 
 Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is the full contract for that resource.
 
-## 1. Conventions
-
 > **Implementation status note (docs aligned to code):** this document describes the target design. Where the code differs today, these are the authoritative deviations:
 > - **OAuth:** Google only (`GET /auth/oauth/google` + `/callback`); Facebook/Apple/GitHub are roadmap.
 > - **Pagination:** `?limit=&offset=` everywhere (limit ≤ 100); no cursors or `X-Next-Cursor`.
-> - **Data export:** synchronous download at `GET /me/export`; account deletion is `POST /me/delete` with `POST /me/delete/cancel`.
+> - **Data export:** synchronous download at `GET /me/export`; account deletion is `POST /me/delete` with `POST /me/delete/cancel` (password-verified) and a grace-period restore at `POST /auth/restore`.
 > - **Recovery codes:** regenerate at `POST /me/security/2fa/recovery-codes`.
-> - **WebSocket:** one connection per user ("last wins"); frames delivered server→client are `welcome`, `message.new`, `message.edited`, `message.deleted`, `reaction.updated`, `receipt.read`, `typing`, `notification.new`. Client→server supports `ping` (→`pong`) and a reserved `subscribe`. `receipt.delivered`/`presence`/`media.ready`/replay-sync are not implemented yet.
-> - **Media upload:** direct multipart `POST /api/v1/media` with ClamAV scan when `CLAMAV_ADDR` is set. Presigned uploads and the async FFmpeg variant pipeline are roadmap.
-> - **Rate limiting & jobs:** in-memory limiter (not Redis) — set `REDIS_URL` only for multi-instance WS fan-out. All jobs run in-process on one instance.
+> - **WebSocket:** one connection per user ("last wins"); frames delivered server→client are `welcome`, `message.new`, `message.edited`, `message.deleted`, `reaction.updated`, `receipt.read`, `typing`, `notification.new`. Client→server supports `ping` (→`pong`) and `subscribe` (**membership-checked** since the 2026-08 audit). `receipt.delivered`/`presence`/`media.ready`/replay-sync are not implemented yet.
+> - **Media upload:** direct multipart `POST /api/v1/media` streaming to disk with per-kind caps; ClamAV INSTREAM scan when `CLAMAV_ADDR` is set. Chat media is served only to authenticated thread participants; verification docs are admin-only. Presigned uploads and the async FFmpeg variant pipeline are roadmap.
+> - **Rate limiting & jobs:** in-memory limiter (not Redis) — set `REDIS_URL` only for multi-instance WS fan-out. All jobs run in-process on one instance (advisory-lock leader election with retry; weekly digest/alerts idempotent via the `job_runs` table).
 >
 > Where the text below conflicts with the list above, the list wins.
+
+### 2026-08 security & reliability audit — implemented changes
+- WS upgrades work through the full middleware chain (`Hijack`/`Flush` passthrough) with an authenticated upgrade regression test.
+- Redis fan-out frames carry an instance tag (echo loop eliminated); publishing is async via a bounded queue.
+- Domain error sentinels are immutable (`WithField` clones) — no cross-request mutation race.
+- OG share cards XML-escape every owner field, validate URL schemes at write time (`logo_url`/`cover_url`: internal media paths or https), and serve with `CSP: default-src 'none'; sandbox` + nosniff.
+- Password-reset/verification tokens are single-use (`consumed_tokens` table); refresh-token replay revokes the whole session family; TOTP codes are single-use per timestep; argon2id uses t=3 (RFC 9106 low-memory profile).
+- Per-account login/2FA throttles complement per-IP limits; email change notifies the old address and requires TOTP when enrolled.
+- Co-owner invite roles are enforced (`viewer` is read-only); invites persist their inviter; claim approval transfers ownership atomically and creates drafts with valid coordinates/slug.
+- Support contact and client-error reports persist correctly (extended `reports` CHECK, nullable reporter).
+- Link previews resolve DNS at dial level on every redirect hop and block private/reserved IPs; push endpoints disable redirects and derive VAPID `aud` from the endpoint origin; dead subscriptions (404/410) are pruned.
+- Public business pages serve only verified/paused listings (suspension hides by slug too). Banned users' API keys stop working on `/api/v2/*`.
+- Jobs: leader lock retried until held; digest/alerts idempotent per period (`job_runs`); retention purges consumed tokens, revoked sessions >90d, engagement events >90d, auth events >180d; currency sync is one batched upsert with ctx-bound fetch.
+- Migrations run under an advisory lock; shutdown order is HTTP drain → ctx cancel (WS/jobs) → pool close.
+- Frontend: logout clears the query cache + WebSocket + compare store; map popups escape HTML; JSON-LD escapes `<`; all user-supplied links pass a scheme allowlist; chat sends optimistically and backfills on reconnect.
+
+## 1. Conventions
 
 - Base path: `/api/v1`. Public reads are unauthenticated; writes require auth unless noted.
 - **Auth:** httpOnly+Secure+SameSite cookies (`bv_access` JWT 15 min, `bv_refresh` rotating 30 days, registry-backed per §5.9.1/§7.4). CSRF: double-submit token cookie `bv_csrf`; all mutating requests must send `X-CSRF-Token`.
@@ -22,7 +37,7 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 - **Ids:** UUIDv7; typed as `uuid` in JSON.
 - **Money:** `{ "amount": "12.50", "currency": "USD" }` — never bare numbers.
 - **Time:** RFC3339 UTC. Open-now computed server-side per business timezone (`is_open_now` field).
-- **Rate limits** (in-memory, per IP or user where noted): auth 5/min/IP; engagement writes 30/min/user; chat sends 30/min/user plus 1/s + 60/h per user-thread; search/suggest/users-search 60/min/IP; media upload 20/h/user; global 120/min/IP.
+- **Rate limits** (in-memory, per IP or user where noted): auth 5/min/IP **plus 10/15min per account**; 2FA verify 3/15min/IP plus per-challenge throttle; engagement writes 30/min/user; chat sends 30/min/user; search/suggest/users-search 60/min/IP; media upload 20/h/user; sitemap 10/min/IP; exports 5/h; global 120/min/IP.
 - **ETags** on small JSON GET responses under `/api/v1` (errors and streamed files pass through untouched).
 
 ## 2. REST Endpoints

@@ -52,6 +52,23 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Flush lets streaming handlers flush through the access-log wrapper.
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack lets WebSocket upgrades succeed through the access-log wrapper;
+// without this gorilla/websocket's Upgrader rejects the wrapped writer.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("statusRecorder: underlying ResponseWriter is not a Hijacker")
+	}
+	return hj.Hijack()
+}
+
 func (s *Server) withAccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -103,6 +120,11 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 		u, err := s.deps.Repos.Users.GetByID(r.Context(), key.UserID)
 		if err != nil || u == nil {
 			fail(w, domain.ErrNotAuthenticated)
+			return
+		}
+		// Banned users lose API access like session auth does (withAuth).
+		if u.Status == domain.UserStatusBanned {
+			fail(w, domain.ErrAccountBanned)
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, u))
@@ -166,9 +188,12 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 var authPaths = map[string]bool{
 	"/api/v1/auth/register":       true,
 	"/api/v1/auth/login":          true,
-	"/api/v1/auth/refresh":        true,
 	"/api/v1/auth/forgot-password": true,
 	"/api/v1/auth/reset-password": true,
+	// NOTE: /auth/refresh deliberately lives in its own tier below — it
+	// requires a valid cookie to do anything, and counting it here let
+	// routine logged-out page loads (each probing session restore) crowd
+	// out real register/login attempts.
 }
 
 // engagementPath: mutating engagement calls are user-scoped 30/min (PRD §8.8).
@@ -188,33 +213,61 @@ func engagementPath(p string) bool {
 func (s *Server) withRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := s.clientIP(r)
-		limit, window := 120, time.Minute
+		// Tier namespace: buckets MUST NOT be shared across limit classes.
+		// With one shared IP key, high-volume global traffic (health checks,
+		// crawlers) silently consumed the auth bucket and locked users out
+		// of login/register with instant 429s.
+		tier := "ip"
+		limit, window := s.deps.Config.RateLimitGlobal, time.Minute
+		if limit <= 0 {
+			limit = 120
+		}
 		p := r.URL.Path
 		switch {
 		case authPaths[p]:
+			tier = "auth"
 			limit, window = 5, time.Minute // PRD §5.9.1: 5/min per IP
 		case p == "/api/v1/search" || p == "/api/v1/search/suggest" || p == "/api/v1/users/search":
+			tier = "search"
 			limit, window = 60, time.Minute
+		case p == "/api/v1/sitemap.xml":
+			// Full-directory scan; keep crawlers on a tight budget.
+			tier = "sitemap"
+			limit, window = 10, time.Minute
+		case p == "/api/v1/me/export" ||
+			(strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/export")):
+			// Heavy sequential exports: N+1 aggregations / 100k-message dumps
+			// previously shared the generic 120/min IP budget.
+			tier = "export"
+			limit, window = 5, time.Hour
 		case p == "/api/v1/auth/2fa/verify":
+			tier = "tfa"
 			limit, window = 3, 15*time.Minute // PRD §5.9.1: 3 attempts then lockout
+		case p == "/api/v1/auth/refresh":
+			// Cookie-gated session renewal: generous but bounded.
+			tier = "refresh"
+			limit, window = 60, time.Minute
 		case p == "/api/v1/media" && r.Method == http.MethodPost:
+			tier = "media"
 			limit, window = 20, time.Hour // media: 20/h per user
 			if u, found := currentUser(r); found {
-				key = "user:" + u.ID
+				key = u.ID
 			}
 		case strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/messages") && r.Method == http.MethodPost:
 			// Chat sends: burst guard per user (ARCHITECTURE §1: 1/s + 60/h).
+			tier = "chat"
 			limit, window = 30, time.Minute
 			if u, found := currentUser(r); found {
-				key = "chat:" + u.ID
+				key = u.ID
 			}
 		case engagementPath(p) && r.Method != http.MethodGet:
+			tier = "engage"
 			limit, window = 30, time.Minute // engagement writes: 30/min per user
 			if u, found := currentUser(r); found {
-				key = "user:" + u.ID
+				key = u.ID
 			}
 		}
-		remaining, retryAfter, ok := s.deps.RateLimiter.Allow(key, limit, window)
+		remaining, retryAfter, ok := s.deps.RateLimiter.Allow(tier+":"+key, limit, window)
 		if !ok {
 			s.metrics.RateLimited()
 			w.Header().Set("Retry-After", seconds(retryAfter))
@@ -368,6 +421,12 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		// Authenticated routes declare it; others pass through with optional user.
 		claims, err := s.authenticate(r)
 		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if s.deps.Repos == nil {
+			// Bare wiring (tests): claims only, no user lookup.
+			r = r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
 			next.ServeHTTP(w, r)
 			return
 		}

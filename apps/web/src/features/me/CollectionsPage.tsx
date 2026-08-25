@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { api, type CollectionDTO, type CollectionItemDTO } from '@/lib/api'
@@ -98,14 +99,14 @@ export function CollectionsPage() {
                 {itemsData?.items.map((item) => (
                   <div key={item.id} className="flex items-center gap-2 py-1.5 text-sm">
                     {item.target_type === 'business' && item.target_slug ? (
-                      <a href={`/b/${item.target_slug}`} className="flex min-w-0 flex-1 items-center gap-2 text-ink hover:underline">
+                      <Link to={`/b/${item.target_slug}`} className="flex min-w-0 flex-1 items-center gap-2 text-ink hover:underline">
                         {item.target_logo ? (
                           <img src={item.target_logo} alt="" className="h-7 w-7 rounded-md object-cover" />
                         ) : (
                           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-surface2 text-xs font-semibold">{(item.target_name ?? '?').charAt(0)}</span>
                         )}
                         <span className="truncate font-medium">{item.target_name}</span>
-                      </a>
+                      </Link>
                     ) : (
                       <span className="flex-1 truncate text-ink">{item.target_name || `${item.target_type} · ${item.target_id.slice(0, 8)}…`}</span>
                     )}

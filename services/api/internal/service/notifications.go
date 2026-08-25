@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"bizverse/api/internal/config"
 	"bizverse/api/internal/domain"
@@ -29,6 +30,31 @@ type Notifier struct {
 
 func NewNotifier(repos *repo.Repos, cfg config.Config, sender email.Sender, hub *ws.Hub, logger *slog.Logger) *Notifier {
 	return &Notifier{repos: repos, cfg: cfg, email: sender, hub: hub, logger: logger}
+}
+
+// CreateDeduped suppresses duplicate notifications for the same
+// (user, type, dedupeKey) within `window`. Toggleable events (helpful votes,
+// reaction remove/re-add) previously notified — and emailed — on every
+// toggle-on, flooding recipients. The dedupe key is stored in the payload so
+// the check is a single indexed-ish query.
+func (n *Notifier) CreateDeduped(ctx context.Context, userID, ntype, dedupeKey string, window time.Duration, payload map[string]any) {
+	if dedupeKey != "" {
+		var dup bool
+		err := n.repos.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM notifications
+				WHERE user_id = $1 AND type = $2 AND created_at > now() - ($3 || ' seconds')::interval
+				  AND payload->>'_d' = $4
+			)`, userID, ntype, int(window.Seconds()), dedupeKey).Scan(&dup)
+		if err == nil && dup {
+			return
+		}
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["_d"] = dedupeKey
+	}
+	n.Create(ctx, userID, ntype, payload)
 }
 
 // Create stores a notification for userID and dispatches it on all enabled

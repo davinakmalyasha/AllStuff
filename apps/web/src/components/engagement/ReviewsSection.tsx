@@ -34,20 +34,25 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   })
   const [page, setPage] = useState(1)
   const [extras, setExtras] = useState<ReviewDTO[]>([])
+  // Guards the sort-switch race: an in-flight "load more" for the previous
+  // sort must not append into the new sort's list when it resolves late.
+  const [extrasSort, setExtrasSort] = useState(sort)
   const { data: more, isFetching: moreLoading } = useQuery({
     queryKey: ['reviews-more', businessId, sort, page],
     queryFn: () => api<{ reviews: ReviewDTO[] }>(`/businesses/${businessId}/reviews?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`),
     enabled: page > 1,
   })
   useEffect(() => {
-    if (more?.reviews.length) setExtras((prev) => {
-      const seen = new Set(prev.map((r) => r.id))
+    if (more?.reviews.length && extrasSort === sort) setExtras((prev) => {
+      const seen = new Set([...(data?.reviews ?? []).map((r) => r.id), ...prev.map((r) => r.id)])
       return [...prev, ...more.reviews.filter((r) => !seen.has(r.id))]
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [more])
   useEffect(() => {
     setPage(1)
     setExtras([])
+    setExtrasSort(sort)
   }, [sort])
   const reviews = [...(data?.reviews ?? []), ...extras]
   const [hasMore, setHasMore] = useState(true)
@@ -72,8 +77,15 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
     },
   })
 
+  // Helpful votes now feed back: without invalidation/optimism the count
+  // froze and users clicked repeatedly believing it was broken.
   const helpfulMut = useMutation({
     mutationFn: ({ id, vote }: { id: string; vote: number }) => api(`/reviews/${id}/helpful`, { method: 'PUT', body: { vote } }),
+    onMutate: ({ id, vote }) => {
+      qc.setQueryData<{ reviews: ReviewDTO[] }>(['reviews', businessId, sort], (old) =>
+        old ? { ...old, reviews: old.reviews.map((r) => r.id === id ? { ...r, my_vote: vote, helpful_count: Math.max(0, r.helpful_count + (vote === 0 ? -1 : r.my_vote === 0 ? 1 : 0)) } : r) } : old)
+    },
+    onSettled: () => refresh(),
   })
 
   const replyMut = useMutation({
@@ -135,6 +147,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       refresh()
       toast.success('Review deleted')
     },
+    onError: () => toast.error('Could not delete the review.'),
   })
 
   return (
@@ -312,29 +325,16 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
         ))}
       </div>
 
-      {/* Edit modal */}
-      <Modal open={!!editingId} onClose={() => setEditingId(null)} title="Edit review">
-        {(() => {
-          const r = reviews.find((x) => x.id === editingId)
-          if (!r) return null
-          return (
-            <div className="space-y-3">
-              <div className="flex items-center gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="text-ink">
-                    <Star className={`h-5 w-5 ${n <= (rating || r.rating) ? 'fill-current' : 'text-ink3'}`} />
-                  </button>
-                ))}
-              </div>
-              <textarea rows={4} value={text || r.text} onChange={(e) => setText(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink" />
-              <div className="flex justify-end gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: r.id, rating: rating || r.rating, text: text || r.text, image_ids: r.image_ids })} disabled={updateMut.isPending}>Save</Button>
-              </div>
-            </div>
-          )
-        })()}
-      </Modal>
+      {/* Edit modal — isolated per-review state. The old version shared the
+          compose form's rating/text, so leftover drafts (or a previously
+          edited review) pre-filled and could overwrite a DIFFERENT review. */}
+      <EditReviewModal
+        key={editingId ?? 'none'}
+        review={reviews.find((x) => x.id === editingId)}
+        onClose={() => setEditingId(null)}
+        onSave={(payload) => updateMut.mutateAsync(payload)}
+        saving={updateMut.isPending}
+      />
 
       <Confirm
         open={!!deleteId}
@@ -370,5 +370,42 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
         {lightbox && <img src={`/api/v1/media/${lightbox}/file`} alt="" className="w-full rounded-lg" />}
       </Modal>
     </section>
+  )
+}
+
+/** Self-contained edit form: state seeds from the review on mount (keyed by
+ * review id upstream) and never touches the compose form. */
+function EditReviewModal({
+  review,
+  onClose,
+  onSave,
+  saving,
+}: {
+  review?: ReviewDTO
+  onClose: () => void
+  onSave: (payload: { id: string; rating: number; text: string; image_ids: string[] }) => Promise<unknown>
+  saving: boolean
+}) {
+  const [rating, setRating] = useState(review?.rating ?? 5)
+  const [text, setText] = useState(review?.text ?? '')
+  return (
+    <Modal open={!!review} onClose={onClose} title="Edit review">
+      {review && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="text-ink">
+                <Star className={`h-5 w-5 ${n <= rating ? 'fill-current' : 'text-ink3'}`} />
+              </button>
+            ))}
+          </div>
+          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink" />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+            <Button size="sm" onClick={() => void onSave({ id: review.id, rating, text, image_ids: review.image_ids ?? [] })} disabled={saving || text.trim().length < 10}>Save</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }

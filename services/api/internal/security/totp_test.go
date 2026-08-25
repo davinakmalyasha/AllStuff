@@ -41,7 +41,7 @@ func TestVAPIDKeypair(t *testing.T) {
 	if kp.PublicKey == "" {
 		t.Error("public key empty")
 	}
-	jwt, err := kp.vapidJWT("mailto:test@example.com")
+	jwt, err := kp.vapidJWT("mailto:test@example.com", "https://fcm.googleapis.com")
 	if err != nil {
 		t.Fatal(err)
 	}

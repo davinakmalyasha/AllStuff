@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Camera, Link2 } from 'lucide-react'
 import { api, uploadMedia } from '@/lib/api'
@@ -18,6 +19,7 @@ interface SavedSearchDTO {
 
 export function MePage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { user, fetchMe, logout } = useAuth()
   const qc = useQueryClient()
 
@@ -61,7 +63,7 @@ export function MePage() {
         </div>
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight">{user.name}</h1>
-          <a href={`/u/${user.username}`} className="text-sm text-ink3 hover:text-ink">@{user.username} <Link2 className="ml-0.5 inline h-3 w-3" /></a>
+          <Link to={`/u/${user.username}`} className="text-sm text-ink3 hover:text-ink">@{user.username} <Link2 className="ml-0.5 inline h-3 w-3" /></Link>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {user.email_verified ? (
@@ -110,7 +112,7 @@ export function MePage() {
               />
               Daily alert
             </label>
-            <a href={`/discover?q=${encodeURIComponent(String(s.query?.q ?? ''))}`} className="text-xs text-ink3 hover:text-ink">Open</a>
+            <Link to={`/discover?q=${encodeURIComponent(String(s.query?.q ?? ''))}`} className="text-xs text-ink3 hover:text-ink">Open</Link>
             <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">✕</button>
           </div>
         ))}
@@ -119,13 +121,20 @@ export function MePage() {
 
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          <a href="/me/collections"><Button variant="secondary" size="sm">Collections</Button></a>
-          <a href="/me/notifications"><Button variant="secondary" size="sm">Notifications</Button></a>
-          <a href="/me/reviews"><Button variant="secondary" size="sm">Reviews</Button></a>
-          <a href="/me/security"><Button variant="secondary" size="sm">Security</Button></a>
-          <a href="/me/messages"><Button variant="secondary" size="sm">Messages</Button></a>
+          <Link to="/me/collections"><Button variant="secondary" size="sm">Collections</Button></Link>
+          <Link to="/me/notifications"><Button variant="secondary" size="sm">Notifications</Button></Link>
+          <Link to="/me/reviews"><Button variant="secondary" size="sm">Reviews</Button></Link>
+          <Link to="/me/security"><Button variant="secondary" size="sm">Security</Button></Link>
+          <Link to="/me/messages"><Button variant="secondary" size="sm">Messages</Button></Link>
         </div>
-        <Button variant="secondary" onClick={() => void logout()}>
+        {/* Full client-side logout: clears the query cache, closes the WS and
+            resets per-account stores, then routes away (SPA reload avoided). */}
+        <Button
+          variant="secondary"
+          onClick={() =>
+            void logout().then(() => navigate('/login', { replace: true }))
+          }
+        >
           {t('nav.logout')}
         </Button>
       </div>

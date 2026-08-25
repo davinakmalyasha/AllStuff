@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, searchPath, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
+import { escapeHtml } from '@/lib/url'
 import { Badge } from '@/components/ui/Badge'
 
 const TILES_LIGHT = 'https://tiles.openstreetmap.org/{z}/{x}/{y}.png'
@@ -90,6 +92,13 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
   const trendRef = useRef<Record<string, TrendEntryDTO>>({})
   const userPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const popupRef = useRef<maplibregl.Popup | null>(null)
+  // Map event handlers are registered once; they read the LATEST markers
+  // through this ref. Reading the state variable directly closed over the
+  // first-render empty array — pin clicks silently did nothing after load.
+  const markersRef = useRef<MapMarker[]>([])
+  useEffect(() => {
+    markersRef.current = markers
+  }, [markers])
 
   // Init map once. Two raster basemap layers are registered up front and
   // toggled by visibility — avoids source-swap API differences.
@@ -263,7 +272,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     const featureAt = (e: maplibregl.MapLayerMouseEvent) => {
       const f = e.features?.[0]
       if (!f) return undefined
-      return markers.find((m) => m.id === f.properties?.id)
+      return markersRef.current.find((m) => m.id === f.properties?.id)
     }
     map.on('click', 'businesses', (e: maplibregl.MapLayerMouseEvent) => {
       const b = featureAt(e)
@@ -287,9 +296,11 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       if (!popupRef.current) popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 12 })
       popupRef.current
         .setLngLat((f.geometry as unknown as { coordinates: [number, number] }).coordinates)
+        // setHTML injects raw markup — owner-controlled business names are
+        // escaped here (a <img onerror> name previously executed on hover).
         .setHTML(
-          `<div style="font:500 12px/1.4 system-ui,sans-serif;color:#18181b">${p.name}` +
-          `<br/><span style="color:#71717a;font-weight:400">${p.cat_name} · ${p.city}` +
+          `<div style="font:500 12px/1.4 system-ui,sans-serif;color:#18181b">${escapeHtml(p.name ?? '')}` +
+          `<br/><span style="color:#71717a;font-weight:400">${escapeHtml(p.cat_name ?? '')} · ${escapeHtml(p.city ?? '')}` +
           (dist > 0 ? ` · ${dist.toFixed(1)} km` : '') + `</span></div>`,
         )
         .addTo(map)
@@ -301,9 +312,12 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, markers])
 
-  // Animate the Booming pulse (radius/opacity breathing cycle).
+  // Animate the Booming pulse (radius/opacity breathing cycle) — only while
+  // at least one booming pin exists; a 20 fps GL repaint loop with zero
+  // booming pins was pure battery burn on the common case.
+  const hasBooming = markers.some((m) => m.trend?.is_booming)
   useEffect(() => {
-    if (!map) return
+    if (!map || !hasBooming) return
     let phase = 0
     const iv = window.setInterval(() => {
       if (!map.getLayer('businesses-pulse')) return
@@ -313,7 +327,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       map.setPaintProperty('businesses-pulse', 'circle-opacity', 0.35 * (1 - wave))
     }, 50)
     return () => clearInterval(iv)
-  }, [map])
+  }, [map, hasBooming])
 
   // Category chips (non-embedded only).
   const { data: catData } = useCategories()
@@ -373,9 +387,9 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
             <span className="text-xs text-ink3">
               {selected.review_count > 0 ? `★ ${selected.rating_avg?.toFixed(1)} (${selected.review_count})` : 'No reviews yet'}
             </span>
-            <a href={`/b/${selected.slug}`} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink">
+            <Link to={`/b/${selected.slug}`} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink">
               View business
-            </a>
+            </Link>
           </div>
         </div>
       )}

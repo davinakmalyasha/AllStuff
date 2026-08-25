@@ -28,6 +28,14 @@ func (r *PushRepo) Unsubscribe(ctx context.Context, userID, endpoint string) err
 	return err
 }
 
+// DeleteByEndpoint prunes a dead subscription discovered during delivery
+// (push services answer 404/410 once the browser drops it).
+func (r *PushRepo) DeleteByEndpoint(ctx context.Context, endpoint string) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM push_subscriptions WHERE endpoint=$1`, endpoint)
+	return err
+}
+
 func (r *PushRepo) ByUser(ctx context.Context, userID string) ([]security.PushSubscription, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT endpoint, keys FROM push_subscriptions WHERE user_id=$1`, userID)

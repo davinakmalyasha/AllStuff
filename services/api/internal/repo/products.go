@@ -249,13 +249,35 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx Tx, productID, newID str
 	}
 	copiedVariants := make([]*domain.ProductVariant, 0, len(variants))
 	for _, v := range variants {
+		sku, err := r.uniqueCopySKU(ctx, v.SKU, pr.BusinessID)
+		if err != nil {
+			return err
+		}
 		copiedVariants = append(copiedVariants, &domain.ProductVariant{
-			ID: newUUID(), ProductID: newID, Name: v.Name, SKU: v.SKU+"-copy",
+			ID: newUUID(), ProductID: newID, Name: v.Name, SKU: sku,
 			Options: v.Options, Price: v.Price, Currency: v.Currency,
 			StockQty: v.StockQty, InStock: v.InStock, ImageID: v.ImageID,
 		})
 	}
 	return r.ReplaceOptionsVariants(ctx, tx, newID, copiedOptions, copiedVariants)
+}
+
+// uniqueCopySKU derives a collision-free SKU for a duplicate. The old
+// deterministic "SKU-copy" suffix hit the UNIQUE constraint on the second
+// copy (or when a sibling was already copied).
+func (r *ProductRepo) uniqueCopySKU(ctx context.Context, baseSKU, businessID string) (string, error) {
+	candidate := baseSKU + "-copy"
+	for i := 0; i < 20; i++ {
+		taken, err := r.SKUTaken(ctx, candidate, businessID, "")
+		if err != nil {
+			return "", err
+		}
+		if !taken {
+			return candidate, nil
+		}
+		candidate = baseSKU + "-copy-" + util.NewUUID()[:6]
+	}
+	return candidate, nil
 }
 
 func newUUID() string { return util.NewUUID() }

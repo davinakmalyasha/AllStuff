@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -313,15 +313,15 @@ export function LandingPage() {
           <div className="container-page">
             <div className="mb-6 flex items-center justify-between">
               <p className="mono-label">From businesses you follow</p>
-              <a href="/me/following" className="text-sm text-ink underline underline-offset-4 hover:text-ink2">See all</a>
+              <Link to="/me/following" className="text-sm text-ink underline underline-offset-4 hover:text-ink2">See all</Link>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               {(followFeed?.updates ?? []).map((u) => (
-                <a key={u.id} href={`/b/${u.business_slug}`} className="card p-4 transition-shadow hover:shadow-cardHover">
+                <Link key={u.id} to={`/b/${u.business_slug}`} className="card p-4 transition-shadow hover:shadow-cardHover">
                   <p className="text-xs text-ink3">{u.business_name}</p>
                   <p className="mt-1 text-sm font-semibold text-ink">{u.title}</p>
                   <p className="mt-1 line-clamp-2 text-sm text-ink2">{u.body}</p>
-                </a>
+                </Link>
               ))}
             </div>
           </div>
@@ -335,7 +335,7 @@ export function LandingPage() {
             <p className="mono-label mb-6 text-center">Hand-picked</p>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {(featuredData?.businesses ?? []).map((b) => (
-                <a key={b.id} href={`/b/${b.slug}`} className="card group overflow-hidden transition-shadow hover:shadow-cardHover">
+                <Link key={b.id} to={`/b/${b.slug}`} className="card group overflow-hidden transition-shadow hover:shadow-cardHover">
                   {b.cover_url ? (
                     <img src={b.cover_url} alt="" className="h-28 w-full object-cover" loading="lazy" />
                   ) : (
@@ -346,7 +346,7 @@ export function LandingPage() {
                     <p className="text-xs text-ink3">{b.category_name} · {b.city}</p>
                     {b.review_count > 0 && <p className="mt-1 text-xs text-ink2">★ {b.rating_avg?.toFixed(1)} ({b.review_count})</p>}
                   </div>
-                </a>
+                </Link>
               ))}
             </div>
           </div>

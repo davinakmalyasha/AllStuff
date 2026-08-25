@@ -79,10 +79,21 @@ func (r *BusinessRepo) Update(ctx context.Context, id string, fields map[string]
 	return err
 }
 
+// setStatusExtraFields whitelists the extra columns SetStatus may write.
+// Without a guard this interpolates map keys straight into SQL.
+var setStatusExtraFields = map[string]bool{
+	"rejection_reason": true, "published_snapshot": true,
+	"verification_level": true, "verified_at": true,
+	"last_published_at": true,
+}
+
 func (r *BusinessRepo) SetStatus(ctx context.Context, id string, status domain.BusinessStatus, extra map[string]any) error {
 	cols := []string{"status = $2", "updated_at = now()"}
 	args := []any{id, string(status)}
 	for k, v := range extra {
+		if !setStatusExtraFields[k] {
+			return fmt.Errorf("field not allowed in SetStatus: %s", k)
+		}
 		args = append(args, v)
 		cols = append(cols, k+" = $"+itoa(len(args)))
 	}
@@ -198,6 +209,28 @@ func (r *BusinessRepo) ListFeatured(ctx context.Context, limit int) ([]*domain.B
 	return out, rows.Err()
 }
 
+// PublicSlugs returns slugs for the sitemap — selecting only the slug column
+// instead of full rows (the old path pulled hours + published_snapshot JSONB
+// for up to 100k businesses per sitemap hit).
+func (r *BusinessRepo) PublicSlugs(ctx context.Context, status string, limit int) ([]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT slug FROM businesses WHERE status = $1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT $2`,
+		status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out = append(out, slug)
+	}
+	return out, rows.Err()
+}
+
 // ByStatus returns the queue for admin verification (PRD §5.8.1).
 func (r *BusinessRepo) ByStatus(ctx context.Context, statuses []string, limit, offset int) ([]*domain.Business, error) {
 	rows, err := r.pool.Query(ctx, `
@@ -232,6 +265,7 @@ func (r *BusinessRepo) Search(ctx context.Context, sql string, args []any) ([]*d
 	var out []*domain.Business
 	for rows.Next() {
 		var b domain.Business
+		var rankIgnored float64 // per-call destination: a shared package var here is a data race across concurrent searches
 		if err := rows.Scan(&b.ID, &b.OwnerID, &b.Name, &b.Slug, &b.Tagline, &b.Description, &b.CategoryID,
 			&b.Status, &b.RejectionReason, &b.LogoURL, &b.CoverURL, &b.Gallery, &b.PriceLevel, &b.Currency,
 			&b.Address, &b.Lat, &b.Lng, &b.City, &b.Country, &b.Timezone, &b.Hours, &b.SpecialHours, &b.Contact, &b.Amenities, &b.Tags, &b.FoundedYear,
@@ -245,8 +279,6 @@ func (r *BusinessRepo) Search(ctx context.Context, sql string, args []any) ([]*d
 	}
 	return out, rows.Err()
 }
-
-var rankIgnored float64
 
 func (r *BusinessRepo) AddDocument(ctx context.Context, d *domain.VerificationDocument) error {
 	_, err := r.pool.Exec(ctx, `
@@ -292,7 +324,9 @@ func (r *BusinessRepo) ApprovedDocCount(ctx context.Context, businessID string) 
 	return n, err
 }
 
-// CanManageBusiness: owner OR accepted co-owner (PRD §5.9.3).
+// CanManageBusiness: owner OR accepted co-owner invite (PRD §5.9.3).
+// The role matters: "viewer" invites are read-only and must never gain
+// management rights over the listing.
 func (r *BusinessRepo) CanManageBusiness(ctx context.Context, userID, businessID string) (bool, error) {
 	var can bool
 	err := r.pool.QueryRow(ctx, `
@@ -302,6 +336,22 @@ func (r *BusinessRepo) CanManageBusiness(ctx context.Context, userID, businessID
 			SELECT 1 FROM business_invites i
 			JOIN users u ON u.email = i.email
 			WHERE i.business_id = $2 AND i.accepted_at IS NOT NULL AND i.revoked_at IS NULL
+			  AND i.role = 'co_owner'
+			  AND u.id = $1
+		)`, userID, businessID).Scan(&can)
+	return can, err
+}
+
+// IsBusinessViewer reports whether the user holds an accepted viewer invite
+// (read-only collaborator access to the dashboard).
+func (r *BusinessRepo) IsBusinessViewer(ctx context.Context, userID, businessID string) (bool, error) {
+	var can bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM business_invites i
+			JOIN users u ON u.email = i.email
+			WHERE i.business_id = $2 AND i.accepted_at IS NOT NULL AND i.revoked_at IS NULL
+			  AND i.role = 'viewer'
 			  AND u.id = $1
 		)`, userID, businessID).Scan(&can)
 	return can, err
@@ -321,10 +371,10 @@ type BusinessInvite struct {
 	RevokedAt  *time.Time `json:"revoked_at"`
 }
 
-func (r *BusinessRepo) CreateInvite(ctx context.Context, businessID, email, role, token string) error {
+func (r *BusinessRepo) CreateInvite(ctx context.Context, invitedBy, businessID, email, role, token string) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO business_invites (id, business_id, email, role, token)
-		VALUES ($1, $2, $3, $4, $5)`, newUUID(), businessID, email, role, token)
+		INSERT INTO business_invites (id, invited_by, business_id, email, role, token)
+		VALUES ($1, $2, $3, $4, $5, $6)`, newUUID(), invitedBy, businessID, email, role, token)
 	return err
 }
 

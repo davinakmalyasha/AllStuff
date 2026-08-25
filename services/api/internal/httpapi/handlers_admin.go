@@ -117,15 +117,17 @@ func (s *Server) handleAdminVerifyDetail(w http.ResponseWriter, r *http.Request)
 		fail(w, err)
 		return
 	}
-	owner, err := s.deps.Repos.Users.GetByID(r.Context(), b.OwnerID)
-	if err != nil {
-		fail(w, err)
-		return
+	owner, _ := s.deps.Repos.Users.GetByID(r.Context(), b.OwnerID)
+	ownerInfo := map[string]any{"name": "", "email": "", "username": ""}
+	if owner != nil {
+		ownerInfo["name"] = owner.Name
+		ownerInfo["email"] = owner.Email
+		ownerInfo["username"] = owner.Username
 	}
 	ok(w, map[string]any{
-		"business": b,
+		"business":  b,
 		"documents": docs,
-		"owner": map[string]any{"name": owner.Name, "email": owner.Email, "username": owner.Username},
+		"owner":     ownerInfo,
 	})
 }
 

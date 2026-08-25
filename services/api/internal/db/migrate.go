@@ -24,8 +24,25 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 }
 
 // Migrate applies *.sql files in lexical order, tracked in schema_migrations (PRD §10.5).
+// A session-level advisory lock guards the whole run: two replicas booting
+// together previously raced file application (duplicate-object errors, or
+// worse interleaved DDL).
 func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
-	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate lock acquire: %w", err)
+	}
+	defer conn.Release()
+	// pg_advisory_lock returns void and blocks until held — session-scoped,
+	// released on the same connection.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('bizverse:migrate'))`); err != nil {
+		return fmt.Errorf("migrate lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('bizverse:migrate'))`)
+	}()
+
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now()
 	)`); err != nil {
@@ -41,7 +58,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	for _, f := range files {
 		version := filepath.Base(f)
 		var exists bool
-		if err := pool.QueryRow(ctx,
+		if err := conn.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
 			return err
 		}
@@ -54,7 +71,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 			return err
 		}
 
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}

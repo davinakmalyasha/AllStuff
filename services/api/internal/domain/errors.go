@@ -16,12 +16,16 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
+// WithField returns a CLONE of the error with the field attached. Sentinels
+// are shared package globals; mutating them per-request caused concurrent map
+// writes across requests (and cross-request field leakage).
 func (e *Error) WithField(field, msg string) *Error {
-	if e.Fields == nil {
-		e.Fields = map[string]string{}
+	fields := make(map[string]string, len(e.Fields)+1)
+	for k, v := range e.Fields {
+		fields[k] = v
 	}
-	e.Fields[field] = msg
-	return e
+	fields[field] = msg
+	return &Error{Code: e.Code, Message: e.Message, Status: e.Status, Fields: fields}
 }
 
 var (
@@ -35,6 +39,7 @@ var (
 	ErrAccountBanned   = &Error{Code: "account_banned", Message: "Account banned.", Status: http.StatusForbidden}
 	Err2FAEnrollmentRequired = &Error{Code: "admin_2fa_required", Message: "Enable two-factor authentication to use admin features (PRD §5.9.1).", Status: http.StatusForbidden}
 	ErrNotAuthenticated = &Error{Code: "not_authenticated", Message: "Authentication required.", Status: http.StatusUnauthorized}
+	ErrAccountPendingDeletion = &Error{Code: "account_pending_deletion", Message: "This account is scheduled for deletion. Sign in with your password at /auth/restore to cancel it during the grace period.", Status: http.StatusForbidden}
 	ErrSessionInvalid  = &Error{Code: "session_invalid", Message: "Session expired or revoked. Sign in again.", Status: http.StatusUnauthorized}
 	ErrTokenInvalid    = &Error{Code: "token_invalid", Message: "Token is invalid or expired.", Status: http.StatusBadRequest}
 	ErrCSRF            = &Error{Code: "csrf_invalid", Message: "CSRF validation failed.", Status: http.StatusForbidden}

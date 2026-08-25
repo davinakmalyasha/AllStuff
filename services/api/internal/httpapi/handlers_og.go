@@ -3,6 +3,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"bizverse/api/internal/domain"
@@ -27,8 +28,8 @@ func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
 		rating = fmt.Sprintf("★ %.1f (%d reviews)", *b.RatingAvg, b.ReviewCount)
 	}
 	logo := ""
-	if b.LogoURL != nil {
-		logo = fmt.Sprintf(`<image x="440" y="40" width="120" height="120" href="%s"/>`, *b.LogoURL)
+	if b.LogoURL != nil && safeMediaRef(*b.LogoURL) {
+		logo = fmt.Sprintf(`<image x="440" y="40" width="120" height="120" href="%s"/>`, xmlEscape(*b.LogoURL))
 	}
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
@@ -45,7 +46,26 @@ func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// SVG executes scripts when navigated to directly — lock it down so an
+	// injected payload (or a future escaping bug) can never touch the API
+	// origin or read cookies.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write([]byte(svg))
+}
+
+// safeMediaRef allows only internal media references and plain https images
+// in owner-controlled URL fields rendered inside SVG/HTML surfaces.
+func safeMediaRef(u string) bool {
+	pu, err := url.Parse(strings.TrimSpace(u))
+	if err != nil || pu.Host != "" || pu.Scheme != "" {
+		// Not a relative path: allow absolute https images only.
+		if err != nil || pu.Scheme != "https" || pu.Host == "" {
+			return false
+		}
+		return true
+	}
+	return strings.HasPrefix(pu.Path, "/api/v1/media/") && !strings.Contains(u, "..")
 }
 
 func derefS(s *string) string {

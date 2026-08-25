@@ -17,14 +17,33 @@ import {
   Mic,
 } from 'lucide-react'
 import { api, uploadMedia, type ChatMessageDTO } from '@/lib/api'
+import { useDebouncedValue } from '@/lib/hooks'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { ws } from '@/lib/ws'
+import { safeExternalUrl } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
 import { copyText } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '❌', '🤔', '👏', '😍', '😎', '💯', '🥳', '🤝', '👌', '😅', '🙌']
+
+/** Link previews carry user-pasted URLs: scheme-allowlisted before render. */
+function LinkPreview({ preview }: { preview: Record<string, unknown> }) {
+  const href = safeExternalUrl(typeof preview.url === 'string' ? preview.url : null)
+  const image = typeof preview.image === 'string' ? safeExternalUrl(preview.image) : null
+  if (!href) return null
+  const isHttpImg = !!image && /^https?:\/\//i.test(image)
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="mt-1.5 flex items-center gap-2 rounded-lg border border-border bg-surface2 p-2 no-underline">
+      {isHttpImg ? <img src={image!} alt="" className="h-10 w-10 rounded object-cover" /> : null}
+      <span className="min-w-0">
+        <span className="block truncate text-xs font-semibold text-ink">{String(preview.title ?? preview.url ?? '')}</span>
+        {preview.description ? <span className="block truncate text-[10px] text-ink3">{String(preview.description)}</span> : null}
+      </span>
+    </a>
+  )
+}
 
 export function ThreadPage({ businessMode = false }: { businessMode?: boolean }) {
   const { id = '' } = useParams()
@@ -40,6 +59,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const [editing, setEditing] = useState<ChatMessageDTO | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchQ, setSearchQ] = useState('')
+  const debouncedSearchQ = useDebouncedValue(searchQ, 250)
   const [pendingFile, setPendingFile] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const typingTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -99,37 +119,82 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         }
       }),
     ]
-    return () => offs.forEach((off) => off())
+    // Reconnect backfill: frames published while the socket was down are
+    // gone forever (server keeps no replay), so refetch the tail on reopen —
+    // previously messages sent during a blip never appeared.
+    const offStatus = ws.onStatusChange((connected) => {
+      if (connected) void qc.invalidateQueries({ queryKey: ['thread', id] })
+    })
+    return () => {
+      offs.forEach((off) => off())
+      offStatus()
+      ws.unsubscribe(id)
+    }
   }, [id, user?.id, qc])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, typing])
 
+  // Typing signal: throttled to one POST per 2.5s while actively typing —
+  // the old per-keystroke send fired ~40 requests for a single message.
+  const lastTypingSent = useRef(0)
   const sendTyping = () => {
-    if (text.trim()) void api(`/threads/${id}/typing`, { method: 'POST' }).catch(() => undefined)
+    if (!text.trim()) return
+    const now = Date.now()
+    if (now - lastTypingSent.current < 2500) return
+    lastTypingSent.current = now
+    void api(`/threads/${id}/typing`, { method: 'POST' }).catch(() => undefined)
   }
 
   const send = async () => {
     const body = text.trim()
     if (!body && !pendingFile) return
+    const clientMsgId = crypto.randomUUID()
     setText('')
     setReplyTo(null)
+    // Optimistic append: without it a dropped socket made sent messages
+    // vanish (they only ever appeared via the WS echo).
+    const temp: ChatMessageDTO = {
+      id: -Date.now(),
+      thread_id: id,
+      sender_id: user?.id ?? '',
+      sender_role: businessMode ? 'owner' : 'user',
+      type: pendingFile ? pendingKind : 'text',
+      body: body || null,
+      media_id: pendingFile,
+      client_msg_id: clientMsgId,
+      reply_to_id: replyTo?.id ?? null,
+      forwarded_from_message_id: null,
+      link_preview: null,
+      read_count: 0,
+      edited_at: null,
+      edit_history: [],
+      deleted_for: 'none',
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, temp])
     try {
-      await api(`/threads/${id}/messages`, {
+      const r = await api<{ message: ChatMessageDTO }>(`/threads/${id}/messages`, {
         method: 'POST',
         body: {
           body: body || undefined,
           type: pendingFile ? pendingKind : 'text',
           media_id: pendingFile,
-          client_msg_id: crypto.randomUUID(),
+          client_msg_id: clientMsgId,
           reply_to_id: replyTo?.id,
         },
       })
+      // Reconcile optimistic row with the server copy.
+      setMessages((prev) => prev.map((x) => (x.client_msg_id === clientMsgId ? r.message : x.id === r.message.id ? r.message : x)))
+      void qc.invalidateQueries({ queryKey: ['threads'] })
       setPendingFile(null)
       setRecording(false)
     } catch {
+      setMessages((prev) => prev.filter((x) => x.client_msg_id !== clientMsgId))
       setText(body)
+      toast.error('Message failed to send.')
     }
   }
 
@@ -168,10 +233,9 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         }
         const blob = new Blob(chunks, { type: 'audio/webm' })
         if (blob.size === 0) return
-        if (blob.size > 200_000) {
-          toast.error('Voice note too long — keep it under ~30 seconds.')
-          return
-        }
+        // Server cap for chat_audio is 25 MB (~13+ min of webm audio); the
+        // recording hard-stops at 5 minutes below. The old 200 KB rejection
+        // contradicted the recorder and destroyed >30s takes.
         try {
           await uploadImage(new File([blob], 'voice.webm', { type: 'audio/webm' }), 'chat_audio')
         } catch {
@@ -191,13 +255,23 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     if (!editing) return
     const body = text.trim()
     if (!body) return
-    await api(`/messages/${editing.id}`, { method: 'PATCH', body: { body } })
-    setEditing(null)
-    setText('')
+    try {
+      await api(`/messages/${editing.id}`, { method: 'PATCH', body: { body } })
+      setEditing(null)
+      setText('')
+      void qc.invalidateQueries({ queryKey: ['thread', id] })
+    } catch {
+      toast.error('Could not save the edit.')
+    }
   }
 
   const del = async (m: ChatMessageDTO, scope: 'me' | 'everyone') => {
-    await api(`/messages/${m.id}?scope=${scope}`, { method: 'DELETE' })
+    try {
+      await api(`/messages/${m.id}?scope=${scope}`, { method: 'DELETE' })
+      void qc.invalidateQueries({ queryKey: ['thread', id] })
+    } catch {
+      toast.error('Could not delete the message.')
+    }
     setMenuFor(null)
   }
 
@@ -213,7 +287,11 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }, [jump])
 
   const react = async (m: ChatMessageDTO, emoji: string) => {
-    await api(`/messages/${m.id}/reaction`, { method: 'PUT', body: { emoji } })
+    try {
+      await api(`/messages/${m.id}/reaction`, { method: emoji ? 'PUT' : 'DELETE', body: emoji ? { emoji } : undefined })
+    } catch {
+      toast.error('Could not update the reaction.')
+    }
     setPickerFor(null)
   }
 
@@ -233,13 +311,19 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }
 
   const { data: searchRes } = useQuery({
-    queryKey: ['thread-search', id, searchQ],
-    queryFn: () => api<{ messages: ChatMessageDTO[] }>(`/threads/${id}/search?q=${encodeURIComponent(searchQ)}`),
-    enabled: searching && searchQ.trim().length >= 2,
+    queryKey: ['thread-search', id, debouncedSearchQ],
+    queryFn: () => api<{ messages: ChatMessageDTO[] }>(`/threads/${id}/search?q=${encodeURIComponent(debouncedSearchQ)}`),
+    enabled: searching && debouncedSearchQ.trim().length >= 2,
   })
 
   // Thread mute (PRD §5.5.1): optimistic toggle; server keeps muted_until.
+  // Seeded from the thread payload — a hardcoded `false` showed the wrong
+  // bell state after reload and sent the wrong verb on first click.
   const [muted, setMuted] = useState(false)
+  useEffect(() => {
+    const t = data?.thread as { muted_until?: string | null } | undefined
+    if (t) setMuted(!!t.muted_until)
+  }, [data])
   const toggleMute = async () => {
     const next = !muted
     setMuted(next)
@@ -272,7 +356,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }
 
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
-  const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && own(m))), [messages, user?.id])
+  const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && m.sender_id === user?.id)), [messages, user?.id])
 
   if (isLoading) return <PageSpinner />
 
@@ -464,13 +548,7 @@ function MessageRow({
           )}
           {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
           {m.link_preview && (
-            <a href={String(m.link_preview.url ?? '#')} target="_blank" rel="noreferrer" className="mt-1.5 flex items-center gap-2 rounded-lg border border-border bg-surface2 p-2 no-underline">
-              {m.link_preview.image ? <img src={String(m.link_preview.image)} alt="" className="h-10 w-10 rounded object-cover" /> : null}
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-semibold text-ink">{String(m.link_preview.title ?? m.link_preview.url ?? '')}</span>
-                {m.link_preview.description ? <span className="block truncate text-[10px] text-ink3">{String(m.link_preview.description)}</span> : null}
-              </span>
-            </a>
+            <LinkPreview preview={m.link_preview} />
           )}
           {m.forwarded_from_message_id && <p className="mt-1 text-[10px] opacity-60">Forwarded</p>}
           {m.edited_at && <p className="mt-0.5 text-right text-[9px] opacity-50">edited</p>}
@@ -479,7 +557,9 @@ function MessageRow({
           </p>
         </div>
         {showActions && (
-          <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 ${own ? 'justify-end' : ''}`}>
+          // Visible on keyboard focus and coarse pointers too — hover-only
+          // actions were unreachable without a mouse.
+          <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
             <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">copy</button>
             <button onClick={onReply} className="text-[10px] text-ink3 hover:text-ink">reply</button>
             <button onClick={() => setMenuOpen(pickerOpen ? false : !pickerOpen)} className="text-[10px] text-ink3 hover:text-ink">react</button>

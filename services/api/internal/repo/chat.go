@@ -16,19 +16,31 @@ type ChatRepo struct{ pool pooler }
 
 // ---- threads ----
 
+// CreateThread inserts the thread and its first participant atomically —
+// previously two autocommit statements could orphan a thread when the second
+// failed.
 func (r *ChatRepo) CreateThread(ctx context.Context, ttype, businessID, userID string) (*domain.ChatThread, error) {
 	var biz *string
 	if businessID != "" {
 		biz = &businessID
 	}
 	t := &domain.ChatThread{ID: newUUID(), Type: ttype, BusinessID: biz}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO chat_threads (id, type, business_id) VALUES ($1, $2, $3)`,
-		t.ID, t.Type, t.BusinessID)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.AddParticipant(ctx, t.ID, userID, "user"); err != nil {
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chat_threads (id, type, business_id) VALUES ($1, $2, $3)`,
+		t.ID, t.Type, t.BusinessID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chat_participants (id, thread_id, user_id, role)
+		VALUES ($1, $2, $3, 'user')`, newUUID(), t.ID, userID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return t, nil

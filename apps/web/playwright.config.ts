@@ -26,6 +26,11 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 60_000,
       cwd: '../../services/api',
+      // The whole suite funnels through the dev-server proxy (one IP);
+      // lift the global per-IP bucket so E2E traffic isn't rate-limited.
+      env: {
+        RATELIMIT_GLOBAL: '5000',
+      },
     },
   ],
 })

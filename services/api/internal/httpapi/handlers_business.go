@@ -2,9 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/service"
@@ -211,20 +212,13 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Read exactly what was sent (bounded): avoids allocating a fixed 210MB
-	// buffer per request and never truncates on short reads.
-	const maxUpload = 210 << 20
-	data, readErr := io.ReadAll(io.LimitReader(file, maxUpload+1))
-	if len(data) == 0 || (readErr != nil && readErr != io.EOF) {
-		fail(w, domain.ErrValidation.WithField("file", "Could not read upload."))
-		return
-	}
-
+	// The stream is spooled to disk inside Media.Upload with a per-kind size
+	// cap — nothing beyond a 4 KB sniff head is held in RAM.
 	item, err := s.deps.Media.Upload(r.Context(), service.UploadInput{
 		UploaderID: user.ID,
 		Kind:       kind,
-		Data:       data,
 		FileName:   header.Filename,
+		Reader:     file,
 	})
 	if err != nil {
 		fail(w, err)
@@ -233,27 +227,84 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	created(w, map[string]any{"media": item})
 }
 
-// Serve public media by id (kind-whitelisted; documents are admin-only).
+// Serve public media by id. Chat uploads are PRIVATE: they require an
+// authenticated user who participates in a thread containing the media.
+// Public storefront/logo/product/avatar kinds stay open.
 func (s *Server) handleMediaServe(w http.ResponseWriter, r *http.Request) {
 	item, path, err := s.deps.Media.ServePath(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	if err := s.authorizeChatMedia(r, item.Kind, item.ID); err != nil {
+		fail(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", item.Mime)
 	w.Header().Set("Cache-Control", "public, max-age=86400")
+	// User-controlled bytes served from the API origin: forbid MIME sniffing
+	// (text/plain → HTML XSS) and force download for anything that is not an
+	// image/audio/video (files can carry active content).
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(item.Mime, "image/") && !strings.HasPrefix(item.Mime, "audio/") && !strings.HasPrefix(item.Mime, "video/") {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeCDName(item.OriginalName)+`"`)
+	}
 	http.ServeFile(w, r, path)
 }
 
+func sanitizeCDName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r < 0x20 {
+			return -1
+		}
+		return r
+	}, filepath.Base(name))
+	if name == "" || name == "." || name == "/" {
+		return "download"
+	}
+	return name
+}
+
 func (s *Server) handleMediaThumb(w http.ResponseWriter, r *http.Request) {
-	_, path, err := s.deps.Media.ServeThumbPath(r.Context(), r.PathValue("id"))
+	item, path, err := s.deps.Media.ServeThumbPath(r.Context(), r.PathValue("id"))
 	if err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.authorizeChatMedia(r, item.Kind, item.ID); err != nil {
 		fail(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, path)
+}
+
+// authorizeChatMedia enforces thread-membership on private conversation
+// uploads. Without it anyone with the media UUID could fetch private chat
+// images/files/audio/video unauthenticated — including after the message was
+// deleted for everyone.
+func (s *Server) authorizeChatMedia(r *http.Request, kind domain.MediaKind, mediaID string) error {
+	switch kind {
+	case domain.MediaChatImage, domain.MediaChatFile, domain.MediaChatAudio, domain.MediaChatVideo:
+	default:
+		return nil
+	}
+	user, found := currentUser(r)
+	if !found {
+		return domain.ErrNotAuthenticated
+	}
+	var n int
+	err := s.deps.Repos.QueryRow(r.Context(), `
+		SELECT count(*) FROM chat_messages m
+		JOIN chat_participants p ON p.thread_id = m.thread_id AND p.user_id = $2 AND p.left_at IS NULL
+		WHERE m.media_id = $1 AND m.deleted_for <> 'everyone'`,
+		mediaID, user.ID).Scan(&n)
+	if err != nil || n == 0 {
+		return domain.ErrForbidden
+	}
+	return nil
 }
 
 var _ = strconv.Itoa

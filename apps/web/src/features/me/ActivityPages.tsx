@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Star } from 'lucide-react'
 import { api, type ReviewDTO } from '@/lib/api'
@@ -29,7 +30,7 @@ export function MyReviewsPage() {
           <p className="mono-label mb-1">Activity</p>
           <h1 className="text-2xl font-semibold tracking-tight">My reviews</h1>
         </div>
-        <a href="/me/export" className="text-sm text-ink3 hover:text-ink">Export data →</a>
+        <Link to="/me/export" className="text-sm text-ink3 hover:text-ink">Export data →</Link>
       </div>
 
       <div className="space-y-3">
@@ -42,9 +43,9 @@ export function MyReviewsPage() {
           <Card key={r.id} className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <a href={`/b/${r.business_slug ?? r.business_id}`} className="text-sm font-semibold text-ink hover:underline">
+                <Link to={`/b/${r.business_slug ?? r.business_id}`} className="text-sm font-semibold text-ink hover:underline">
                   {r.business_name || 'Business'}
-                </a>
+                </Link>
                 {r.product_id && <span className="ml-2 text-xs text-ink3">product review</span>}
               </div>
               <span className="flex items-center gap-0.5">

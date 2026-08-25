@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/aes"
@@ -13,6 +14,7 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -86,8 +88,11 @@ var chatKinds = map[domain.MediaKind]map[string]bool{
 type UploadInput struct {
 	UploaderID string
 	Kind       domain.MediaKind
-	Data       []byte
 	FileName   string
+	// Reader is the raw upload stream. Upload spools it to disk with a hard
+	// per-kind size cap — the body is never held fully in RAM (a previous
+	// ReadAll here buffered up to ~210 MB per request, an OOM DoS).
+	Reader io.Reader
 }
 
 var ErrInvalidMedia = errors.New("invalid media")
@@ -97,12 +102,24 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	if in.UploaderID == "" {
 		return nil, domain.ErrNotAuthenticated
 	}
-	max := maxSizeFor(in.Kind)
-	if len(in.Data) == 0 || int64(len(in.Data)) > max {
-		return nil, domain.ErrValidation.WithField("file", "File is empty or exceeds the size limit for this kind.")
+	if in.Reader == nil {
+		return nil, domain.ErrValidation.WithField("file", "File is required.")
 	}
+	max := maxSizeFor(in.Kind)
 
-	mime, err := sniffMIME(in.Data)
+	// Sniff from the head of the stream, then spool the rest straight to
+	// disk. Oversize uploads are cut off mid-stream (the client sees an
+	// error) instead of being swallowed into memory first.
+	head := make([]byte, 4096)
+	n, rerr := io.ReadFull(in.Reader, head)
+	if rerr != nil && rerr != io.EOF && rerr != io.ErrUnexpectedEOF {
+		return nil, domain.ErrValidation.WithField("file", "Could not read upload.")
+	}
+	head = head[:n]
+	if n == 0 {
+		return nil, domain.ErrValidation.WithField("file", "File is empty.")
+	}
+	mime, err := sniffMIME(head)
 	if err != nil {
 		return nil, domain.ErrValidation.WithField("file", err.Error())
 	}
@@ -110,16 +127,6 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	// Chat kinds enforce their own allowlist (PRD §5.5.2).
 	if allowed, ok := chatKinds[in.Kind]; ok && !allowed[mime] {
 		return nil, domain.ErrValidation.WithField("file", "File type not allowed for this kind.")
-	}
-
-	var w, h *int
-	if strings.HasPrefix(mime, "image/") {
-		img, _, err := image.Decode(bytes.NewReader(in.Data))
-		if err == nil {
-			b := img.Bounds()
-			bw, bh := b.Dx(), b.Dy()
-			w, h = &bw, &bh
-		}
 	}
 
 	name := util.NewUUID()
@@ -130,19 +137,90 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 		return nil, err
 	}
 
+	tmp, err := os.CreateTemp(filepath.Dir(full), ".upload-*")
+	if err != nil {
+		return nil, err
+	}
+	written := int64(0)
+	func() {
+		defer tmp.Close()
+		if _, werr := tmp.Write(head); werr != nil {
+			err = werr
+			return
+		}
+		written = int64(len(head))
+		var cerr error
+		written, cerr = io.Copy(tmp, io.LimitReader(in.Reader, max-int64(len(head))+1))
+		if cerr != nil {
+			err = cerr
+		}
+	}()
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+		return nil, err
+	}
+	defer func() {
+		_ = os.Remove(tmp.Name()) // no-op after successful rename
+	}()
+	if written > max {
+		_ = os.Remove(tmp.Name())
+		return nil, domain.ErrValidation.WithField("file", "File exceeds the size limit for this kind.")
+	}
+	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
+		_ = os.Remove(tmp.Name())
+		return nil, err
+	}
+	if err := os.Rename(tmp.Name(), full); err != nil {
+		_ = os.Remove(tmp.Name())
+		return nil, err
+	}
+
+	// Dimensions (used for thumbnails) are computed from the plaintext file.
+	var w, h *int
+	if strings.HasPrefix(mime, "image/") {
+		if f, ferr := os.Open(full); ferr == nil {
+			img, _, derr := image.Decode(f)
+			f.Close()
+			if derr == nil {
+				b := img.Bounds()
+				bw, bh := b.Dx(), b.Dy()
+				w, h = &bw, &bh
+			}
+		}
+	}
+
+	// Virus scan (best-effort, clamd INSTREAM) streams from disk; the verdict
+	// is recorded on the row after insert. Infected files never persist.
+	scanStatus := ""
+	if m.clam != "" {
+		status := "error"
+		if f, ferr := os.Open(full); ferr == nil {
+			status = m.scanStream(bufio.NewReader(f))
+			f.Close()
+		}
+		if status == "infected" {
+			_ = os.Remove(full)
+			return nil, domain.ErrValidation.WithField("file", "File failed the virus scan.")
+		}
+		scanStatus = status
+	}
+
 	// Verification documents: encrypt at rest when a key is configured (PRD §9.3).
-	stored := in.Data
 	if in.Kind == domain.MediaDocVerif && m.key != nil {
-		enc, err := m.encrypt(in.Data)
-		if err != nil {
+		data, rerr := os.ReadFile(full)
+		if rerr != nil {
+			return nil, rerr
+		}
+		enc, aerr := m.encrypt(data)
+		if aerr != nil {
 			return nil, domain.ErrInternal
 		}
-		stored = enc
+		if werr := os.WriteFile(full+".enc", enc, 0o600); werr != nil {
+			return nil, werr
+		}
+		_ = os.Remove(full)
 		rel += ".enc"
 		full += ".enc"
-	}
-	if err := os.WriteFile(full, stored, 0o600); err != nil {
-		return nil, err
 	}
 
 	item := &domain.MediaItem{
@@ -151,7 +229,7 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 		Kind:         in.Kind,
 		OriginalName: filepath.Base(in.FileName),
 		Mime:         mime,
-		Size:         int64(len(in.Data)),
+		Size:         written,
 		Width:        w,
 		Height:       h,
 		Path:         rel,
@@ -161,18 +239,9 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 		return nil, err
 	}
 
-	// Virus scan (best-effort, clamd protocol): mark clean/infected/error.
-	if m.clam != "" {
-		switch m.scan(in.Data) {
-		case "clean":
-			_, _ = m.repos.Exec(ctx, `UPDATE media SET virus_scan_status='clean' WHERE id=$1`, item.ID)
-		case "infected":
-			_, _ = m.repos.Exec(ctx, `UPDATE media SET virus_scan_status='infected' WHERE id=$1`, item.ID)
-			_ = os.Remove(full)
-			return nil, domain.ErrValidation.WithField("file", "File failed the virus scan.")
-		default:
-			_, _ = m.repos.Exec(ctx, `UPDATE media SET virus_scan_status='error' WHERE id=$1`, item.ID)
-		}
+	// Record the scan verdict on the persisted row (best-effort).
+	if scanStatus != "" {
+		_, _ = m.repos.Exec(ctx, `UPDATE media SET virus_scan_status=$2 WHERE id=$1`, item.ID, scanStatus)
 	}
 
 	item.URL = m.publicURL(item)
@@ -262,26 +331,35 @@ func (m *Media) Decrypt(data []byte) ([]byte, error) { return m.decrypt(data) }
 
 // ---- virus scanning (PRD §9.3, clamd protocol) ----
 
-// scan streams the payload to clamd INSTREAM; returns clean|infected|error.
-func (m *Media) scan(data []byte) string {
+// scanStream streams r to clamd INSTREAM in length-prefixed chunks; returns
+// clean|infected|error. The payload is never buffered whole in memory.
+func (m *Media) scanStream(r io.Reader) string {
 	conn, err := net.DialTimeout("tcp", m.clam, 10*time.Second)
 	if err != nil {
 		return "error"
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 	if _, err := conn.Write([]byte("zINSTREAM\x00")); err != nil {
 		return "error"
 	}
-	const chunk = 1 << 20
-	for off := 0; off < len(data); off += chunk {
-		end := min(off+chunk, len(data))
-		part := data[off:end]
-		head := []byte{byte(len(part) >> 24), byte(len(part) >> 16), byte(len(part) >> 8), byte(len(part))}
-		if _, err := conn.Write(head); err != nil {
-			return "error"
+	chunk := make([]byte, 1<<20)
+	for {
+		n, rerr := r.Read(chunk)
+		if n > 0 {
+			part := chunk[:n]
+			head := []byte{byte(len(part) >> 24), byte(len(part) >> 16), byte(len(part) >> 8), byte(len(part))}
+			if _, err := conn.Write(head); err != nil {
+				return "error"
+			}
+			if _, err := conn.Write(part); err != nil {
+				return "error"
+			}
 		}
-		if _, err := conn.Write(part); err != nil {
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
 			return "error"
 		}
 	}

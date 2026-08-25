@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Clock,
@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
+import { safeExternalUrl } from '@/lib/url'
 import { MiniMapLive } from '@/components/map/MiniMapLive'
 import { ProductModal } from '@/components/engagement/ProductModal'
 import { Badge } from '@/components/ui/Badge'
@@ -340,13 +341,13 @@ export function BusinessPage() {
           <h2 className="mono-label mb-4">Similar businesses</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.similar.map((s) => (
-              <a key={s.id} href={`/b/${s.slug}`} className="card flex items-center gap-3 p-4 transition-shadow hover:shadow-cardHover">
+              <Link key={s.id} to={`/b/${s.slug}`} className="card flex items-center gap-3 p-4 transition-shadow hover:shadow-cardHover">
                 {s.logo_url ? <img src={s.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface2 text-sm font-semibold">{s.name.charAt(0)}</div>}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-ink">{s.name}</p>
                   <p className="text-xs text-ink3">{s.city}</p>
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
         </div>
@@ -391,9 +392,9 @@ function MessageButton({ businessId, loggedIn, slug }: { businessId: string; log
   const navigate = useNavigate()
   if (!loggedIn) {
     return (
-      <a href={`/login?next=/b/${slug}`}>
+      <Link to={`/login?next=/b/${slug}`}>
         <Button><MessageSquare className="h-4 w-4" /> Contact</Button>
-      </a>
+      </Link>
     )
   }
   return (
@@ -409,8 +410,12 @@ function MessageButton({ businessId, loggedIn, slug }: { businessId: string; log
 }
 
 function ContactRow({ icon, label, href }: { icon: React.ReactNode; label: string; href: string }) {
+  // Owner-controlled values (website field, social handles) pass through a
+  // scheme allowlist — a `javascript:` website previously executed on click.
+  const safe = safeExternalUrl(href)
+  if (!safe) return null
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-ink underline-offset-4 hover:underline">
+    <a href={safe} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-ink underline-offset-4 hover:underline">
       <span className="text-ink3">{icon}</span> {label}
     </a>
   )

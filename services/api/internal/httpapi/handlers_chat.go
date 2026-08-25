@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -553,7 +555,7 @@ func (s *Server) pushToThread(ctx context.Context, threadID string, msg *domain.
 	// Batched fan-out: one query for participants + prefs, one for every
 	// subscription (was two queries per participant per message).
 	rows, err := s.deps.Repos.Query(ctx, `
-		SELECT p.user_id, u.notification_prefs
+		SELECT p.user_id, u.notification_prefs, u.timezone
 		FROM chat_participants p JOIN users u ON u.id = p.user_id
 		WHERE p.thread_id = $1 AND p.user_id <> $2 AND p.left_at IS NULL`,
 		threadID, msg.SenderID)
@@ -568,9 +570,11 @@ func (s *Server) pushToThread(ctx context.Context, threadID string, msg *domain.
 	var ids []string
 	for rows.Next() {
 		var t target
-		if err := rows.Scan(&t.id, &t.prefs); err != nil {
+		var tz string
+		if err := rows.Scan(&t.id, &t.prefs, &tz); err != nil {
 			break
 		}
+		t.prefs["_tz"] = tz // recipient timezone for quiet-hours evaluation
 		targets = append(targets, t)
 		ids = append(ids, t.id)
 	}
@@ -586,16 +590,51 @@ func (s *Server) pushToThread(ctx context.Context, threadID string, msg *domain.
 	if msg.Body != nil && *msg.Body != "" {
 		body = *msg.Body
 	}
-	hour := time.Now().Hour()
 	for _, t := range targets {
-		// Quiet hours (PRD §5.7): defer push between 22:00–08:00.
+		// Quiet hours (PRD §5.7): defer push between 22:00–08:00 in the
+		// RECIPIENT's timezone — the old server-local hour pushed at 3 PM
+		// (or silenced midday) for anyone ±8h of the server clock.
 		if qh, ok := t.prefs["quiet_hours"].(map[string]any); ok {
-			if enabled, _ := qh["enabled"].(bool); enabled && (hour >= 22 || hour < 8) {
+			if enabled, _ := qh["enabled"].(bool); enabled && quietHoursNow(t.prefs) {
 				continue
 			}
 		}
 		for _, sub := range subsByUser[t.id] {
-			_ = s.deps.Config.VAPID.Send(sub, s.deps.Config.PublicURL, title, body, map[string]string{"thread_id": threadID})
+			if err := s.deps.Config.VAPID.Send(sub, s.deps.Config.PublicURL, title, body, map[string]string{"thread_id": threadID}); err != nil {
+				if errors.Is(err, security.ErrSubscriptionGone) {
+					// Dead subscription: prune so future fan-outs stop paying
+					// dead-end HTTP calls (the row previously lived forever).
+					_ = s.deps.Repos.Push.DeleteByEndpoint(ctx, sub.Endpoint)
+				}
+			}
 		}
 	}
+}
+
+var tzCache sync.Map // name → *time.Location
+
+func locByName(name string) *time.Location {
+	if name == "" {
+		return time.UTC
+	}
+	if l, ok := tzCache.Load(name); ok {
+		return l.(*time.Location)
+	}
+	l, err := time.LoadLocation(name)
+	if err != nil {
+		l = time.UTC
+	}
+	tzCache.Store(name, l)
+	return l
+}
+
+// quietHoursNow evaluates the recipient's quiet-hours window using their
+// stored timezone (prefs come joined from users.notification_prefs).
+func quietHoursNow(prefs map[string]any) bool {
+	tzName := ""
+	if tzv, ok := prefs["_tz"].(string); ok {
+		tzName = tzv
+	}
+	hour := time.Now().In(locByName(tzName)).Hour()
+	return hour >= 22 || hour < 8
 }

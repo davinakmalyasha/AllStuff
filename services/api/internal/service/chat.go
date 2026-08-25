@@ -3,13 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,6 +78,11 @@ func (c *Chat) GetOrCreateDirect(ctx context.Context, userID, otherID string) (*
 	}
 	t, err := c.repos.Chat.CreateThread(ctx, "direct", "", userID)
 	if err != nil {
+		// Two concurrent first-messages can race past the find; prefer the
+		// winner's thread over creating a duplicate.
+		if again, ferr := c.repos.Chat.FindDirectThread(ctx, userID, otherID); ferr == nil && again != nil {
+			return again, nil
+		}
 		return nil, err
 	}
 	if err := c.repos.Chat.AddParticipant(ctx, t.ID, otherID, "user"); err != nil {
@@ -495,29 +500,29 @@ func (c *Chat) PinMessage(ctx context.Context, userID, threadID string, messageI
 	if err != nil || m == nil || m.ThreadID != threadID {
 		return domain.ErrNotFound
 	}
-	var pinned []string
+	var pinned []int64
 	if err := c.repos.QueryRow(ctx, `
 		SELECT pinned_message_ids FROM chat_participants WHERE thread_id=$1 AND user_id=$2`,
 		threadID, userID).Scan(&pinned); err != nil {
 		return err
 	}
 	if pinned == nil {
-		pinned = []string{}
+		pinned = []int64{}
 	}
 	if on {
 		for _, p := range pinned {
-			if p == itoaInt64(messageID) {
+			if p == messageID {
 				return nil
 			}
 		}
 		if len(pinned) >= 5 {
 			return domain.ErrValidation.WithField("_", "Max 5 pinned messages.")
 		}
-		pinned = append(pinned, itoaInt64(messageID))
+		pinned = append(pinned, messageID)
 	} else {
 		filtered := pinned[:0]
 		for _, p := range pinned {
-			if p != itoaInt64(messageID) {
+			if p != messageID {
 				filtered = append(filtered, p)
 			}
 		}
@@ -533,29 +538,75 @@ func (c *Chat) Pinned(ctx context.Context, userID, threadID string) ([]int64, er
 	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
 		return nil, err
 	}
-	var pinned []string
+	var pinned []int64
 	if err := c.repos.QueryRow(ctx, `
 		SELECT pinned_message_ids FROM chat_participants WHERE thread_id=$1 AND user_id=$2`,
 		threadID, userID).Scan(&pinned); err != nil {
 		return nil, err
 	}
-	out := []int64{}
-	for _, p := range pinned {
-		if id, err := strconv.ParseInt(p, 10, 64); err == nil {
-			out = append(out, id)
-		}
+	if pinned == nil {
+		pinned = []int64{}
 	}
-	return out, nil
+	return pinned, nil
 }
-
-func itoaInt64(n int64) string { return strconv.FormatInt(n, 10) }
 
 // ---- link previews (PRD §5.5.2) ----
 
 var urlRe = regexp.MustCompile(`https?://[^\s]+`)
 
+// isPublicIP reports whether ip is safe to dial: not loopback, private,
+// link-local, unspecified, or multicast. IPv4-mapped IPv6 (::ffff:127.0.0.1)
+// is normalized first — those accessors return false on the mapped form.
+func isPublicIP(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast())
+}
+
+// previewTransport dials only after resolving the hostname and validating
+// every resolved address. Because it sits at the dial layer it covers ALL
+// fetch paths: direct URLs, every redirect hop, and DNS rebinding (the name
+// is re-resolved per dial and checked again).
+var previewClient = &http.Client{
+	Timeout: 4 * time.Second,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if port != "80" && port != "443" {
+				return nil, fmt.Errorf("link preview: port %s not allowed", port)
+			}
+			if net.ParseIP(host) == nil && !strings.Contains(host, ".") {
+				return nil, fmt.Errorf("link preview: bare hostname rejected")
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, ia := range ips {
+				if !isPublicIP(ia.IP) {
+					return nil, fmt.Errorf("link preview: private address blocked")
+				}
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 3 {
+			return http.ErrUseLastResponse
+		}
+		return nil // target validation happens at dial time for every hop
+	},
+}
+
 // fetchLinkPreview extracts og: metadata from the first URL in a message.
-// SSRF-safe: http/https only, 2s timeout, 256KB cap, private IPs rejected (§9.3).
+// SSRF-safe: http/https only, dial-level IP validation on every redirect hop
+// and DNS resolution, 256KB cap (§9.3).
 func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 	m := urlRe.FindString(text)
 	if m == "" {
@@ -566,25 +617,19 @@ func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 		return nil, false
 	}
 	host := u.Hostname()
-	if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+	if ip := net.ParseIP(host); ip != nil && !isPublicIP(ip) {
 		return nil, false
 	}
-	if !strings.Contains(host, ".") {
+	if net.ParseIP(host) == nil && !strings.Contains(host, ".") {
 		return nil, false // bare hostnames resolved internally could hit the loopback
 	}
 
-	client := &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 3 {
-			return http.ErrUseLastResponse
-		}
-		return nil
-	}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m, nil)
 	if err != nil {
 		return nil, false
 	}
 	req.Header.Set("User-Agent", "BizVerseBot/1.0 (+https://bizverse.app)")
-	resp, err := client.Do(req)
+	resp, err := previewClient.Do(req)
 	if err != nil {
 		return nil, false
 	}
@@ -754,11 +799,13 @@ func (c *Chat) React(ctx context.Context, userID string, messageID int64, emoji 
 		if err := c.repos.Chat.SetReaction(ctx, messageID, userID, emoji); err != nil {
 			return err
 		}
-		// Only notify when a new reaction lands (not on emoji swaps).
+		// Only notify when a new reaction lands (not on emoji swaps) and
+		// deduped: remove→re-add cycles previously re-notified every time.
 		if m.SenderID != userID && existing == "" {
-			c.notifier.Create(ctx, m.SenderID, "reaction_added", map[string]any{
-				"thread_id": m.ThreadID, "message_id": messageID, "by": userID, "emoji": emoji,
-			})
+			c.notifier.CreateDeduped(ctx, m.SenderID, "reaction_added",
+				fmt.Sprintf("react:%d:%s", messageID, userID), 24*time.Hour, map[string]any{
+					"thread_id": m.ThreadID, "message_id": messageID, "by": userID, "emoji": emoji,
+				})
 		}
 		return nil
 	}

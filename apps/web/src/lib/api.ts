@@ -59,9 +59,14 @@ function refreshSession(): Promise<boolean> {
   if (!refreshing) {
     refreshing = (async () => {
       try {
+        // Mutations need the CSRF double-submit header — without it this
+        // request was always 403'd by the middleware before it could even
+        // be evaluated, wasting a round trip on every logged-out page load.
+        const token = await ensureCSRF().catch(() => '')
         const res = await fetch(`${BASE}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
+          headers: token ? { 'X-CSRF-Token': token } : undefined,
         })
         return res.ok
       } catch {

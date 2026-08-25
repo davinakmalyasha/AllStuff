@@ -39,18 +39,26 @@ func totpCode(secret string, at time.Time) (string, error) {
 
 // ValidateTOTP checks a code against the secret with ±1 window tolerance.
 func ValidateTOTP(secret, code string) bool {
+	_, ok := ValidateTOTPStep(secret, code)
+	return ok
+}
+
+// ValidateTOTPStep returns the matched 30s timestep so callers can enforce
+// single-use (replay guard): the same code must not pass twice.
+func ValidateTOTPStep(secret, code string) (int64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != 6 {
-		return false
+		return 0, false
 	}
 	now := time.Now()
 	for _, drift := range []int{0, -1, 1} {
-		got, err := totpCode(secret, now.Add(time.Duration(drift)*30*time.Second))
+		at := now.Add(time.Duration(drift) * 30 * time.Second)
+		got, err := totpCode(secret, at)
 		if err == nil && hmac.Equal([]byte(got), []byte(code)) {
-			return true
+			return at.Unix() / 30, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // OtpauthURL builds the standard enrollment URI.

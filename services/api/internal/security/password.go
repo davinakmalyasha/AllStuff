@@ -12,8 +12,11 @@ import (
 )
 
 // Argon2id PHC-string hashing (PRD §8.1).
+// t=3 with 64 MiB is the RFC 9106 low-memory recommended profile; the old
+// t=1 was a single GPU-friendly pass. VerifyPassword parses parameters from
+// the stored hash, so legacy t=1 hashes keep verifying without migration.
 const (
-	argonTime    = 1
+	argonTime    = 3
 	argonMemory  = 64 * 1024 // 64 MiB
 	argonThreads = 4
 	argonKeyLen  = 32

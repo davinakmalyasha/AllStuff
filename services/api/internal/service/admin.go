@@ -244,11 +244,32 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 				return err
 			}
 		case "warn":
-			a.notifier.Create(ctx, report.TargetID, "moderation_warning", map[string]any{"note": note})
+			// Warn the AUTHOR of the reported content — TargetID is the
+			// content row, not a user (warning it previously notified nobody
+			// or a bogus principal).
+			authorID, err := a.contentAuthorID(ctx, report.TargetType, report.TargetID)
+			if err != nil {
+				return err
+			}
+			if authorID == "" {
+				return domain.ErrValidation.WithField("action", "Cannot warn: content author not found.")
+			}
+			a.notifier.Create(ctx, authorID, "moderation_warning", map[string]any{"note": note})
 		case "suspend":
+			subject := report.TargetID
+			if report.TargetType != "user" {
+				var err error
+				subject, err = a.contentAuthorID(ctx, report.TargetType, report.TargetID)
+				if err != nil {
+					return err
+				}
+				if subject == "" {
+					return domain.ErrValidation.WithField("action", "Cannot suspend: content author not found.")
+				}
+			}
 			if _, err := a.repos.Exec(ctx, `
 				UPDATE users SET status='suspended', suspended_until = now() + interval '7 days'
-				WHERE id=$1`, report.TargetID); err != nil {
+				WHERE id=$1`, subject); err != nil {
 				return err
 			}
 		case "delete_for_everyone":
@@ -278,6 +299,35 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 		VALUES ($1, $2, $3, $4, $5, $6)`,
 		util.NewUUID(), adminID, action, report.TargetType, report.TargetID, note)
 	return err
+}
+
+// contentAuthorID resolves the author/owner of a reported content row so
+// moderation actions act on a person, not a UUID of a review/message/etc.
+func (a *Admin) contentAuthorID(ctx context.Context, targetType, targetID string) (string, error) {
+	var q string
+	switch targetType {
+	case "review":
+		q = `SELECT user_id FROM reviews WHERE id = $1`
+	case "comment":
+		q = `SELECT user_id FROM comments WHERE id = $1`
+	case "message":
+		q = `SELECT sender_id FROM chat_messages WHERE id = $1::bigint`
+	case "product":
+		q = `SELECT b.owner_id FROM products p JOIN businesses b ON b.id = p.business_id WHERE p.id = $1`
+	case "business":
+		q = `SELECT owner_id FROM businesses WHERE id = $1`
+	case "attachment":
+		q = `SELECT uploader_id FROM media WHERE id = $1`
+	case "reaction":
+		q = `SELECT user_id FROM message_reactions WHERE id = $1`
+	default:
+		return "", nil
+	}
+	var uid string
+	if err := a.repos.QueryRow(ctx, q, targetID).Scan(&uid); err != nil {
+		return "", nil // unknown/deleted target: caller surfaces a validation error
+	}
+	return uid, nil
 }
 
 // HideContent hides a review/comment/product (author sees "removed by moderator").
@@ -384,16 +434,30 @@ func (a *Admin) GetCuration(ctx context.Context) (*CurationConfig, error) {
 
 func (a *Admin) SetCuration(ctx context.Context, adminID string, cfg *CurationConfig) error {
 	if cfg.FeaturedIDs != nil {
-		if _, err := a.repos.Exec(ctx, `UPDATE businesses SET is_featured=false, featured_order=NULL`); err != nil {
+		if len(cfg.FeaturedIDs) > 50 {
+			cfg.FeaturedIDs = cfg.FeaturedIDs[:50]
+		}
+		// Atomic swap: previously the full-table clear + per-row updates ran
+		// in autocommit, so a crash mid-way left the homepage strip wiped.
+		tx, err := a.repos.Pool().Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, `UPDATE businesses SET is_featured=false, featured_order=NULL WHERE is_featured OR featured_order IS NOT NULL`); err != nil {
 			return err
 		}
 		for i, id := range cfg.FeaturedIDs {
-			if _, err := a.repos.Exec(ctx, `
+			if _, err := tx.Exec(ctx, `
 				UPDATE businesses SET is_featured=true, featured_order=$2 WHERE id=$1`, id, i); err != nil {
 				return err
 			}
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
 	}
+	_ = adminID
 	return nil
 }
 

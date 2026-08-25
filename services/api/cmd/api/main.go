@@ -65,7 +65,9 @@ func main() {
 		logger.Error("database connect", "err", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	// NOTE: pool.Close is called explicitly in the shutdown sequence below —
+	// a deferred Close ran BEFORE ctx cancellation here (LIFO), killing
+	// in-flight queries and jobs instead of letting them drain.
 
 	if err := db.Migrate(ctx, pool, cfg.MigrationsDir); err != nil {
 		logger.Error("migrations", "err", err)
@@ -111,6 +113,20 @@ func main() {
 	engagementSvc := service.NewEngagement(repos, notifier)
 	trendingSvc := service.NewTrending(repos, notifier)
 	chatSvc := service.NewChat(repos, notifier)
+	// Thread membership gate for WS `subscribe` frames: without it any
+	// authenticated user could subscribe to arbitrary thread IDs and receive
+	// typing/presence signals for conversations they are not part of.
+	hub.SetAuthorizeSubscribe(func(userID string, threadIDs []string) []string {
+		out := make([]string, 0, len(threadIDs))
+		for _, id := range threadIDs {
+			cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if err := chatSvc.CheckAccess(cctx, userID, id); err == nil {
+				out = append(out, id)
+			}
+			cancel()
+		}
+		return out
+	})
 	currencySvc := service.NewCurrency(repos)
 	oauthSvc := service.NewOAuth(repos, cfg)
 	communitySvc := service.NewCommunity(repos, notifier)
@@ -174,7 +190,14 @@ func main() {
 	<-ctx.Done()
 	logger.Info("shutting down")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Ordered shutdown: 1) drain HTTP (hijacked WS conns survive Shutdown),
+	// 2) cancel ctx → hub closes live sockets, jobs stop, 3) pool last so
+	// nothing touches a closed pool mid-drain.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("http shutdown", "err", err)
+	}
+	stop()
+	pool.Close()
 }

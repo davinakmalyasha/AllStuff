@@ -34,10 +34,17 @@ export const NOTIF_FILTERS: { key: string; label: string }[] = [
   { key: 'business_suspended', label: 'Suspensions' },
 ]
 
-/** Deep-link target for a notification (null = no navigation). */
+/** Deep-link target for a notification (null = no navigation).
+ * Business routes are SLUG-based (/b/:slug) — the old payload used the raw
+ * business_id, which 404'd. Prefer the slug when the sender provides one. */
 export function notifUrl(n: NotificationDTO): string | null {
   const p = n.payload as Record<string, string>
   if (p.thread_id) return `/me/messages/${p.thread_id}`
-  if (p.business_id) return `/b/${p.business_id}`
+  if (p.business_slug) return `/b/${p.business_slug}`
+  if (p.business_id) {
+    // Legacy payloads carry only the id; route to the owner dashboard
+    // listing rather than a guaranteed-404 /b/<uuid>.
+    return p.decision || p.claim_id ? null : '/dashboard'
+  }
   return null
 }

@@ -35,7 +35,7 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 	if role != "co_owner" && role != "viewer" {
 		role = "co_owner"
 	}
-	return s.repos.Businesses.CreateInvite(ctx, businessID, email, role, util.NewUUID()+"-"+util.NewUUID())
+	return s.repos.Businesses.CreateInvite(ctx, ownerID, businessID, email, role, util.NewUUID()+"-"+util.NewUUID())
 }
 
 func (s *Invites) List(ctx context.Context, ownerID, businessID string) ([]*repo.BusinessInvite, error) {

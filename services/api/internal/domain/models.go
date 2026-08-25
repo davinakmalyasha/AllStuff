@@ -33,6 +33,7 @@ type User struct {
 	Status          UserStatus `json:"status"`
 	SuspendedUntil  *time.Time `json:"suspended_until"`
 	BanReason       *string    `json:"ban_reason"`
+	DeletedAt       *time.Time `json:"-"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }

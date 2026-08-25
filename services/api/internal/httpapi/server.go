@@ -72,6 +72,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/auth/verify-email", s.handleVerifyEmail)
 	mux.HandleFunc("POST /api/v1/auth/forgot-password", s.handleForgotPassword)
 	mux.HandleFunc("POST /api/v1/auth/reset-password", s.handleResetPassword)
+	mux.HandleFunc("POST /api/v1/auth/restore", s.handleRestore)
 	mux.HandleFunc("POST /api/v1/auth/2fa/verify", s.handle2FAVerify)
 	mux.HandleFunc("GET /api/v1/auth/oauth/google", s.handleOAuthStart)
 	mux.HandleFunc("GET /api/v1/auth/oauth/google/callback", s.handleOAuthCallback)

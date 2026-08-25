@@ -1,10 +1,10 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Star } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 
 interface PublicProfileDTO {
@@ -24,7 +24,7 @@ interface PublicProfileDTO {
 export function UserProfilePage() {
   const { username = '' } = useParams()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['profile', username],
     queryFn: () => api<PublicProfileDTO>(`/u/${username}`),
   })
@@ -32,6 +32,7 @@ export function UserProfilePage() {
   usePageMeta(data ? `${data.name} (@${data.username})` : 'Profile')
 
   if (isLoading) return <PageSpinner />
+  if (isError) return <ErrorNote onRetry={() => void refetch()} />
   if (!data) {
     return (
       <div className="container-page flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
@@ -59,13 +60,13 @@ export function UserProfilePage() {
           <h2 className="mono-label mb-3">Businesses</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {data.businesses.map((b) => (
-              <a key={b.id} href={`/b/${b.slug}`} className="card flex items-center gap-3 p-3 transition-shadow hover:shadow-cardHover">
+              <Link key={b.id} to={`/b/${b.slug}`} className="card flex items-center gap-3 p-3 transition-shadow hover:shadow-cardHover">
                 {b.logo_url ? <img src={b.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface2 text-base font-semibold">{b.name.charAt(0)}</span>}
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium text-ink">{b.name}</span>
                   <span className="text-xs text-ink3">{b.city}</span>
                 </span>
-              </a>
+              </Link>
             ))}
           </div>
         </section>
@@ -83,7 +84,7 @@ export function UserProfilePage() {
                       <Star key={n} className={`h-3 w-3 ${n <= r.rating ? 'fill-current text-ink' : 'text-ink3'}`} />
                     ))}
                   </span>
-                  <a href={`/b/${r.business_slug}`} className="text-xs text-ink3 hover:text-ink">{r.business_name}</a>
+                  <Link to={`/b/${r.business_slug}`} className="text-xs text-ink3 hover:text-ink">{r.business_name}</Link>
                 </div>
                 <p className="text-sm text-ink2">{r.text}</p>
               </Card>
@@ -99,7 +100,7 @@ export function UserProfilePage() {
             {data.comments.map((c) => (
               <Card key={c.id}>
                 <p className="text-sm text-ink2">{c.text}</p>
-                <a href={`/b/${c.business_slug}`} className="mt-1 block text-xs text-ink3 hover:text-ink">{c.business_name}</a>
+                <Link to={`/b/${c.business_slug}`} className="mt-1 block text-xs text-ink3 hover:text-ink">{c.business_name}</Link>
               </Card>
             ))}
           </div>

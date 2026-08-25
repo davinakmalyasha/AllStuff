@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { usePageMeta } from '@/lib/meta'
@@ -45,14 +46,14 @@ export function HelpPage() {
 
       <h2 className="mono-label mb-3 mt-8">Guides</h2>
       <div className="grid gap-3 sm:grid-cols-2">
-        <a href="/help/business" className="card p-4 transition-shadow hover:shadow-cardHover">
+        <Link to="/help/business" className="card p-4 transition-shadow hover:shadow-cardHover">
           <p className="text-sm font-semibold text-ink">For business owners</p>
           <p className="mt-1 text-xs text-ink2">Register, get verified, build your storefront, and grow with analytics.</p>
-        </a>
-        <a href="/contact" className="card p-4 transition-shadow hover:shadow-cardHover">
+        </Link>
+        <Link to="/contact" className="card p-4 transition-shadow hover:shadow-cardHover">
           <p className="text-sm font-semibold text-ink">Contact us</p>
           <p className="mt-1 text-xs text-ink2">Questions, appeals, or issues — reach the team directly.</p>
-        </a>
+        </Link>
       </div>
     </div>
   )

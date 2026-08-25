@@ -5,12 +5,21 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/security"
 	"bizverse/api/internal/service"
 )
+
+// accountThrottle caps authentication attempts per target ACCOUNT (10 per
+// 15 min). The per-IP limits alone let a modest IP pool run unlimited
+// guesses against a single victim — including the 10^6 TOTP code space.
+func (s *Server) accountThrottle(kind, key string) bool {
+	_, _, ok := s.deps.RateLimiter.Allow("acct:"+kind+":"+key, 10, 15*time.Minute)
+	return !ok
+}
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var in service.RegisterInput
@@ -33,6 +42,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	if s.accountThrottle("login", strings.ToLower(strings.TrimSpace(in.Email))) {
+		s.metrics.RateLimited()
+		w.Header().Set("Retry-After", "900")
+		fail(w, domain.ErrRateLimited)
+		return
+	}
 	user, tokens, err := s.deps.Auth.Login(r.Context(), in, clientIPValue(s.clientIP(r)), r.UserAgent())
 	if err != nil {
 		if de := domain.FromError(err); de == domain.Err2FARequired && tokens != nil && tokens.RefreshToken != "" {
@@ -40,6 +55,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			ok(w, map[string]any{"2fa_required": true, "challenge": tokens.RefreshToken, "user": s.publicUser(user)})
 			return
 		}
+		fail(w, err)
+		return
+	}
+	s.setSessionCookies(w, tokens.AccessToken, tokens.RefreshToken, tokens.CSRFToken)
+	ok(w, s.publicUser(user))
+}
+
+// handleRestore signs back in an account that is inside its deletion grace
+// period (PRD §5.9.2). Password proof required; anonymized accounts past the
+// window fail verification naturally.
+func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	var in service.LoginInput
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	user, tokens, err := s.deps.Auth.RestoreAccount(r.Context(), in.Email, in.Password, clientIPValue(s.clientIP(r)), r.UserAgent())
+	if err != nil {
 		fail(w, err)
 		return
 	}

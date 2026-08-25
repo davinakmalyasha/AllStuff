@@ -87,7 +87,13 @@ func (s *Server) handle2FAVerify(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	user, tokens, err := s.deps.Auth.Verify2FA(r.Context(), in.Challenge, in.Code, nil, r.UserAgent())
+	if s.accountThrottle("2fa", hashToken(in.Challenge)[:16]) {
+		s.metrics.RateLimited()
+		w.Header().Set("Retry-After", "900")
+		fail(w, domain.ErrRateLimited)
+		return
+	}
+	user, tokens, err := s.deps.Auth.Verify2FA(r.Context(), in.Challenge, in.Code, clientIPValue(s.clientIP(r)), r.UserAgent())
 	if err != nil {
 		fail(w, err)
 		return
@@ -240,12 +246,13 @@ func (s *Server) handleChangeEmail(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Password string `json:"password"`
 		Email    string `json:"email"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
 		return
 	}
-	if err := s.deps.Auth.ChangeEmail(r.Context(), user.ID, in.Password, in.Email); err != nil {
+	if err := s.deps.Auth.ChangeEmail(r.Context(), user.ID, in.Password, in.Email, in.TOTPCode); err != nil {
 		fail(w, err)
 		return
 	}
@@ -405,8 +412,8 @@ func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := s.deps.Repos.Exec(r.Context(), `
 		INSERT INTO reports (id, reporter_id, target_type, target_id, reason, evidence)
-		VALUES ($1, $2, 'error', 'client', $3, $4)`,
-		newUUID(), "", in.Message, map[string]any{"stack": in.Stack, "url": in.URL})
+		VALUES ($1, NULL, 'error', 'client', $3, $4)`,
+		newUUID(), in.Message, map[string]any{"stack": in.Stack, "url": in.URL})
 	if err != nil {
 		fail(w, err)
 		return
@@ -450,7 +457,14 @@ func (s *Server) handleCancelDeletion(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
-	if err := s.deps.Auth.CancelDeletion(r.Context(), user.ID); err != nil {
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.deps.Auth.CancelDeletion(r.Context(), user.ID, in.Password); err != nil {
 		fail(w, err)
 		return
 	}

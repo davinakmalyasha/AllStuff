@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Megaphone } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -36,7 +37,7 @@ export function FollowingFeedPage() {
           <Card key={u.id}>
             <div className="flex items-center gap-2">
               <Megaphone className="h-4 w-4 text-ink3" />
-              <a href={`/b/${u.business_slug}`} className="text-xs text-ink3 hover:text-ink">{u.business_name}</a>
+              <Link to={`/b/${u.business_slug}`} className="text-xs text-ink3 hover:text-ink">{u.business_name}</Link>
               <span className="ml-auto text-[10px] text-ink3">{new Date(u.created_at).toLocaleString()}</span>
             </div>
             <p className="mt-2 text-sm font-semibold text-ink">{u.title}</p>
