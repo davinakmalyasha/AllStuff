@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"os"
@@ -44,6 +45,13 @@ type Config struct {
 	MediaDir  string
 	MediaBase string
 
+	// MEDIA_ENCRYPTION_KEY: 32-byte hex key sealing document_verification
+	// uploads at rest (PRD §9.3). Required in prod.
+	MediaEncryptionKey string
+	// CLAMAV_ADDR: host:port of a clamd instance for INSTREAM virus
+	// scanning of uploads. Required in prod.
+	ClamAVAddr string
+
 	// Google OAuth (PRD §5.9.1); disabled when empty.
 	GoogleOAuthClientID string
 	GoogleOAuthSecret   string
@@ -73,6 +81,8 @@ func Load() Config {
 		SMTPPass:      os.Getenv("SMTP_PASS"),
 		MediaDir:      env("MEDIA_DIR", "./data/media"),
 		MediaBase:     env("MEDIA_BASE", "http://localhost:8080/api/v1/media"),
+		MediaEncryptionKey: os.Getenv("MEDIA_ENCRYPTION_KEY"),
+		ClamAVAddr:         os.Getenv("CLAMAV_ADDR"),
 		GoogleOAuthClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		GoogleOAuthSecret:   os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
 	}
@@ -98,8 +108,22 @@ func (c Config) Validate() error {
 		if !c.CookieSecure {
 			slog.Warn("COOKIE_SECURE=false in prod: session cookies will not be marked Secure")
 		}
+		// Verification documents are PII: refuse to boot with plaintext
+		// storage or no malware scanning rather than degrade silently.
+		if len(c.MediaEncryptionKey) != 64 {
+			return errors.New("MEDIA_ENCRYPTION_KEY must be a 64-char hex string (32 bytes) when APP_ENV=prod")
+		}
+		if _, err := hex.DecodeString(c.MediaEncryptionKey); err != nil {
+			return errors.New("MEDIA_ENCRYPTION_KEY is not valid hex")
+		}
+		if c.ClamAVAddr == "" {
+			return errors.New("CLAMAV_ADDR must point at a clamd instance when APP_ENV=prod")
+		}
 	} else if c.JWTSecret == "" || c.JWTSecret == devSecret {
 		slog.Warn("using default JWT secret; set JWT_SECRET before deploying")
+	}
+	if c.MediaEncryptionKey != "" && len(c.MediaEncryptionKey) != 64 {
+		return errors.New("MEDIA_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)")
 	}
 	return nil
 }

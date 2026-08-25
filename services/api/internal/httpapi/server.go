@@ -344,6 +344,7 @@ func (s *Server) chain(next http.Handler) http.Handler {
 	next = s.withCORS(next)
 	next = s.withETag(next)
 	next = s.withAccessLog(next)
+	next = s.withSecurityHeaders(next)
 	next = s.withRecover(next)
 	return next
 }

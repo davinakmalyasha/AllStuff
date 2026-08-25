@@ -219,6 +219,36 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		}
 	}
 
+	// Media attachments: the caller must own the upload and its kind must
+	// match the declared message type. Without this check a participant
+	// could plant someone else's private media UUID (e.g. a verification
+	// document or another thread's image) into their own message and then
+	// pass the chat-media membership gate to download it.
+	if in.MediaID != nil && *in.MediaID != "" {
+		var wantKind domain.MediaKind
+		switch msgType {
+		case "image":
+			wantKind = domain.MediaChatImage
+		case "file":
+			wantKind = domain.MediaChatFile
+		case "audio":
+			wantKind = domain.MediaChatAudio
+		case "video":
+			wantKind = domain.MediaChatVideo
+		default:
+			return nil, domain.ErrValidation.WithField("media_id", "This message type cannot carry an attachment.")
+		}
+		item, err := c.repos.Media.GetByID(ctx, *in.MediaID)
+		if err != nil {
+			return nil, err
+		}
+		if item == nil || item.UploaderID != userID || item.Kind != wantKind {
+			return nil, domain.ErrValidation.WithField("media_id", "Attachment not found or not yours.")
+		}
+	} else if msgType == "image" || msgType == "file" || msgType == "audio" || msgType == "video" {
+		return nil, domain.ErrValidation.WithField("media_id", "This message type requires an attachment.")
+	}
+
 	role := "user"
 	if t.Type == "business" {
 		b, err := c.repos.Businesses.GetByID(ctx, derefString(t.BusinessID))

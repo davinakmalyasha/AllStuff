@@ -71,6 +71,14 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// Same per-account brute-force budget as login: the target row holds a
+	// live argon2id hash for the entire grace window.
+	if s.accountThrottle("login", strings.ToLower(strings.TrimSpace(in.Email))) {
+		s.metrics.RateLimited()
+		w.Header().Set("Retry-After", "900")
+		fail(w, domain.ErrRateLimited)
+		return
+	}
 	user, tokens, err := s.deps.Auth.RestoreAccount(r.Context(), in.Email, in.Password, clientIPValue(s.clientIP(r)), r.UserAgent())
 	if err != nil {
 		fail(w, err)

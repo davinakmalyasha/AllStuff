@@ -134,7 +134,7 @@ func main() {
 	invitesSvc := service.NewInvites(repos)
 	searchSvc := service.NewSearch(repos)
 	adminSvc := service.NewAdmin(repos, notifier)
-	mediaSvc := service.NewMedia(repos, cfg.MediaDir, cfg.MediaBase, os.Getenv("MEDIA_ENCRYPTION_KEY"), os.Getenv("CLAMAV_ADDR"))
+	mediaSvc := service.NewMedia(repos, cfg.MediaDir, cfg.MediaBase, cfg.MediaEncryptionKey, cfg.ClamAVAddr)
 	citiesSvc := service.NewCities(repos)
 	apiKeysSvc := service.NewAPIKeys(repos)
 	claimsSvc := service.NewClaims(repos, notifier)

@@ -141,18 +141,25 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	if err != nil {
 		return nil, err
 	}
-	written := int64(0)
+	// Size accounting must include the sniffed head: io.Copy's return value
+	// replaces (not adds to) any prior count, so track the total explicitly.
+	written := int64(len(head))
+	oversize := false
 	func() {
 		defer tmp.Close()
 		if _, werr := tmp.Write(head); werr != nil {
 			err = werr
 			return
 		}
-		written = int64(len(head))
-		var cerr error
-		written, cerr = io.Copy(tmp, io.LimitReader(in.Reader, max-int64(len(head))+1))
+		var n int64
+		n, cerr := io.Copy(tmp, io.LimitReader(in.Reader, max+1))
+		written += n
 		if cerr != nil {
 			err = cerr
+			return
+		}
+		if written > max {
+			oversize = true
 		}
 	}()
 	if err != nil {
@@ -162,7 +169,7 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	defer func() {
 		_ = os.Remove(tmp.Name()) // no-op after successful rename
 	}()
-	if written > max {
+	if oversize || written > max {
 		_ = os.Remove(tmp.Name())
 		return nil, domain.ErrValidation.WithField("file", "File exceeds the size limit for this kind.")
 	}
@@ -176,21 +183,32 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	}
 
 	// Dimensions (used for thumbnails) are computed from the plaintext file.
+	// DecodeConfig first: raster dimensions are attacker-controlled and a
+	// crafted header (e.g. 30000×30000 PNG) would otherwise allocate
+	// gigabytes inside image.Decode before any size sanity check runs.
 	var w, h *int
 	if strings.HasPrefix(mime, "image/") {
 		if f, ferr := os.Open(full); ferr == nil {
-			img, _, derr := image.Decode(f)
+			cfgImg, _, cerr := image.DecodeConfig(f)
 			f.Close()
-			if derr == nil {
-				b := img.Bounds()
-				bw, bh := b.Dx(), b.Dy()
-				w, h = &bw, &bh
+			if cerr == nil && saneImageDims(cfgImg.Width, cfgImg.Height) {
+				if f2, ferr2 := os.Open(full); ferr2 == nil {
+					img, _, derr := image.Decode(f2)
+					f2.Close()
+					if derr == nil {
+						b := img.Bounds()
+						bw, bh := b.Dx(), b.Dy()
+						w, h = &bw, &bh
+					}
+				}
 			}
 		}
 	}
 
-	// Virus scan (best-effort, clamd INSTREAM) streams from disk; the verdict
-	// is recorded on the row after insert. Infected files never persist.
+	// Virus scan (clamd INSTREAM) streams from disk; the verdict is recorded
+	// on the row after insert. Infected files never persist, and scanner
+	// failures FAIL CLOSED: during a clamd outage the safe answer is to
+	// reject uploads, not to store unscanned bytes.
 	scanStatus := ""
 	if m.clam != "" {
 		status := "error"
@@ -198,11 +216,16 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 			status = m.scanStream(bufio.NewReader(f))
 			f.Close()
 		}
-		if status == "infected" {
+		switch status {
+		case "infected":
 			_ = os.Remove(full)
 			return nil, domain.ErrValidation.WithField("file", "File failed the virus scan.")
+		case "clean":
+			scanStatus = status
+		default: // "error", "too large", anything unexpected
+			_ = os.Remove(full)
+			return nil, domain.ErrValidation.WithField("file", "Virus scan unavailable; try again shortly.")
 		}
-		scanStatus = status
 	}
 
 	// Verification documents: encrypt at rest when a key is configured (PRD §9.3).
@@ -376,6 +399,15 @@ func (m *Media) scanStream(r io.Reader) string {
 		return "infected"
 	}
 	return "clean"
+}
+
+// saneImageDims rejects decompression bombs: ~24MP and 8192px per side
+// bound image.Decode's worst-case allocation to a few hundred MB of RGBA.
+func saneImageDims(w, h int) bool {
+	if w <= 0 || h <= 0 || w > 8192 || h > 8192 {
+		return false
+	}
+	return int64(w)*int64(h) <= 24_000_000
 }
 
 // makeThumb writes a ≤512px JPEG thumbnail next to the original.

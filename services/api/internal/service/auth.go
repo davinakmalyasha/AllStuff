@@ -738,6 +738,9 @@ func (a *Auth) RestoreAccount(ctx context.Context, email, password string, ip ne
 		return nil, nil, err
 	}
 	if user == nil || deletedAt == nil || user.PasswordHash == "" {
+		// Match Login's cost profile so unknown emails are not distinguishable
+		// by response time (restore is a password-bearing endpoint too).
+		_, _ = security.VerifyPassword(password, "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA")
 		return nil, nil, domain.ErrInvalidCreds
 	}
 	ok, err := security.VerifyPassword(password, user.PasswordHash)

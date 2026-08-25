@@ -195,9 +195,15 @@ func (s *Server) handleAdminDocFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Hardened serving of untrusted user bytes to privileged viewers:
+	// `sandbox` CSP gives the document an opaque origin so no script inside
+	// it can reach this API's origin/cookies even if a future sniffer change
+	// or browser bug makes the declared MIME executable; nosniff pins the
+	// type; the filename is sanitized for Content-Disposition.
 	w.Header().Set("Content-Type", item.Mime)
-	w.Header().Set("Content-Disposition", "inline; filename=\""+target.FileName+"\"")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+sanitizeCDName(target.FileName)+"\"")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	_, _ = w.Write(blob)
 }
 

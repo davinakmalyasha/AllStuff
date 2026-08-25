@@ -2,6 +2,7 @@ package security
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -82,7 +84,16 @@ func ParseVAPIDKeypair(pubB64, privB64 string) (*VAPIDKeypair, error) {
 	if !ok || priv.Curve != elliptic.P256() {
 		return nil, fmt.Errorf("VAPID private key must be P-256")
 	}
-	_ = pubRaw
+	// Verify the advertised public key actually belongs to the private key —
+	// a mismatched pair boots fine here but every push then fails signature
+	// validation at the relay.
+	if len(pubRaw) != 65 || pubRaw[0] != 0x04 {
+		return nil, fmt.Errorf("VAPID public key must be a 65-byte uncompressed P-256 point")
+	}
+	x, y := elliptic.Unmarshal(elliptic.P256(), pubRaw)
+	if x == nil || priv.PublicKey.X.Cmp(x) != 0 || priv.PublicKey.Y.Cmp(y) != 0 {
+		return nil, fmt.Errorf("VAPID public key does not match the private key")
+	}
 	return &VAPIDKeypair{PublicKey: pubB64, PrivateKey: priv}, nil
 }
 
@@ -98,8 +109,36 @@ type PushSubscription struct {
 // pushClient is bounded so a hostile subscription endpoint cannot stall the
 // request path or probe internal networks indefinitely. Redirects are off:
 // an endpoint could otherwise bounce requests past subscribe-time SSRF checks.
+// The dial layer re-resolves DNS and validates every address on EVERY dial,
+// closing the subscribe-time TOCTOU / DNS-rebinding hole (subscribe-time
+// checks alone see only the first resolution).
 var pushClient = &http.Client{
 	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if port != "443" {
+				return nil, fmt.Errorf("push endpoint: port %s not allowed", port)
+			}
+			if net.ParseIP(host) == nil && !strings.Contains(host, ".") {
+				return nil, fmt.Errorf("push endpoint: bare hostname rejected")
+			}
+			addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, ia := range addrs {
+				if !isPublicIP(ia.IP) {
+					return nil, fmt.Errorf("push endpoint: non-public address blocked")
+				}
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	},
@@ -130,9 +169,40 @@ func ValidPushEndpoint(raw string) bool {
 	return true
 }
 
+// isPublicIP: true only for globally routable, non-special addresses.
+// Covers loopback, RFC1918, link-local, CGNAT (100.64.0.0/10), benchmark
+// (198.18.0.0/15), documentation ranges, multicast, and reserved blocks.
 func isPublicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified())
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		// CGNAT 100.64.0.0/10
+		if v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+			return false
+		}
+		// 0.0.0.0/8, 192.0.0.0/24, 192.0.2.0/24, 198.51.100.0/24,
+		// 203.0.113.0/24, 198.18.0.0/15, 240.0.0.0/4, 255.255.255.255
+		switch {
+		case v4[0] == 0:
+			return false
+		case v4[0] == 192 && v4[1] == 0 && (v4[2] == 0 || v4[2] == 2):
+			return false
+		case v4[0] == 198 && (v4[1] == 18 || v4[1] == 19):
+			return false
+		case v4[0] == 198 && v4[1] == 51 && v4[2] == 100:
+			return false
+		case v4[0] == 203 && v4[1] == 0 && v4[2] == 113:
+			return false
+		case v4[0] >= 240:
+			return false
+		}
+	}
+	return ip.IsGlobalUnicast()
 }
 
 // Send pushes an encrypted payload to a subscription (best-effort).

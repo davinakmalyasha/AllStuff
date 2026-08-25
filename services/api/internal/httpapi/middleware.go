@@ -183,13 +183,38 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	})
 }
 
+// ---- baseline security headers (PRD §9.3) ----
+
+// withSecurityHeaders stamps conservative defaults on every API response.
+// Handlers may override individual headers (e.g. the OG/media endpoints set
+// stricter CSPs); these are the floor, not the ceiling.
+func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		if s.deps.Config.CookieSecure {
+			// Only meaningful over TLS; avoids advertising HSTS on plain
+			// HTTP dev servers.
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ---- rate limiting (PRD §8.8, §9.3) ----
 
 var authPaths = map[string]bool{
-	"/api/v1/auth/register":       true,
-	"/api/v1/auth/login":          true,
+	"/api/v1/auth/register":        true,
+	"/api/v1/auth/login":           true,
 	"/api/v1/auth/forgot-password": true,
-	"/api/v1/auth/reset-password": true,
+	"/api/v1/auth/reset-password":  true,
+	// Restore verifies a real password against a live hash (the row keeps
+	// its credentials during the deletion grace window), so it must sit in
+	// the same brute-force tier as login.
+	"/api/v1/auth/restore": true,
 	// NOTE: /auth/refresh deliberately lives in its own tier below — it
 	// requires a valid cookie to do anything, and counting it here let
 	// routine logged-out page loads (each probing session restore) crowd

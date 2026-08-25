@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/security"
 )
 
 // ---- 2FA (PRD §5.9.1) ----
@@ -87,7 +88,17 @@ func (s *Server) handle2FAVerify(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if s.accountThrottle("2fa", hashToken(in.Challenge)[:16]) {
+	// Throttle per ACCOUNT, not per challenge token: every login mints a
+	// fresh challenge (new random JTI), so keying on the challenge handed
+	// each attempt its own 10-try budget and let an IP pool grind through
+	// the 10^6 TOTP space indefinitely. The signature is verified here, so
+	// the extracted user ID is trustworthy for keying; malformed challenges
+	// fall back to their own bucket and fail verification below.
+	throttleKey := hashToken(in.Challenge)[:16]
+	if claims, cerr := security.ParseToken(s.deps.Config.JWTSecret, in.Challenge, security.Token2FAChallenge); cerr == nil {
+		throttleKey = claims.UserID
+	}
+	if s.accountThrottle("2fa", throttleKey) {
 		s.metrics.RateLimited()
 		w.Header().Set("Retry-After", "900")
 		fail(w, domain.ErrRateLimited)
