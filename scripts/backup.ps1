@@ -1,6 +1,9 @@
 # BizVerse backup & restore
 # Backup:  ./scripts/backup.ps1 -DatabaseUrl "postgres://..." -OutDir ./backups
 # Restore: ./scripts/backup.ps1 -DatabaseUrl "postgres://..." -Restore ./backups/bizverse-YYYY-MM-DD.sql.gz
+#
+# Prefer the DATABASE_URL environment variable over the parameter: values
+# passed on the command line can leak into process listings / shell history.
 
 param(
     [string]$DatabaseUrl = $env:DATABASE_URL,
@@ -14,11 +17,10 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
 if ($Restore) {
     Write-Host "Restoring from $Restore ..."
-    $plain = $Restore -replace '\.gz$', ''
     if ($Restore -like '*.gz') {
-        & gzip -dc $Restore | & psql $DatabaseUrl
+        & gzip -dc $Restore | & psql --dbname=$DatabaseUrl
     } else {
-        & psql $DatabaseUrl -f $Restore
+        & psql --dbname=$DatabaseUrl -f $Restore
     }
     if ($LASTEXITCODE -ne 0) { Write-Error "Restore failed"; exit 1 }
     Write-Host "Restore complete."
@@ -27,7 +29,7 @@ if ($Restore) {
 
 $stamp = Get-Date -Format 'yyyy-MM-dd'
 $file = Join-Path $OutDir "bizverse-$stamp.sql.gz"
-& pg_dump $DatabaseUrl | & gzip > $file
+& pg_dump --dbname=$DatabaseUrl | & gzip > $file
 if ($LASTEXITCODE -ne 0) { Write-Error "Backup failed"; exit 1 }
 Write-Host "Backup written: $file"
 Write-Host "Verify with a restore into a scratch DB quarterly (docs/DEPLOYMENT.md)."

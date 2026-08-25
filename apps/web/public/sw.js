@@ -28,11 +28,21 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
-  const url = data.url || '/'
+  // Same-origin only: push payloads are VAPID-signed, but if the signing key
+  // ever leaks a crafted {url} must not open attacker-controlled origins.
+  const raw = data.url || '/'
+  let url
+  try {
+    const u = new URL(raw, self.location.origin)
+    if (u.origin !== self.location.origin) return
+    url = u.pathname + u.search + u.hash
+  } catch {
+    url = '/'
+  }
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        if (client.url.includes(windowLocation(url))) {
+        if (client.url === self.location.origin + url) {
           return client.focus()
         }
       }
@@ -40,11 +50,3 @@ self.addEventListener('notificationclick', (event) => {
     }),
   )
 })
-
-function windowLocation(url) {
-  try {
-    return new URL(url, self.location.origin).origin + new URL(url, self.location.origin).pathname
-  } catch {
-    return url
-  }
-}

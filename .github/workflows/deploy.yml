@@ -6,6 +6,11 @@ name: Deploy
 #   WEB   → Vercel    (secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID)
 # Migrations run as part of the API container start (`-migrate` on boot per
 # docs/DEPLOYMENT.md), so no separate migrate step is needed here.
+#
+# Security notes:
+# - The secrets context is NOT reliably available in job-level `if:`; gates
+#   that read it live in a first step (guard) and are consumed via outputs.
+# - Third-party actions are pinned to full commit SHAs (supply chain).
 on:
   push:
     branches: [main]
@@ -15,12 +20,19 @@ jobs:
   api:
     name: API → Railway
     runs-on: ubuntu-latest
-    if: ${{ vars.DEPLOY_ENABLED == 'true' && secrets.RAILWAY_TOKEN != '' }}
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Railway CLI
-        run: curl -fsSL https://railway.app/install.sh | sh
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Guard (secret present?)
+        id: guard
+        env:
+          HAS_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
+        run: echo "ok=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Install Railway CLI (pinned npm package — no curl|sh)
+        if: steps.guard.outputs.ok == 'true'
+        run: npm install -g @railway/cli@4
       - name: Deploy
+        if: steps.guard.outputs.ok == 'true'
         run: railway up --service "${RAILWAY_SERVICE:-api}" --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -29,16 +41,22 @@ jobs:
   web:
     name: Web → Vercel
     runs-on: ubuntu-latest
-    if: ${{ vars.DEPLOY_ENABLED == 'true' && secrets.VERCEL_TOKEN != '' }}
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     needs: api
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - name: Guard (secret present?)
+        id: guard
+        env:
+          HAS_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
+        run: echo "ok=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
       - name: Deploy production
+        if: steps.guard.outputs.ok == 'true'
         working-directory: apps/web
         run: |
           npx vercel pull --yes --environment=production --token "$VERCEL_TOKEN"

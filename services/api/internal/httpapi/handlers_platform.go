@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 // ---- user profile (PRD §6.1) ----
@@ -242,7 +243,7 @@ func (s *Server) handleUserSearch(w http.ResponseWriter, r *http.Request) {
 		SELECT id, name, username FROM users
 		WHERE (username ILIKE $1 || '%' OR name ILIKE '%' || $1 || '%')
 		  AND status = 'active' AND deleted_at IS NULL
-		ORDER BY username ILIKE $1 || '%' DESC LIMIT 8`, q)
+		ORDER BY username ILIKE $1 || '%' DESC LIMIT 8`, util.EscapeLike(q))
 	if err != nil {
 		fail(w, err)
 		return

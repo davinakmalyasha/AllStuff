@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -395,10 +396,20 @@ func (s *Businesses) UpdateStorefront(ctx context.Context, ownerID, id string, t
 		return nil, err
 	}
 	fields := map[string]any{}
+	// Server-side format validation: theme values end up in inline styles on
+	// public storefronts. The builder UI constrains choices, but persisted
+	// JSON must not trust that — arbitrary strings would allow CSS injection
+	// (UI defacement / overlay phishing inside the storefront card).
 	if theme != nil {
+		if err := validStorefrontTheme(theme); err != nil {
+			return nil, err
+		}
 		fields["theme"] = theme
 	}
 	if layout != nil {
+		if !validStorefrontLayout(layout) {
+			return nil, domain.ErrValidation.WithField("layout", "Invalid layout configuration.")
+		}
 		fields["layout"] = layout
 	}
 	if len(fields) == 0 {
@@ -408,6 +419,60 @@ func (s *Businesses) UpdateStorefront(ctx context.Context, ownerID, id string, t
 		return nil, err
 	}
 	return s.repos.Businesses.GetByID(ctx, id)
+}
+
+var hexColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
+var fontRe = regexp.MustCompile(`^[a-z_-]{1,20}$`)
+var templateRe = regexp.MustCompile(`^[a-z0-9_-]{1,20}$`)
+
+func validStorefrontTheme(theme map[string]any) error {
+	for _, k := range []string{"template", "font", "icon_shape"} {
+		if v, ok := theme[k]; ok {
+			s, isStr := v.(string)
+			if !isStr || len(s) > 20 {
+				return domain.ErrValidation.WithField("theme."+k, "Invalid value.")
+			}
+			if k == "font" && !fontRe.MatchString(s) {
+				return domain.ErrValidation.WithField("theme.font", "Unknown font.")
+			}
+			if k == "template" && !templateRe.MatchString(s) {
+				return domain.ErrValidation.WithField("theme.template", "Unknown template.")
+			}
+		}
+	}
+	if colors, ok := theme["colors"].(map[string]any); ok {
+		for name, v := range colors {
+			c, isStr := v.(string)
+			if !isStr || len(c) > 9 || !hexColorRe.MatchString(c) {
+				return domain.ErrValidation.WithField("theme.colors."+name, "Colors must be hex like #rrggbb.")
+			}
+		}
+	}
+	return nil
+}
+
+// validStorefrontLayout: section ids from a known set, order/visibility flags
+// typed. Unknown keys are dropped by the renderer; here we only reject
+// non-string section identifiers and non-boolean visibility.
+func validStorefrontLayout(layout map[string]any) bool {
+	for k, v := range layout {
+		switch t := v.(type) {
+		case bool:
+			if len(k) > 40 {
+				return false
+			}
+		case []any:
+			for _, s := range t {
+				str, ok := s.(string)
+				if !ok || len(str) > 40 {
+					return false
+				}
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // Publish copies the draft theme/layout into published_snapshot atomically (PRD §10.5).

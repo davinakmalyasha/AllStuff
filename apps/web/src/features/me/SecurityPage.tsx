@@ -274,14 +274,14 @@ export function SecurityPage() {
       <Card className="space-y-4">
         <p className="mono-label">Sign-in details</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Current password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" />
-          <Input label="New password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="At least 8 characters" />
+          <Input label="Current password" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" />
+          <Input label="New password" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="At least 8 characters" />
         </div>
         <Button size="sm" onClick={() => void changePassword.mutateAsync()} disabled={!currentPassword || newPassword.length < 8 || changePassword.isPending}>Change password</Button>
         {changePassword.error && <p className="text-sm text-red-600 dark:text-red-400">{(changePassword.error as Error).message}</p>}
         <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
           <Input label="New email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="new@example.com" />
-          <Input label="Password" type="password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Confirm with password" />
+          <Input label="Password" type="password" autoComplete="current-password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Confirm with password" />
         </div>
         <Button size="sm" variant="secondary" onClick={() => void changeEmail.mutateAsync()} disabled={!newEmail.includes('@') || !emailPassword || changeEmail.isPending}>Change email</Button>
         {changeEmail.error && <p className="text-sm text-red-600 dark:text-red-400">{(changeEmail.error as Error).message}</p>}
@@ -458,7 +458,7 @@ export function SecurityPage() {
         <p className="mono-label text-red-700 dark:text-red-400">Danger zone</p>
         <p className="text-sm text-ink2">Deleting your account starts a 14-day grace period. You can cancel it any time before it completes.</p>
         <div className="flex items-end gap-2">
-          <Input type="password" label="Confirm password" value={delPassword} onChange={(e) => setDelPassword(e.target.value)} placeholder="••••••••" />
+          <Input type="password" label="Confirm password" autoComplete="current-password" value={delPassword} onChange={(e) => setDelPassword(e.target.value)} placeholder="••••••••" />
           <Button variant="danger" onClick={() => void deleteAccount.mutateAsync()} disabled={!delPassword || deleteAccount.isPending}>
             <Trash2 className="h-4 w-4" /> Delete account
           </Button>

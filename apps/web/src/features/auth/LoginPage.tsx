@@ -15,10 +15,10 @@ export function LoginPage() {
   const { login, verify2FA } = useAuth()
   const twoFaChallenge = useAuth((s) => s.twoFaChallenge)
   const [params] = useSearchParams()
-  // Open-redirect guard: only same-site relative paths survive. Protocol-
-  // relative ("//evil.com") and absolute URLs fall back to /me.
   const rawNext = params.get('next') ?? '/me'
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/me'
+  // Single leading slash not followed by / or \: rejects protocol-relative
+  // "//evil.com" AND "/\evil.com" (WHATWG treats \ as / in special schemes).
+  const next = /^\/[^/\\]/.test(rawNext) ? rawNext : '/me'
   const { values, set } = useForm({ email: '', password: '', code: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState('')

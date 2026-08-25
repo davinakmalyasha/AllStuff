@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -45,9 +46,18 @@ func (s *Users) UpdateProfile(ctx context.Context, user *domain.User, in UpdateP
 		fields["timezone"] = strings.TrimSpace(*in.Timezone)
 	}
 	if in.AvatarURL != nil {
-		fields["avatar_url"] = *in.AvatarURL
+		av := strings.TrimSpace(*in.AvatarURL)
+		// Same write-time gate as logo/cover URLs: avatars render on public
+		// profiles, so script-bearing schemes must not be storable.
+		if av != "" && !safeMediaRef(av) {
+			return nil, domain.ErrValidation.WithField("avatar_url", "Avatar must be an internal media reference or an https URL.")
+		}
+		fields["avatar_url"] = av
 	}
 	if in.ProfileLinks != nil {
+		if !validProfileLinks(in.ProfileLinks) {
+			return nil, domain.ErrValidation.WithField("profile_links", "Links must map known platforms to https or mailto URLs.")
+		}
 		fields["profile_links"] = in.ProfileLinks
 	}
 	if len(fields) == 0 {
@@ -57,4 +67,37 @@ func (s *Users) UpdateProfile(ctx context.Context, user *domain.User, in UpdateP
 		return nil, err
 	}
 	return s.repos.Users.GetByID(ctx, user.ID)
+}
+
+// validProfileLinks constrains the public profile_links JSONB: keys from a
+// fixed platform set, values https/mailto only. These render on public
+// profiles next to identity signals — free-form values would let an account
+// plant script-bearing or impersonating URLs.
+var profileLinkKeys = map[string]bool{
+	"website": true, "instagram": true, "twitter": true, "x": true,
+	"facebook": true, "linkedin": true, "tiktok": true, "youtube": true,
+	"github": true, "whatsapp": true, "email": true,
+}
+
+func validProfileLinks(links map[string]any) bool {
+	for k, v := range links {
+		s, ok := v.(string)
+		if !ok || len(s) > 300 {
+			return false
+		}
+		if k == "email" {
+			if !strings.HasPrefix(s, "mailto:") && !strings.Contains(s, "@") {
+				return false
+			}
+			continue
+		}
+		if !profileLinkKeys[k] {
+			return false
+		}
+		pu, err := url.Parse(s)
+		if err != nil || (pu.Scheme != "https" && pu.Scheme != "mailto") || pu.Host == "" && pu.Scheme != "mailto" {
+			return false
+		}
+	}
+	return true
 }

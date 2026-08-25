@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" id="meta-theme-color" />
+    <!-- Backstop CSP: the app has no raw-HTML sinks today; this bounds the
+         blast radius of future regressions. Map tiles + media are the only
+         cross-origin image needs; Vite injects module scripts from 'self'
+         and Tailwind requires inline style attributes. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org /api/v1/media; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    />
     <title>BizVerse — Every business. One place.</title>
     <script>
       // FOUC guard: apply theme before first paint. Default is LIGHT (white).

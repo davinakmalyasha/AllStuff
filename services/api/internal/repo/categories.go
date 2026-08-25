@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -95,10 +96,20 @@ func (r *CategoryRepo) Create(ctx context.Context, c *domain.Category) error {
 	return err
 }
 
+// allowedCategoryFields: whitelist for PATCH-style updates (SQL-injection
+// guard consistent with the other repo update builders).
+var allowedCategoryFields = map[string]bool{
+	"parent_id": true, "name": true, "slug": true, "icon": true,
+	"description": true, "sort_order": true,
+}
+
 func (r *CategoryRepo) Update(ctx context.Context, id string, fields map[string]any) error {
 	cols := []string{"updated_at = now()"}
 	args := []any{id}
 	for k, v := range fields {
+		if !allowedCategoryFields[k] {
+			return fmt.Errorf("field not allowed: %s", k)
+		}
 		args = append(args, v)
 		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}

@@ -384,7 +384,7 @@ func (a *Admin) SearchUsers(ctx context.Context, q string, limit, offset int) ([
 	rows, err := a.repos.Query(ctx, `
 		SELECT `+repo.UserColumns+` FROM users
 		WHERE name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%' OR username ILIKE '%' || $1 || '%'
-		ORDER BY created_at DESC LIMIT $2 OFFSET $3`, q, limit, offset)
+		ORDER BY created_at DESC LIMIT $2 OFFSET $3`, util.EscapeLike(q), limit, offset)
 	if err != nil {
 		return nil, err
 	}

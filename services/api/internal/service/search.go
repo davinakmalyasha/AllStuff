@@ -52,13 +52,15 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 
 	if q != "" {
 		// Exact-ish FTS first; trigram similarity catches typos (migration 0016).
+		// ILIKE patterns get escaped so user input matches literally.
+		qLike := util.EscapeLike(q)
 		where = append(where, `(
 			to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' ||
 				coalesce(b.description,'') || ' ' || coalesce(b.city,'') || ' ' ||
 				array_to_string(b.tags,' ')) @@ plainto_tsquery('simple', `+arg(q)+`)
-			OR b.name ILIKE '%' || `+arg(q)+` || '%'
+			OR b.name ILIKE '%' || `+arg(qLike)+` || '%'
 			OR b.name % `+arg(q)+`
-			OR cat.name ILIKE '%' || `+arg(q)+` || '%'
+			OR cat.name ILIKE '%' || `+arg(qLike)+` || '%'
 			OR EXISTS (SELECT 1 FROM products p WHERE p.business_id = b.id AND p.is_published = true
 				AND p.deleted_at IS NULL AND to_tsvector('simple', coalesce(p.name,'')) @@ plainto_tsquery('simple', `+arg(q)+`)))`)
 	}
@@ -220,13 +222,14 @@ func (s *Search) Suggestions(ctx context.Context, q string, limit int) (map[stri
 	if limit <= 0 || limit > 10 {
 		limit = 10
 	}
+	qLike := util.EscapeLike(q)
 	biz, err := s.repos.Businesses.Search(ctx, `
 		SELECT `+repo.BusinessCols+repo.BusinessCounts+`, NULL::float8 AS distance_km, 0 AS ts_rank
 		FROM businesses b JOIN categories cat ON cat.id = b.category_id
 		WHERE b.status = 'verified' AND b.deleted_at IS NULL
 		  AND (b.name ILIKE '%' || $1 || '%' OR b.tagline ILIKE '%' || $1 || '%')
 		ORDER BY (b.name ILIKE $1 || '%') DESC, b.created_at DESC
-		LIMIT $2`, []any{q, limit})
+		LIMIT $2`, []any{qLike, limit})
 	if err != nil {
 		return nil, err
 	}

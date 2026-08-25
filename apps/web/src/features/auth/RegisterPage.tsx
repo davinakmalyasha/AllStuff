@@ -14,9 +14,10 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const { register } = useAuth()
   const [params] = useSearchParams()
-  // Open-redirect guard: only same-site relative paths survive.
+  // Single leading slash not followed by / or \: rejects protocol-relative
+  // "//evil.com" AND "/\evil.com" (WHATWG treats \ as / in special schemes).
   const rawNext = params.get('next') ?? '/me'
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/me'
+  const next = /^\/[^/\\]/.test(rawNext) ? rawNext : '/me'
   const { values, set } = useForm({
     email: '',
     password: '',

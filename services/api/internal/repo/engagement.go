@@ -177,10 +177,19 @@ func (r *EngagementRepo) GetCollection(ctx context.Context, userID, id string) (
 	return &c, err
 }
 
+// allowedCollectionFields: whitelist for PATCH-style updates (mirrors the
+// businesses/products/users guards — map keys must never reach SQL unchecked).
+var allowedCollectionFields = map[string]bool{
+	"name": true, "slug": true, "is_public": true, "description": true,
+}
+
 func (r *EngagementRepo) UpdateCollection(ctx context.Context, id string, fields map[string]any) error {
 	cols := []string{"updated_at = now()"}
 	args := []any{id}
 	for k, v := range fields {
+		if !allowedCollectionFields[k] {
+			return fmt.Errorf("field not allowed: %s", k)
+		}
 		args = append(args, v)
 		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
