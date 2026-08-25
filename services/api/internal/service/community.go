@@ -101,7 +101,12 @@ func (s *Community) PostUpdate(ctx context.Context, ownerID, businessID, title, 
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
 	}
-	if b.OwnerID != ownerID {
+	// Co-owner parity (PRD §5.9.3): accepted co-owners may post announcements.
+	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if !can {
 		return nil, domain.ErrForbidden
 	}
 	title = strings.TrimSpace(title)

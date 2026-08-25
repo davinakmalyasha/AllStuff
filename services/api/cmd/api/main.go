@@ -137,7 +137,7 @@ func main() {
 	oauthSvc := service.NewOAuth(repos, cfg)
 	communitySvc := service.NewCommunity(repos, notifier)
 	profilesSvc := service.NewProfiles(repos, notifier)
-	invitesSvc := service.NewInvites(repos)
+	invitesSvc := service.NewInvites(repos, cfg, sender)
 	searchSvc := service.NewSearch(repos)
 	adminSvc := service.NewAdmin(repos, notifier)
 	mediaSvc := service.NewMedia(repos, cfg.MediaDir, cfg.MediaBase, cfg.MediaEncryptionKey, cfg.ClamAVAddr)

@@ -75,7 +75,18 @@
     "verifySub": "Confirm the link you received by email.",
     "verifyCta": "Verify email",
     "verifyDone": "Email verified. You're all set.",
-    "checkInbox": "If an account exists, a reset link is on its way."
+    "checkInbox": "If an account exists, a reset link is on its way.",
+    "restoreTitle": "Restore your account",
+    "restoreSub": "Your account is scheduled for deletion. Sign in to cancel it and keep everything.",
+    "restoreCta": "Restore account",
+    "restoreDone": "Account restored! Taking you to your profile…",
+    "restoreWindowClosed": "The 14-day restoration window has closed, so this account can no longer be recovered.",
+    "pendingDeletionTitle": "This account is scheduled for deletion.",
+    "pendingDeletionBody": "Deleted accounts stay recoverable for a 14-day grace period.",
+    "restoreLink": "Restore it now",
+    "resendVerification": "Resend email",
+    "resendSent": "Verification email sent — check your inbox.",
+    "resendIn": "Resend available in {{seconds}}s"
   },
   "me": {
     "title": "Profile",

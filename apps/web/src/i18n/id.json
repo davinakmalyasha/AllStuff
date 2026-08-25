@@ -75,7 +75,18 @@
     "verifySub": "Konfirmasi tautan yang Anda terima via email.",
     "verifyCta": "Verifikasi email",
     "verifyDone": "Email terverifikasi. Anda siap.",
-    "checkInbox": "Jika akun ada, tautan reset sedang dikirim."
+    "checkInbox": "Jika akun ada, tautan reset sedang dikirim.",
+    "restoreTitle": "Pulihkan akun Anda",
+    "restoreSub": "Akun Anda dijadwalkan untuk dihapus. Masuk untuk membatalkannya dan menyimpan semuanya.",
+    "restoreCta": "Pulihkan akun",
+    "restoreDone": "Akun dipulihkan! Mengarahkan Anda ke profil…",
+    "restoreWindowClosed": "Jangka waktu pemulihan 14 hari telah berakhir, sehingga akun ini tidak dapat dipulihkan lagi.",
+    "pendingDeletionTitle": "Akun ini dijadwalkan untuk dihapus.",
+    "pendingDeletionBody": "Akun yang dihapus tetap dapat dipulihkan selama masa tenggang 14 hari.",
+    "restoreLink": "Pulihkan sekarang",
+    "resendVerification": "Kirim ulang email",
+    "resendSent": "Email verifikasi terkirim — cek kotak masuk Anda.",
+    "resendIn": "Kirim ulang tersedia dalam {{seconds}}d"
   },
   "me": {
     "title": "Profil",

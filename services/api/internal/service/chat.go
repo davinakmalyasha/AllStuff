@@ -922,14 +922,14 @@ func (c *Chat) BlockList(ctx context.Context, userID string) ([]string, error) {
 // ---- quick replies (owner) ----
 
 func (c *Chat) QuickReplies(ctx context.Context, ownerID, businessID string) ([]*domain.QuickReply, error) {
-	if err := c.ownBusiness(ctx, ownerID, businessID); err != nil {
+	if err := c.canManageBusiness(ctx, ownerID, businessID); err != nil {
 		return nil, err
 	}
 	return c.repos.Chat.ListQuickReplies(ctx, businessID)
 }
 
 func (c *Chat) AddQuickReply(ctx context.Context, ownerID, businessID, text string) error {
-	if err := c.ownBusiness(ctx, ownerID, businessID); err != nil {
+	if err := c.canManageBusiness(ctx, ownerID, businessID); err != nil {
 		return err
 	}
 	text = strings.TrimSpace(text)
@@ -947,7 +947,7 @@ func (c *Chat) AddQuickReply(ctx context.Context, ownerID, businessID, text stri
 }
 
 func (c *Chat) RemoveQuickReply(ctx context.Context, ownerID, businessID, id string) error {
-	if err := c.ownBusiness(ctx, ownerID, businessID); err != nil {
+	if err := c.canManageBusiness(ctx, ownerID, businessID); err != nil {
 		return err
 	}
 	return c.repos.Chat.DeleteQuickReply(ctx, businessID, id)
@@ -1034,8 +1034,9 @@ func (c *Chat) CloseThread(ctx context.Context, userID, threadID string) error {
 		return err
 	}
 	if t.Type == "business" {
-		b, err := c.repos.Businesses.GetByID(ctx, derefString(t.BusinessID))
-		if err == nil && b != nil && b.OwnerID == userID {
+		// Co-owner parity (PRD §5.9.3): any manager of the business may close.
+		can, cerr := c.repos.Businesses.CanManageBusiness(ctx, userID, derefString(t.BusinessID))
+		if cerr == nil && can {
 			if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "closed"); err != nil {
 				return err
 			}
@@ -1104,12 +1105,13 @@ func (c *Chat) Export(ctx context.Context, userID, threadID string) ([]byte, err
 	return json.Marshal(map[string]any{"thread_id": threadID, "type": t.Type, "exported_at": time.Now(), "messages": msgs})
 }
 
-func (c *Chat) ownBusiness(ctx context.Context, ownerID, businessID string) error {
-	b, err := c.repos.Businesses.GetByID(ctx, businessID)
-	if err != nil || b == nil {
-		return domain.ErrNotFound
+func (c *Chat) canManageBusiness(ctx context.Context, ownerID, businessID string) error {
+	// Co-owner parity (PRD §5.9.3): accepted co-owners manage quick replies.
+	can, err := c.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
+	if err != nil {
+		return err
 	}
-	if b.OwnerID != ownerID {
+	if !can {
 		return domain.ErrForbidden
 	}
 	return nil

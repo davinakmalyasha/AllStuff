@@ -23,11 +23,15 @@ export function LoginPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState('')
   const [pending, setPending] = useState(false)
+  // Login refused because the account sits in its deletion grace period:
+  // surface the restore path instead of a dead-end error.
+  const [pendingDeletion, setPendingDeletion] = useState(false)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrors({})
     setGeneral('')
+    setPendingDeletion(false)
     setPending(true)
     try {
       if (twoFaChallenge) {
@@ -37,7 +41,9 @@ export function LoginPage() {
       }
       navigate(next, { replace: true })
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof ApiError && err.code === 'account_pending_deletion') {
+        setPendingDeletion(true)
+      } else if (err instanceof ApiError) {
         setErrors(err.fields ?? {})
         if (!err.fields) setGeneral(err.message)
       } else {
@@ -47,6 +53,21 @@ export function LoginPage() {
       setPending(false)
     }
   }
+
+  const deletionNotice = (
+    <div
+      role="alert"
+      className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+    >
+      <p className="font-medium">{t('auth.pendingDeletionTitle')}</p>
+      <p className="mt-0.5">
+        {t('auth.pendingDeletionBody')}{' '}
+        <Link to="/auth/restore" className="font-semibold underline underline-offset-2">
+          {t('auth.restoreLink')}
+        </Link>
+      </p>
+    </div>
+  )
 
   return (
     <AuthShell
@@ -59,7 +80,7 @@ export function LoginPage() {
       <div className="space-y-4">
         {twoFaChallenge ? (
           <form onSubmit={submit} className="space-y-4" noValidate>
-            {general && (
+            {pendingDeletion ? deletionNotice : general && (
               <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
                 {general}
               </p>
@@ -90,7 +111,7 @@ export function LoginPage() {
               <span className="h-px flex-1 bg-border" />
             </div>
             <form onSubmit={submit} className="space-y-4" noValidate>
-              {general && (
+              {pendingDeletion ? deletionNotice : general && (
                 <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
                   {general}
                 </p>

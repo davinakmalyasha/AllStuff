@@ -161,6 +161,17 @@ func (s *Server) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 	noContent(w)
 }
 
+// handleInvitePreview is PUBLIC: powers the invite landing page before the
+// visitor decides to sign in. Unknown/expired/revoked/consumed → 404.
+func (s *Server) handleInvitePreview(w http.ResponseWriter, r *http.Request) {
+	info, err := s.deps.Invites.Preview(r.Context(), r.PathValue("token"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, info)
+}
+
 func (s *Server) handleInviteAccept(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {

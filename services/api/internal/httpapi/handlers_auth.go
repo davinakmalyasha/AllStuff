@@ -129,6 +129,25 @@ func (s *Server) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 	noContent(w)
 }
 
+// handleResendVerification re-mails the verification link (PRD §5.9.1).
+// Always 200 {"sent":true} — unknown/verified/throttled accounts must be
+// indistinguishable from success (no account enumeration). Budget: 5 sends
+// per hour per target account via the RateLimiter directly.
+func (s *Server) handleResendVerification(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if _, _, allow := s.deps.RateLimiter.Allow("acct:resend:"+email, 5, time.Hour); allow {
+		s.deps.Auth.ResendVerification(r.Context(), email)
+	}
+	ok(w, map[string]any{"sent": true})
+}
+
 func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email string `json:"email"`

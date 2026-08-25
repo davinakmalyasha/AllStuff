@@ -426,6 +426,20 @@ func (a *Auth) sendVerificationEmail(ctx context.Context, user *domain.User) err
 				htmlEscape(user.Name), link, link)))
 }
 
+// ResendVerification re-issues the registration-time verify-email token and
+// mails it (same token-issue + delivery path as Register). Unknown or already
+// verified accounts are indistinguishable from success (PRD §9.3); the
+// caller owns the per-account send budget.
+func (a *Auth) ResendVerification(ctx context.Context, email string) {
+	user, err := a.repos.Users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil || user == nil || user.EmailVerifiedAt != nil {
+		return
+	}
+	if err := a.sendVerificationEmail(ctx, user); err != nil {
+		a.logger.Error("verify email resend", "err", err, "user", user.ID)
+	}
+}
+
 // ---- 2FA (PRD §5.9.1) ----
 
 // Enroll2FA generates a TOTP secret for the user (not yet enabled).
@@ -860,6 +874,70 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 	}
 	comments.Close()
 
+	// Chats (PRD §5.9.2): threads where the user is an active participant,
+	// plus the last 500 messages across them — both hard-capped so the
+	// payload stays bounded for long-lived accounts.
+	threads := []any{}
+	threadIDs := []string{}
+	tRows, err := a.repos.Query(ctx, `
+		SELECT t.id::text, t.type::text, t.business_id::text, t.status, t.created_at
+		FROM chat_threads t
+		JOIN chat_participants p ON p.thread_id = t.id
+		WHERE p.user_id = $1 AND p.left_at IS NULL
+		ORDER BY t.created_at DESC LIMIT 500`, userID)
+	if err != nil {
+		return nil, err
+	}
+	for tRows.Next() {
+		var id, typ, status string
+		var businessID *string
+		var createdAt time.Time
+		if err := tRows.Scan(&id, &typ, &businessID, &status, &createdAt); err != nil {
+			return nil, err
+		}
+		entry := map[string]any{"id": id, "type": typ, "status": status, "created_at": createdAt}
+		if businessID != nil && *businessID != "" {
+			entry["business_id"] = *businessID
+		}
+		threads = append(threads, entry)
+		threadIDs = append(threadIDs, id)
+	}
+	if err := tRows.Err(); err != nil {
+		return nil, err
+	}
+	tRows.Close()
+	messages := []map[string]any{}
+	if len(threadIDs) > 0 {
+		mRows, err := a.repos.Query(ctx, `
+			SELECT id, thread_id::text, sender_id::text, type::text, body, created_at
+			FROM chat_messages
+			WHERE thread_id = ANY($1::uuid[]) AND deleted_for <> 'everyone'
+			ORDER BY id DESC LIMIT 500`, threadIDs)
+		if err != nil {
+			return nil, err
+		}
+		for mRows.Next() {
+			var id int64
+			var threadID, senderID, typ string
+			var body *string
+			var createdAt time.Time
+			if err := mRows.Scan(&id, &threadID, &senderID, &typ, &body, &createdAt); err != nil {
+				return nil, err
+			}
+			messages = append(messages, map[string]any{"id": id, "thread_id": threadID, "sender_id": senderID, "type": typ, "body": body, "created_at": createdAt})
+		}
+		if err := mRows.Err(); err != nil {
+			return nil, err
+		}
+		mRows.Close()
+		// Collected newest-first; emit oldest-first.
+		ordered := make([]map[string]any, len(messages))
+		for i, m := range messages {
+			ordered[len(messages)-1-i] = m
+		}
+		messages = ordered
+	}
+
 	return map[string]any{
 		"exported_at": time.Now(),
 		"profile": map[string]any{
@@ -872,6 +950,8 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 		"collections": colItems,
 		"reviews":    revRows,
 		"comments":   comRows,
+		"threads":    threads,
+		"messages":   messages,
 	}, nil
 }
 

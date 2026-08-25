@@ -45,6 +45,8 @@ const RegisterPage = lazy(() => import('@/features/auth/RegisterPage').then((m) 
 const VerifyEmailPage = lazy(() => import('@/features/auth/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })))
 const ForgotPasswordPage = lazy(() => import('@/features/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })))
 const ResetPasswordPage = lazy(() => import('@/features/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })))
+const RestorePage = lazy(() => import('@/features/auth/RestorePage').then((m) => ({ default: m.RestorePage })))
+const InviteAcceptPage = lazy(() => import('@/features/pages/InviteAcceptPage').then((m) => ({ default: m.InviteAcceptPage })))
 const MePage = lazy(() => import('@/features/me/MePage').then((m) => ({ default: m.MePage })))
 const CollectionsPage = lazy(() => import('@/features/me/CollectionsPage').then((m) => ({ default: m.CollectionsPage })))
 const NotificationsPage = lazy(() => import('@/features/me/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
@@ -170,6 +172,15 @@ const router = createBrowserRouter([
           </GuestOnly>
         ),
       },
+      {
+        path: 'auth/restore',
+        element: (
+          <GuestOnly>
+            <RestorePage />
+          </GuestOnly>
+        ),
+      },
+      { path: 'invite/:token', element: <Lazy><InviteAcceptPage /></Lazy> },
       { path: 'verify-email', element: <VerifyEmailPage /> },
       { path: 'forgot-password', element: <ForgotPasswordPage /> },
       { path: 'reset-password', element: <ResetPasswordPage /> },

@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"bizverse/api/internal/config"
 	"bizverse/api/internal/domain"
+	mail "bizverse/api/internal/email"
 	"bizverse/api/internal/repo"
 	"bizverse/api/internal/util"
 )
@@ -14,9 +17,13 @@ import (
 // Invites — co-owner invitations (PRD §5.9.3).
 type Invites struct {
 	repos *repo.Repos
+	cfg   config.Config
+	email mail.Sender
 }
 
-func NewInvites(repos *repo.Repos) *Invites { return &Invites{repos: repos} }
+func NewInvites(repos *repo.Repos, cfg config.Config, sender mail.Sender) *Invites {
+	return &Invites{repos: repos, cfg: cfg, email: sender}
+}
 
 var inviteEmailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
@@ -35,7 +42,70 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 	if role != "co_owner" && role != "viewer" {
 		role = "co_owner"
 	}
-	return s.repos.Businesses.CreateInvite(ctx, ownerID, businessID, email, role, util.NewUUID()+"-"+util.NewUUID())
+	token := util.NewUUID() + "-" + util.NewUUID()
+	if err := s.repos.Businesses.CreateInvite(ctx, ownerID, businessID, email, role, token); err != nil {
+		return err
+	}
+	// Best-effort delivery: the invite row exists regardless, and the token
+	// remains retrievable from the dashboard invite list (PRD §5.9.3).
+	_ = s.sendInviteEmail(ctx, ownerID, businessID, email, role, token)
+	return nil
+}
+
+// sendInviteEmail notifies the invitee with an accept link. Mirrors the
+// branded WrapHTML template used by every other transactional email (the dev
+// console sender renders its plain-text fallback by stripping tags).
+func (s *Invites) sendInviteEmail(ctx context.Context, ownerID, businessID, email, role, token string) error {
+	businessName := ""
+	if b, err := s.repos.Businesses.GetByID(ctx, businessID); err == nil && b != nil {
+		businessName = b.Name
+	}
+	inviterName := ""
+	if u, err := s.repos.Users.GetByID(ctx, ownerID); err == nil && u != nil {
+		inviterName = u.Name
+	}
+	roleLabel := "a co-owner"
+	if role == "viewer" {
+		roleLabel = "a viewer"
+	}
+	subject := "You've been invited to co-manage " + businessName + " on BizVerse"
+	link := s.cfg.PublicURL + "/invite/" + token
+	return s.email.Send(ctx, email, subject,
+		mail.WrapHTML(s.cfg.PublicURL, subject,
+			fmt.Sprintf(`<p>Hi %s,</p><p>%s has invited you to help manage <strong>%s</strong> on BizVerse as %s.</p>
+			<p>Accept your invitation: <a href="%s">%s</a>.</p><p>The link expires in 7 days and can be used once.</p>`,
+				htmlEscape(email), htmlEscape(inviterName), htmlEscape(businessName), roleLabel, link, link)))
+}
+
+// Preview serves the public invite landing page (PRD §5.9.3). Unknown,
+// expired, revoked, or already-accepted invites all read as 404 so stale
+// links cannot be probed. Email is returned plain so the page can tell a
+// signed-in-as-wrong-account user why acceptance will fail.
+func (s *Invites) Preview(ctx context.Context, token string) (map[string]any, error) {
+	inv, err := s.repos.Businesses.GetInviteByToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if inv == nil || inv.RevokedAt != nil || inv.AcceptedAt != nil || time.Now().After(inv.ExpiresAt) {
+		return nil, domain.ErrNotFound
+	}
+	b, err := s.repos.Businesses.GetByID(ctx, inv.BusinessID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, domain.ErrNotFound
+	}
+	inviterName := ""
+	if u, err := s.repos.Users.GetByID(ctx, inv.InvitedBy); err == nil && u != nil {
+		inviterName = u.Name
+	}
+	return map[string]any{
+		"business_name": b.Name,
+		"inviter_name":  inviterName,
+		"role":          inv.Role,
+		"email":         inv.Email,
+	}, nil
 }
 
 func (s *Invites) List(ctx context.Context, ownerID, businessID string) ([]*repo.BusinessInvite, error) {

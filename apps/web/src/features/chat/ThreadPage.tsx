@@ -3,10 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Ban,
   Bell,
   BellOff,
+  Download,
   FileUp,
   Image as ImageIcon,
+  Images,
+  LogOut,
+  MoreVertical,
+  XCircle,
 
   Pencil,
   Pin,
@@ -16,7 +22,15 @@ import {
   Video,
   Mic,
 } from 'lucide-react'
-import { api, uploadMedia, type ChatMessageDTO, type ThreadDTO, type ThreadListItemDTO } from '@/lib/api'
+import {
+  api,
+  uploadMedia,
+  type BusinessDTO,
+  type ChatMessageDTO,
+  type QuickReplyDTO,
+  type ThreadDTO,
+  type ThreadListItemDTO,
+} from '@/lib/api'
 import { useDebouncedValue } from '@/lib/hooks'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner } from '@/components/ui/Spinner'
@@ -25,7 +39,7 @@ import { safeExternalUrl } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
 import { copyText } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
-import { useDialogA11y } from '@/components/ui/Modal'
+import { Confirm, Modal, useDialogA11y } from '@/components/ui/Modal'
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '❌', '🤔', '👏', '😍', '😎', '💯', '🥳', '🤝', '👌', '😅', '🙌']
 
@@ -414,6 +428,127 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
   const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && m.sender_id === user?.id)), [messages, user?.id])
 
+  // ---- power features (PRD §5.5.2/§5.5.4) ----
+
+  const thread = data?.thread
+  const closed = thread?.status === 'closed'
+  // Owner-only affordances (close) are gated on the business console route:
+  // the server re-checks ownership on POST /threads/:id/close anyway.
+  const isOwnerView = businessMode && thread?.type === 'business'
+
+  const [headerMenu, setHeaderMenu] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [fullMedia, setFullMedia] = useState<string | null>(null)
+  const [forwardFor, setForwardFor] = useState<ChatMessageDTO | null>(null)
+  const [forwardQ, setForwardQ] = useState('')
+  const [confirmAction, setConfirmAction] = useState<'close' | 'leave' | 'block' | null>(null)
+
+  // Media gallery: images + videos shared in this thread.
+  const { data: galleryData } = useQuery({
+    queryKey: ['thread-media', id],
+    queryFn: () => api<{ messages: ChatMessageDTO[] }>(`/threads/${id}/media`),
+    enabled: galleryOpen,
+  })
+  const gallery = useMemo(
+    () => (galleryData?.messages ?? []).filter((m) => (m.type === 'image' || m.type === 'video') && m.media_id),
+    [galleryData],
+  )
+
+  // Block list — only consulted for direct threads.
+  const otherUserId = listItem?.type === 'direct' ? listItem.other_id : null
+  const { data: blocksData } = useQuery({
+    queryKey: ['blocks'],
+    queryFn: () => api<{ blocked_ids: string[] }>('/blocks'),
+    enabled: !!id,
+  })
+  const isBlocked = !!otherUserId && (blocksData?.blocked_ids ?? []).includes(otherUserId)
+
+  // Quick replies for business threads where the viewer manages the business
+  // (owner console route, or membership in /businesses).
+  const { data: myBizData } = useQuery({
+    queryKey: ['my-businesses'],
+    queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
+    enabled: !!thread?.business_id,
+  })
+  const managesBusiness =
+    !!thread?.business_id &&
+    (businessMode || (myBizData?.businesses ?? []).some((b) => b.id === thread.business_id))
+  const { data: quickRepliesData } = useQuery({
+    queryKey: ['quick-replies', thread?.business_id],
+    queryFn: () => api<{ quick_replies: QuickReplyDTO[] }>(`/businesses/${thread!.business_id}/quick-replies`),
+    enabled: managesBusiness,
+  })
+  const insertQuickReply = (replyText: string) =>
+    setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${replyText}` : replyText))
+
+  const exportThread = async () => {
+    try {
+      const payload = await api<unknown>(`/threads/${id}/export`)
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `bizverse-thread-${id}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Could not export the conversation.')
+    }
+  }
+
+  const forwardTo = async (targetThreadId: string) => {
+    if (!forwardFor) return
+    try {
+      await api(`/messages/${forwardFor.id}/forward`, { method: 'POST', body: { thread_id: targetThreadId } })
+      toast.success('Message forwarded.')
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+      setForwardFor(null)
+      setForwardQ('')
+    } catch {
+      toast.error('Could not forward the message.')
+    }
+  }
+
+  const closeThread = async () => {
+    try {
+      await api(`/threads/${id}/close`, { method: 'POST' })
+      toast.success('Conversation closed.')
+      void qc.invalidateQueries({ queryKey: ['thread', id] })
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+    } catch {
+      toast.error('Could not close the conversation.')
+    }
+  }
+
+  const leaveThread = async () => {
+    try {
+      await api(`/threads/${id}/leave`, { method: 'POST' })
+      toast.success('You left the conversation.')
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+      navigate(businessMode ? '/dashboard/chats' : '/me/messages')
+    } catch {
+      toast.error('Could not leave the conversation.')
+    }
+  }
+
+  const toggleBlock = async () => {
+    if (!otherUserId) return
+    try {
+      await api(`/blocks/${otherUserId}`, { method: isBlocked ? 'DELETE' : 'POST' })
+      toast.success(isBlocked ? 'User unblocked.' : 'User blocked.')
+      void qc.invalidateQueries({ queryKey: ['blocks'] })
+    } catch {
+      toast.error('Could not update the block.')
+    }
+  }
+
+  const forwardTargets = useMemo(() => {
+    const q = forwardQ.trim().toLowerCase()
+    return (labeled?.threads ?? [])
+      .filter((t) => t.id !== id)
+      .filter((t) => !q || [t.business_name, t.other_name, t.last_body].some((v) => v?.toLowerCase().includes(q)))
+  }, [labeled, id, forwardQ])
+
   if (isLoading) return <PageSpinner />
 
   return (
@@ -433,7 +568,57 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         <button onClick={() => setSearching((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Search">
           <Search className="h-4 w-4" />
         </button>
+        <button onClick={() => setGalleryOpen(true)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Shared media" title="Shared media">
+          <Images className="h-4 w-4" />
+        </button>
+        <div className="relative">
+          <button onClick={() => setHeaderMenu((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Conversation options" aria-expanded={headerMenu}>
+            <MoreVertical className="h-4 w-4" />
+          </button>
+          {headerMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
+              <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-cardHover">
+                <button
+                  onClick={() => { setHeaderMenu(false); void exportThread() }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink hover:bg-surface2"
+                >
+                  <Download className="h-3.5 w-3.5" /> Export chat
+                </button>
+                {isOwnerView && (
+                  <button
+                    onClick={() => { setHeaderMenu(false); setConfirmAction('close') }}
+                    disabled={closed}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <XCircle className="h-3.5 w-3.5" /> {closed ? 'Conversation closed' : 'Close conversation'}
+                  </button>
+                )}
+                <button
+                  onClick={() => { setHeaderMenu(false); setConfirmAction('leave') }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink hover:bg-surface2"
+                >
+                  <LogOut className="h-3.5 w-3.5" /> Leave conversation
+                </button>
+                {otherUserId && (
+                  <button
+                    onClick={() => { setHeaderMenu(false); setConfirmAction('block') }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                  >
+                    <Ban className="h-3.5 w-3.5" /> {isBlocked ? 'Unblock user' : 'Block user'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
+
+      {closed && (
+        <div className="border-b border-border bg-surface2 px-4 py-2 text-center text-xs text-ink2">
+          This conversation was closed by the business. New messages are disabled.
+        </div>
+      )}
 
       {searching && (
         <div className="border-b border-border p-3">
@@ -445,7 +630,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             autoFocus
           />
           {searchRes?.messages.map((m) => (
-            <button key={m.id} onClick={() => { setSearching(false); setSearchQ('') }} className="mt-2 block w-full rounded-lg bg-surface2 px-3 py-2 text-left text-sm text-ink2">
+            <button key={m.id} onClick={() => { setSearching(false); setSearchQ(''); setJump(m.id) }} className="mt-2 block w-full rounded-lg bg-surface2 px-3 py-2 text-left text-sm text-ink2 hover:text-ink">
               {m.body}
             </button>
           ))}
@@ -473,6 +658,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             replyTarget={m.reply_to_id ? display.find((x) => x.id === m.reply_to_id) : undefined}
             showActions={!businessMode || m.sender_role !== 'owner'}
             onJump={setJump}
+            onForward={() => { setForwardFor(m); setMenuFor(null) }}
           />
         ))}
         {typing && <p className="px-1 text-xs text-ink3">typing…</p>}
@@ -489,6 +675,20 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
 
       {/* Composer */}
       <div className="border-t border-border p-3">
+        {managesBusiness && (quickRepliesData?.quick_replies ?? []).length > 0 && (
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1" role="listbox" aria-label="Quick replies">
+            {quickRepliesData!.quick_replies.map((q) => (
+              <button
+                key={q.id}
+                onClick={() => insertQuickReply(q.text)}
+                className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-ink2 hover:bg-surface2 hover:text-ink"
+                title="Insert quick reply"
+              >
+                {q.text}
+              </button>
+            ))}
+          </div>
+        )}
         {pendingFile && <p className="mb-2 text-xs text-ink2">📎 {pendingKind} ready to send</p>}
         <div className="flex items-end gap-2">
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send image">
@@ -531,14 +731,115 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
                 onKeyDown={(e) => e.key === 'Enter' && void send()}
                 className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
                 placeholder={replyTo ? 'Reply…' : 'Message…'}
+                disabled={closed}
               />
-              <Button size="sm" onClick={() => void send()} disabled={!text.trim() && !pendingFile}>
+              <Button size="sm" onClick={() => void send()} disabled={closed || (!text.trim() && !pendingFile)}>
                 <Send className="h-4 w-4" />
               </Button>
             </>
           )}
         </div>
       </div>
+
+      {/* Forward message */}
+      <Modal open={!!forwardFor} onClose={() => { setForwardFor(null); setForwardQ('') }} title="Forward message" maxWidth="max-w-md">
+        <input
+          value={forwardQ}
+          onChange={(e) => setForwardQ(e.target.value)}
+          placeholder="Search conversations…"
+          className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
+          autoFocus
+        />
+        <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+          {forwardTargets.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => void forwardTo(t.id)}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-surface2"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface2 text-sm font-semibold text-ink2">
+                {(t.type === 'business' ? t.business_name ?? 'B' : t.other_name ?? 'U').charAt(0)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-ink">
+                  {t.type === 'business' ? t.business_name ?? 'Business' : t.other_name ?? 'User'}
+                </span>
+                <span className="block truncate text-xs text-ink3">{t.last_body ?? 'Start the conversation'}</span>
+              </span>
+            </button>
+          ))}
+          {forwardTargets.length === 0 && <p className="px-3 py-6 text-center text-sm text-ink3">No other conversations.</p>}
+        </div>
+      </Modal>
+
+      {/* Shared media */}
+      <Modal open={galleryOpen} onClose={() => { setGalleryOpen(false); setFullMedia(null) }} title="Shared media" maxWidth="max-w-2xl">
+        {gallery.length === 0 ? (
+          <p className="py-10 text-center text-sm text-ink3">No photos or videos shared here yet.</p>
+        ) : (
+          <div className="grid max-h-[60vh] grid-cols-2 gap-1.5 overflow-y-auto sm:grid-cols-3">
+            {gallery.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => m.type === 'image' && setFullMedia(`/api/v1/media/${m.media_id}/file`)}
+                className="group relative overflow-hidden rounded-lg"
+                aria-label={m.type === 'image' ? 'View full size' : undefined}
+              >
+                {m.type === 'video' ? (
+                  <video src={`/api/v1/media/${m.media_id}/file`} muted preload="metadata" className="h-28 w-full object-cover" />
+                ) : (
+                  <img src={`/api/v1/media/${m.media_id}/file`} alt="" loading="lazy" className="h-28 w-full object-cover transition-transform group-hover:scale-105" />
+                )}
+                {m.type === 'video' && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                    <Video className="h-5 w-5 text-white" />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* Full-size image viewer */}
+      {fullMedia && (
+        <div className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/80 p-4" onClick={() => setFullMedia(null)}>
+          <img src={fullMedia} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      )}
+
+      {/* Destructive action confirmations */}
+      <Confirm
+        open={confirmAction === 'close'}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => void closeThread()}
+        title="Close conversation"
+        message="The customer will see a notice explaining why, and no new messages can be sent. This can't be undone."
+        confirmLabel="Close conversation"
+        danger
+      />
+      <Confirm
+        open={confirmAction === 'leave'}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => void leaveThread()}
+        title="Leave conversation"
+        message="You will lose access to this conversation and its history."
+        confirmLabel="Leave"
+        danger
+      />
+      <Confirm
+        open={confirmAction === 'block'}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => void toggleBlock()}
+        title={isBlocked ? 'Unblock user' : 'Block user'}
+        message={
+          isBlocked
+            ? 'They will be able to message you again.'
+            : "They won't be able to message you anymore. You can unblock later."
+        }
+        confirmLabel={isBlocked ? 'Unblock' : 'Block'}
+        danger={!isBlocked}
+      />
     </div>
   )
 }
@@ -560,6 +861,7 @@ function MessageRow({
   replyTarget,
   showActions,
   onJump,
+  onForward,
 }: {
   m: ChatMessageDTO
   own: boolean
@@ -577,6 +879,7 @@ function MessageRow({
   replyTarget?: ChatMessageDTO
   showActions: boolean
   onJump: (id: number) => void
+  onForward?: () => void
 }) {
   const pickerRef = useDialogA11y(pickerOpen, closePicker)
   if (m.deleted_for === 'everyone') {
@@ -625,6 +928,7 @@ function MessageRow({
           <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
             <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">copy</button>
             <button onClick={onReply} className="text-[10px] text-ink3 hover:text-ink">reply</button>
+            {onForward && <button onClick={onForward} className="text-[10px] text-ink3 hover:text-ink">forward</button>}
             <button onClick={togglePicker} className="text-[10px] text-ink3 hover:text-ink">react</button>
             {own && <button onClick={onEdit} className="text-[10px] text-ink3 hover:text-ink"><Pencil className="h-2.5 w-2.5 inline" /> edit</button>}
             {own && <button onClick={() => setMenuOpen(true)} className="text-[10px] text-ink3 hover:text-ink"><Trash2 className="h-2.5 w-2.5 inline" /> delete</button>}

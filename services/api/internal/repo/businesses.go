@@ -372,6 +372,7 @@ type BusinessInvite struct {
 	Email      string    `json:"email"`
 	Role       string    `json:"role"`
 	Token      string    `json:"-"`
+	InvitedBy  string    `json:"invited_by"`
 	CreatedAt  time.Time `json:"created_at"`
 	AcceptedAt *time.Time `json:"accepted_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
@@ -387,7 +388,7 @@ func (r *BusinessRepo) CreateInvite(ctx context.Context, invitedBy, businessID, 
 
 func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*BusinessInvite, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, business_id, email, role, token, created_at, accepted_at, expires_at, revoked_at
+		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at
 		FROM business_invites WHERE business_id = $1 ORDER BY created_at DESC`, businessID)
 	if err != nil {
 		return nil, err
@@ -396,7 +397,7 @@ func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*B
 	var out []*BusinessInvite
 	for rows.Next() {
 		var i BusinessInvite
-		if err := rows.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.CreatedAt,
+		if err := rows.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.InvitedBy, &i.CreatedAt,
 			&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt); err != nil {
 			return nil, err
 		}
@@ -414,10 +415,10 @@ func (r *BusinessRepo) RevokeInvite(ctx context.Context, businessID, inviteID st
 
 func (r *BusinessRepo) GetInviteByToken(ctx context.Context, token string) (*BusinessInvite, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, business_id, email, role, token, created_at, accepted_at, expires_at, revoked_at
+		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at
 		FROM business_invites WHERE token = $1`, token)
 	var i BusinessInvite
-	if err := row.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.CreatedAt,
+	if err := row.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.InvitedBy, &i.CreatedAt,
 		&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
