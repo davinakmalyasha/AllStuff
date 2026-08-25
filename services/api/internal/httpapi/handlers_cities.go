@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-
-	"bizverse/api/internal/domain"
 )
 
 // ---- city landing pages (SEO, PRD §5.1.5) ----
@@ -25,5 +23,3 @@ func (s *Server) handleCitiesIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"cities": list})
 }
-
-var _ = domain.ErrNotFound

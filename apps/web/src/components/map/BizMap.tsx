@@ -341,7 +341,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
   }, [map, hasBooming])
 
   // Category chips (non-embedded only).
-  const { data: catData } = useCategories()
+  const { data: catData } = useQuery({ queryKey: ['categories'], queryFn: () => api<{ categories: CategoryDTO[] }>('/categories') })
 
   return (
     <div className={`relative ${className}`}>
@@ -406,13 +406,4 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       )}
     </div>
   )
-}
-
-function useQueryCats() {
-  return useQuery({ queryKey: ['categories'], queryFn: () => api<{ categories: CategoryDTO[] }>('/categories') })
-}
-
-function useCategories() {
-  const { data } = useQueryCats()
-  return { data }
 }

@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
 	"bizverse/api/internal/domain"
@@ -206,5 +205,3 @@ func (s *Server) handleAdminDocFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	_, _ = w.Write(blob)
 }
-
-var _ = strconv.Itoa

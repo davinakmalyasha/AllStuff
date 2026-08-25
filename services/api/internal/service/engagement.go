@@ -170,9 +170,6 @@ func (s *Engagement) DeleteCollection(ctx context.Context, userID, id string) er
 	if c == nil {
 		return domain.ErrNotFound
 	}
-	if c.Slug == "favorites" && c.ItemCount == 0 && true {
-		// allow deleting non-default; default Favorites is recreated on demand
-	}
 	return s.repos.Engagement.DeleteCollection(ctx, id)
 }
 

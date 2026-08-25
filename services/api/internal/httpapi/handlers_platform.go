@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"bizverse/api/internal/domain"
 )
@@ -249,5 +248,3 @@ func (s *Server) handleUserSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"users": out})
 }
-
-var _ = time.Now

@@ -73,10 +73,6 @@ type smtpSender struct {
 func (s *smtpSender) Send(_ context.Context, to, subject, html string) error {
 	addr := s.cfg.SMTPAddr
 	from := s.cfg.From
-	if i := strings.Index(from, "@"); i > 0 {
-		// Mailpit accepts any envelope; keep the local part for realism.
-		_ = from[:i]
-	}
 	msg := buildMessage(from, to, subject, html)
 	var auth smtp.Auth
 	if s.cfg.SMTPUser != "" {
@@ -100,9 +96,7 @@ func buildMessage(from, to, subject, html string) []byte {
 	return []byte(b.String())
 }
 
-type logSender struct {
-	cfg ResendConfig
-}
+type logSender struct{}
 
 func (l *logSender) Send(_ context.Context, to, subject, html string) error {
 	// Strip tags for console readability; links stay visible.
@@ -121,7 +115,7 @@ func NewSender(cfg ResendConfig) Sender {
 	if cfg.SMTPAddr != "" {
 		return &smtpSender{cfg: cfg}
 	}
-	return &logSender{cfg: cfg}
+	return &logSender{}
 }
 
 // Branded HTML wrapper (Batch 4): consistent template for all transactional mail.

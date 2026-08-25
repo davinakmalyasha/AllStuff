@@ -62,7 +62,7 @@ func (r *ProductRepo) Update(ctx context.Context, id string, fields map[string]a
 			return fmt.Errorf("field not allowed: %s", k)
 		}
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	if len(cols) == 1 {
 		return nil
@@ -253,7 +253,7 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx pgx.Tx, productID, newID
 	copiedOptions := make([]*domain.ProductOption, 0, len(options))
 	for _, o := range options {
 		copiedOptions = append(copiedOptions, &domain.ProductOption{
-			ID: newUUID(), ProductID: newID, Name: o.Name, Values: o.Values,
+			ID: util.NewUUID(), ProductID: newID, Name: o.Name, Values: o.Values,
 		})
 	}
 	copiedVariants := make([]*domain.ProductVariant, 0, len(variants))
@@ -263,7 +263,7 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx pgx.Tx, productID, newID
 			return err
 		}
 		copiedVariants = append(copiedVariants, &domain.ProductVariant{
-			ID: newUUID(), ProductID: newID, Name: v.Name, SKU: sku,
+			ID: util.NewUUID(), ProductID: newID, Name: v.Name, SKU: sku,
 			Options: v.Options, Price: v.Price, Currency: v.Currency,
 			StockQty: v.StockQty, InStock: v.InStock, ImageID: v.ImageID,
 		})
@@ -295,5 +295,3 @@ func (r *ProductRepo) uniqueCopySKU(ctx context.Context, baseSKU, businessID str
 	}
 	return candidate, nil
 }
-
-func newUUID() string { return util.NewUUID() }

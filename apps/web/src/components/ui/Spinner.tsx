@@ -44,5 +44,3 @@ export function ErrorNote({
     </div>
   )
 }
-
-export { SkeletonCard } from '@/lib/format'

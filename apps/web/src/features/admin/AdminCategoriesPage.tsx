@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { Confirm } from '@/components/ui/Modal'
 
 type TreeNode = CategoryDTO
 
@@ -14,6 +15,7 @@ export function AdminCategoriesPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<CategoryDTO | null>(null)
   const [creating, setCreating] = useState<{ parentId: string | null } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CategoryDTO | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['categories'],
@@ -81,9 +83,7 @@ export function AdminCategoriesPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                if (window.confirm(`Delete "${c.name}"?`)) void deleteMutation.mutateAsync(c)
-              }}
+              onClick={() => setDeleteTarget(c)}
               aria-label={`Delete ${c.name}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -140,6 +140,16 @@ export function AdminCategoriesPage() {
           {(deleteMutation.error as Error).message}
         </p>
       )}
+
+      <Confirm
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void deleteMutation.mutateAsync(deleteTarget)}
+        title="Delete category"
+        message={`Delete "${deleteTarget?.name}"? Categories with businesses must be moved first.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   )
 }

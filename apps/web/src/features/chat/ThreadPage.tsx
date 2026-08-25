@@ -16,7 +16,7 @@ import {
   Video,
   Mic,
 } from 'lucide-react'
-import { api, uploadMedia, type ChatMessageDTO } from '@/lib/api'
+import { api, uploadMedia, type ChatMessageDTO, type ThreadDTO, type ThreadListItemDTO } from '@/lib/api'
 import { useDebouncedValue } from '@/lib/hooks'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner } from '@/components/ui/Spinner'
@@ -73,9 +73,24 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
 
   const { data, isLoading } = useQuery({
     queryKey: ['thread', id],
-    queryFn: () => api<{ thread: unknown; messages: ChatMessageDTO[] }>(`/threads/${id}`),
+    queryFn: () => api<{ thread: ThreadDTO; messages: ChatMessageDTO[] }>(`/threads/${id}`),
     enabled: !!id,
   })
+
+  // Header label: the detail payload carries ids only, so resolve the display
+  // name from the thread list — business name for business threads, the other
+  // participant for direct ones.
+  const { data: labeled } = useQuery({
+    queryKey: ['thread-labels'],
+    queryFn: () => api<{ threads: ThreadListItemDTO[] }>('/threads'),
+    enabled: !!id,
+  })
+  const listItem = labeled?.threads.find((t) => t.id === id)
+  const headerTitle = listItem
+    ? listItem.type === 'business'
+      ? listItem.business_name ?? 'Chat'
+      : listItem.other_name ?? 'Chat'
+    : 'Chat'
 
   useEffect(() => {
     if (data) setMessages(data.messages)
@@ -408,7 +423,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         <button onClick={() => navigate(businessMode ? '/dashboard/chats' : '/me/messages')} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Back">
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <p className="flex-1 text-sm font-semibold text-ink">Thread</p>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{headerTitle}</p>
         <button onClick={() => void togglePinThread()} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={pinnedThread ? 'Unpin conversation' : 'Pin conversation'} title={pinnedThread ? 'Unpin' : 'Pin (max 5)'}>
           <Pin className={`h-4 w-4 ${pinnedThread ? 'fill-current text-ink' : ''}`} />
         </button>

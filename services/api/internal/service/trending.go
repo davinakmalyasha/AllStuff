@@ -382,5 +382,3 @@ func (t *Trending) categoryEntries(ctx context.Context, categoryID string, taken
 	}
 	return out, rows.Err()
 }
-
-var _ = repo.Repos{}

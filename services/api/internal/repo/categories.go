@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 type CategoryRepo struct{ pool pooler }
@@ -99,7 +100,7 @@ func (r *CategoryRepo) Update(ctx context.Context, id string, fields map[string]
 	args := []any{id}
 	for k, v := range fields {
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	_, err := r.pool.Exec(ctx,
 		"UPDATE categories SET "+joinComma(cols)+" WHERE id = $1", args...)

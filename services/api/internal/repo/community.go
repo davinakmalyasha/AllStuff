@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 // CommunityRepo — Q&A, follows, owner announcements (B5/B6 additions).
@@ -15,7 +16,7 @@ type CommunityRepo struct{ pool pooler }
 // ---- Q&A ----
 
 func (r *CommunityRepo) CreateQuestion(ctx context.Context, businessID, userID, text string) (*domain.Question, error) {
-	q := &domain.Question{ID: newUUID(), BusinessID: businessID, UserID: userID, Text: text}
+	q := &domain.Question{ID: util.NewUUID(), BusinessID: businessID, UserID: userID, Text: text}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO questions (id, business_id, user_id, text) VALUES ($1, $2, $3, $4)`,
 		q.ID, q.BusinessID, q.UserID, q.Text)
@@ -64,7 +65,7 @@ func (r *CommunityRepo) GetQuestion(ctx context.Context, id string) (*domain.Que
 }
 
 func (r *CommunityRepo) CreateAnswer(ctx context.Context, questionID, userID, text string, isOwner bool) (*domain.Answer, error) {
-	a := &domain.Answer{ID: newUUID(), QuestionID: questionID, UserID: userID, Text: text, IsOwner: isOwner}
+	a := &domain.Answer{ID: util.NewUUID(), QuestionID: questionID, UserID: userID, Text: text, IsOwner: isOwner}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO answers (id, question_id, user_id, text, is_owner) VALUES ($1, $2, $3, $4, $5)`,
 		a.ID, a.QuestionID, a.UserID, a.Text, a.IsOwner)
@@ -139,7 +140,7 @@ func (r *CommunityRepo) SetFollow(ctx context.Context, userID, businessID string
 	if on {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO follows (id, user_id, business_id) VALUES ($1, $2, $3)
-			ON CONFLICT (user_id, business_id) DO NOTHING`, newUUID(), userID, businessID)
+			ON CONFLICT (user_id, business_id) DO NOTHING`, util.NewUUID(), userID, businessID)
 		return err
 	}
 	_, err := r.pool.Exec(ctx,
@@ -195,7 +196,7 @@ func (r *CommunityRepo) CategoryFollowerIDs(ctx context.Context, categoryID stri
 // ---- owner announcements ----
 
 func (r *CommunityRepo) CreateUpdate(ctx context.Context, businessID, authorID, title, body string) (*domain.BusinessUpdate, error) {
-	u := &domain.BusinessUpdate{ID: newUUID(), BusinessID: businessID, AuthorID: authorID, Title: title, Body: body}
+	u := &domain.BusinessUpdate{ID: util.NewUUID(), BusinessID: businessID, AuthorID: authorID, Title: title, Body: body}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO business_updates (id, business_id, author_id, title, body)
 		VALUES ($1, $2, $3, $4, $5)`, u.ID, u.BusinessID, u.AuthorID, u.Title, u.Body)

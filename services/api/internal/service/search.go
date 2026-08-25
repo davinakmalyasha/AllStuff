@@ -361,6 +361,3 @@ func parseHHMM(s string) (int, bool) {
 	}
 	return hh*60 + mm, true
 }
-
-var _ = repo.Repos{}
-var _ = domain.Business{}

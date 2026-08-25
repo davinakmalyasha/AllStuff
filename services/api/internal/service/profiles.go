@@ -255,5 +255,3 @@ func (s *Profiles) ResolveAnomaly(ctx context.Context, eventID string) error {
 		`UPDATE engagement_events SET flagged = false WHERE id = $1 AND flagged = true`, eventID)
 	return err
 }
-
-var _ = repo.Repos{}

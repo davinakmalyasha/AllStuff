@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"bizverse/api/internal/util"
 )
 
 // TFA — 2FA state + recovery codes (PRD §5.9.1, §7.4 user_2fa).
@@ -28,7 +30,7 @@ func (r *TFARepo) UpsertSecret(ctx context.Context, userID, secretEncrypted stri
 		INSERT INTO user_2fa (id, user_id, totp_secret_encrypted, recovery_codes_hash)
 		VALUES ($1, $2, $3, '[]'::jsonb)
 		ON CONFLICT (user_id) DO UPDATE SET totp_secret_encrypted = EXCLUDED.totp_secret_encrypted, enabled_at = NULL`,
-		newUUID(), userID, secretEncrypted)
+		util.NewUUID(), userID, secretEncrypted)
 	return err
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/util"
 )
 
 // Community — Q&A, follows, owner announcements (B5/B6).
@@ -145,7 +146,7 @@ func (s *Community) FollowCategory(ctx context.Context, userID, categoryID strin
 		if _, err := s.repos.Exec(ctx, `
 			INSERT INTO user_category_follows (id, user_id, category_id) VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, category_id) DO NOTHING`,
-			newUUID(), userID, categoryID); err != nil {
+			util.NewUUID(), userID, categoryID); err != nil {
 			return err
 		}
 		return nil

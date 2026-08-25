@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 type BusinessRepo struct{ pool pooler }
@@ -69,7 +70,7 @@ func (r *BusinessRepo) Update(ctx context.Context, id string, fields map[string]
 			return fmt.Errorf("field not allowed: %s", k)
 		}
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	if len(cols) == 1 {
 		return nil
@@ -95,7 +96,7 @@ func (r *BusinessRepo) SetStatus(ctx context.Context, id string, status domain.B
 			return fmt.Errorf("field not allowed in SetStatus: %s", k)
 		}
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	_, err := r.pool.Exec(ctx,
 		"UPDATE businesses SET "+strings.Join(cols, ", ")+" WHERE id = $1", args...)
@@ -330,14 +331,6 @@ func (r *BusinessRepo) ListDocuments(ctx context.Context, businessID string) ([]
 	}
 	return out, rows.Err()
 }
-func (r *BusinessRepo) ApprovedDocCount(ctx context.Context, businessID string) (int, error) {
-	var n int
-	err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM verification_documents WHERE business_id = $1 AND status = 'approved'`,
-		businessID).Scan(&n)
-	return n, err
-}
-
 // CanManageBusiness: owner OR accepted co-owner invite (PRD §5.9.3).
 // The role matters: "viewer" invites are read-only and must never gain
 // management rights over the listing.
@@ -388,7 +381,7 @@ type BusinessInvite struct {
 func (r *BusinessRepo) CreateInvite(ctx context.Context, invitedBy, businessID, email, role, token string) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO business_invites (id, invited_by, business_id, email, role, token)
-		VALUES ($1, $2, $3, $4, $5, $6)`, newUUID(), invitedBy, businessID, email, role, token)
+		VALUES ($1, $2, $3, $4, $5, $6)`, util.NewUUID(), invitedBy, businessID, email, role, token)
 	return err
 }
 

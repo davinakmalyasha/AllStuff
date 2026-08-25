@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { Confirm } from '@/components/ui/Modal'
 
 const DAYS = [
   ['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'],
@@ -50,6 +51,7 @@ export function SettingsPage() {
   const [error, setError] = useState('')
   const [logo, setLogo] = useState<MediaDTO | null>(null)
   const [cover, setCover] = useState<MediaDTO | null>(null)
+  const [confirmClose, setConfirmClose] = useState(false)
 
   // Hydrate in an effect KEYED ON THE BUSINESS ID ONLY: the old render-phase
   // `if (b && !hydrated)` never reset when the active business changed, and a
@@ -265,12 +267,22 @@ export function SettingsPage() {
               <Pause className="h-4 w-4" /> Pause (hide from search)
             </Button>
           )}
-          <Button variant="danger" onClick={() => { if (window.confirm(`Permanently close "${b.name}"? This cannot be undone.`)) void action.mutateAsync('close') }} disabled={action.isPending || b.status === 'closed'}>
+          <Button variant="danger" onClick={() => setConfirmClose(true)} disabled={action.isPending || b.status === 'closed'}>
             <XCircle className="h-4 w-4" /> Close permanently
           </Button>
         </div>
         <p className="text-xs text-ink3">Paused: hidden from search/map, page shows "temporarily closed". Closed: 410, irreversible (PRD §8.2).</p>
       </Card>
+
+      <Confirm
+        open={confirmClose}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => void action.mutateAsync('close')}
+        title="Close permanently"
+        message={`Permanently close "${b.name}"? This cannot be undone.`}
+        confirmLabel="Close permanently"
+        danger
+      />
     </div>
   )
 }

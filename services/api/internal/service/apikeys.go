@@ -10,6 +10,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/util"
 )
 
 // APIKeys — public read API credentials (PRD §9.6). Keys are shown once at
@@ -57,7 +58,7 @@ func (k *APIKeys) Create(ctx context.Context, userID, name string) (*APIKey, str
 	}
 	rawKey := "bv_" + hex.EncodeToString(raw)
 	sum := sha256.Sum256([]byte(rawKey))
-	key := &APIKey{ID: newUUID(), UserID: userID, Name: name, Prefix: rawKey[:10], Scopes: []string{"read"}}
+	key := &APIKey{ID: util.NewUUID(), UserID: userID, Name: name, Prefix: rawKey[:10], Scopes: []string{"read"}}
 	_, err := k.repos.Exec(ctx, `
 		INSERT INTO api_keys (id, user_id, name, key_hash, prefix) VALUES ($1, $2, $3, $4, $5)`,
 		key.ID, key.UserID, key.Name, hex.EncodeToString(sum[:]), key.Prefix)

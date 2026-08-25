@@ -10,8 +10,6 @@ import (
 	"bizverse/api/internal/util"
 )
 
-func newUUID() string { return util.NewUUID() }
-
 // ---- moderation (PRD §5.8.2) ----
 
 func (s *Server) handleAdminReports(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +76,7 @@ func (s *Server) handleAdminHide(w http.ResponseWriter, r *http.Request) {
 	// audit trail
 	_, _ = s.deps.Repos.Exec(r.Context(), `
 		INSERT INTO moderation_actions (id, admin_id, action, target_type, target_id, reason)
-		VALUES ($1, $2, $3, $4, $5, '')`, newUUID(), admin.ID, action, targetType, targetID)
+		VALUES ($1, $2, $3, $4, $5, '')`, util.NewUUID(), admin.ID, action, targetType, targetID)
 	ok(w, map[string]any{"done": true})
 }
 
@@ -309,7 +307,7 @@ func (s *Server) handleAdminBusinessSuspend(w http.ResponseWriter, r *http.Reque
 	_, _ = s.deps.Repos.Exec(r.Context(), `
 		INSERT INTO moderation_actions (id, admin_id, action, target_type, target_id, reason)
 		VALUES ($1, $2, $3, 'business', $4, $5)`,
-		newUUID(), admin.ID, action, r.PathValue("id"), in.Reason)
+		util.NewUUID(), admin.ID, action, r.PathValue("id"), in.Reason)
 	// Notify the owner.
 	var ownerID string
 	_ = s.deps.Repos.QueryRow(r.Context(),

@@ -6,6 +6,7 @@ import { api, type CollectionDTO, type CollectionItemDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { Confirm } from '@/components/ui/Modal'
 import { usePageMeta } from '@/lib/meta'
 
 export function CollectionsPage() {
@@ -13,6 +14,7 @@ export function CollectionsPage() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CollectionDTO | null>(null)
 
   usePageMeta('My collections')
 
@@ -89,7 +91,7 @@ export function CollectionsPage() {
               <Button variant="ghost" size="sm" onClick={() => void togglePublic.mutateAsync(c)}>
                 {c.is_public ? 'Public' : 'Private'}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { if (window.confirm(`Delete "${c.name}"?`)) void remove.mutateAsync(c) }} aria-label="Delete collection">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(c)} aria-label="Delete collection">
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -124,6 +126,16 @@ export function CollectionsPage() {
           <Card className="py-12 text-center text-sm text-ink3">No collections yet. Save a business to create your first one.</Card>
         )}
       </div>
+
+      <Confirm
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void remove.mutateAsync(deleteTarget)}
+        title="Delete collection"
+        message={`Delete "${deleteTarget?.name}"? Saved businesses stay in your account.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   )
 }

@@ -3,11 +3,11 @@ package repo
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 // ChatRepo — threads, participants, messages, reactions, quick replies,
@@ -24,7 +24,7 @@ func (r *ChatRepo) CreateThread(ctx context.Context, ttype, businessID, userID s
 	if businessID != "" {
 		biz = &businessID
 	}
-	t := &domain.ChatThread{ID: newUUID(), Type: ttype, BusinessID: biz}
+	t := &domain.ChatThread{ID: util.NewUUID(), Type: ttype, BusinessID: biz}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (r *ChatRepo) CreateThread(ctx context.Context, ttype, businessID, userID s
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO chat_participants (id, thread_id, user_id, role)
-		VALUES ($1, $2, $3, 'user')`, newUUID(), t.ID, userID); err != nil {
+		VALUES ($1, $2, $3, 'user')`, util.NewUUID(), t.ID, userID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -92,7 +92,7 @@ func (r *ChatRepo) AddParticipant(ctx context.Context, threadID, userID, role st
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO chat_participants (id, thread_id, user_id, role) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (thread_id, user_id) DO UPDATE SET left_at = NULL`,
-		newUUID(), threadID, userID, role)
+		util.NewUUID(), threadID, userID, role)
 	return err
 }
 
@@ -243,7 +243,7 @@ func (r *ChatRepo) MessagesByThread(ctx context.Context, threadID string, before
 		query += ` AND id < $2`
 		args = append(args, before)
 	}
-	query += ` ORDER BY id DESC LIMIT $` + itoa(len(args)+1)
+	query += ` ORDER BY id DESC LIMIT $` + util.Itoa(len(args)+1)
 	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -274,20 +274,6 @@ func (r *ChatRepo) DeleteMessage(ctx context.Context, id int64, scope string) er
 	return err
 }
 
-func (r *ChatRepo) LastMessageID(ctx context.Context, threadID string) (int64, error) {
-	var id int64
-	err := r.pool.QueryRow(ctx,
-		`SELECT coalesce(max(id), 0) FROM chat_messages WHERE thread_id=$1`, threadID).Scan(&id)
-	return id, err
-}
-
-func (r *ChatRepo) SetThreadLastMessage(ctx context.Context, threadID string, msgID int64) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE chat_threads SET last_message_at = now() WHERE id=$1`, threadID)
-	_ = err
-	return err
-}
-
 func (r *ChatRepo) TouchLastMessage(ctx context.Context, threadID string) error {
 	_, err := r.pool.Exec(ctx, `
 		UPDATE chat_threads SET last_message_at = now() WHERE id=$1`, threadID)
@@ -315,7 +301,7 @@ func (r *ChatRepo) SetReaction(ctx context.Context, messageID int64, userID, emo
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO message_reactions (id, message_id, user_id, emoji) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji`,
-		newUUID(), messageID, userID, emoji)
+		util.NewUUID(), messageID, userID, emoji)
 	return err
 }
 
@@ -364,7 +350,7 @@ func (r *ChatRepo) SetBlock(ctx context.Context, blockerID, blockedID string, on
 	if on {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO blocks (id, blocker_id, blocked_id) VALUES ($1,$2,$3)
-			ON CONFLICT (blocker_id, blocked_id) DO NOTHING`, newUUID(), blockerID, blockedID)
+			ON CONFLICT (blocker_id, blocked_id) DO NOTHING`, util.NewUUID(), blockerID, blockedID)
 		return err
 	}
 	_, err := r.pool.Exec(ctx,
@@ -423,7 +409,7 @@ func (r *ChatRepo) CreateQuickReply(ctx context.Context, businessID, text string
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO quick_replies (id, business_id, text, sort_order)
 		VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order)+1 FROM quick_replies WHERE business_id = $2), 0))`,
-		newUUID(), businessID, text)
+		util.NewUUID(), businessID, text)
 	return err
 }
 
@@ -532,5 +518,3 @@ func (r *ChatRepo) BannedWords(ctx context.Context) ([]string, error) {
 	}
 	return out, rows.Err()
 }
-
-var _ = time.Now

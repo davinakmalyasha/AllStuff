@@ -323,10 +323,6 @@ export const DOC_KINDS: Record<string, string> = {
   utility: 'Utility bill (proof of address)',
 }
 
-export function mediaUrl(id: string | null | undefined): string | null {
-  return id ? `/api/v1/media/${id}/file` : null
-}
-
 // ---- Products ----
 
 export interface ProductDTO {
@@ -387,7 +383,6 @@ export interface AnalyticsDTO {
   rating_avg: number | null
   top_products: { product_id: string; name: string; likes: number; views: number }[]
   views_series: { day: string; count: number }[]
-  trend_score: number
   leaderboard: { global: number | null; category: number | null } | null
 }
 
@@ -494,6 +489,16 @@ export interface ThreadListItemDTO {
   last_body: string | null
   unread: number
   pinned?: boolean
+}
+
+/** Thread detail payload (GET /threads/:id) — ids only, no display names. */
+export interface ThreadDTO {
+  id: string
+  type: 'direct' | 'business'
+  business_id: string | null
+  status: string
+  last_message_at: string | null
+  created_at: string
 }
 
 export interface ChatMessageDTO {

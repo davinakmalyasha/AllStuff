@@ -16,6 +16,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/security"
+	"bizverse/api/internal/util"
 )
 
 const (
@@ -333,7 +334,7 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			fail(w, domain.ErrRateLimited)
 			return
 		}
-		w.Header().Set("X-RateLimit-Remaining", itoa(remaining))
+		w.Header().Set("X-RateLimit-Remaining", util.Itoa(remaining))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -587,29 +588,7 @@ func hashToken(t string) string {
 }
 
 func seconds(d time.Duration) string {
-	return itoa(int(d.Seconds()) + 1)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
+	return util.Itoa(int(d.Seconds()) + 1)
 }
 
 // ---- response compression (perf audit P2-1) ----

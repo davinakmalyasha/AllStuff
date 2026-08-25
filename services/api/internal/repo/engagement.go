@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 // EngagementRepo — likes, recommends, collections, comments, reviews,
@@ -23,7 +23,7 @@ func (r *EngagementRepo) SetLike(ctx context.Context, userID, targetType, target
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO likes (id, user_id, target_type, target_id)
 			VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, target_type, target_id) DO NOTHING`,
-			newUUID(), userID, targetType, targetID)
+			util.NewUUID(), userID, targetType, targetID)
 		return err
 	}
 	_, err := r.pool.Exec(ctx,
@@ -44,7 +44,7 @@ func (r *EngagementRepo) SetRecommend(ctx context.Context, userID, businessID st
 	if on {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO recommends (id, user_id, business_id) VALUES ($1, $2, $3)
-			ON CONFLICT (user_id, business_id) DO NOTHING`, newUUID(), userID, businessID)
+			ON CONFLICT (user_id, business_id) DO NOTHING`, util.NewUUID(), userID, businessID)
 		return err
 	}
 	_, err := r.pool.Exec(ctx,
@@ -63,7 +63,7 @@ func (r *EngagementRepo) HasRecommend(ctx context.Context, userID, businessID st
 // ---- collections (PRD D3) ----
 
 func (r *EngagementRepo) CreateCollection(ctx context.Context, userID, name string) (*domain.Collection, error) {
-	c := &domain.Collection{ID: newUUID(), UserID: userID, Name: name}
+	c := &domain.Collection{ID: util.NewUUID(), UserID: userID, Name: name}
 	slug, err := r.collectionSlug(ctx, userID, name)
 	if err != nil {
 		return nil, err
@@ -133,7 +133,7 @@ func (r *EngagementRepo) DefaultCollection(ctx context.Context, userID string) (
 		return nil, err
 	}
 	// create default
-	c = domain.Collection{ID: newUUID(), UserID: userID, Name: "Favorites", Slug: "favorites", IsPublic: false}
+	c = domain.Collection{ID: util.NewUUID(), UserID: userID, Name: "Favorites", Slug: "favorites", IsPublic: false}
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO collections (id, user_id, name, slug, is_default)
 		VALUES ($1, $2, $3, $4, true)`, c.ID, c.UserID, c.Name, c.Slug)
@@ -182,7 +182,7 @@ func (r *EngagementRepo) UpdateCollection(ctx context.Context, id string, fields
 	args := []any{id}
 	for k, v := range fields {
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	_, err := r.pool.Exec(ctx,
 		"UPDATE collections SET "+joinComma(cols)+" WHERE id = $1", args...)
@@ -199,7 +199,7 @@ func (r *EngagementRepo) AddItem(ctx context.Context, collectionID, targetType, 
 		INSERT INTO collection_items (id, collection_id, target_type, target_id, note)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (collection_id, target_type, target_id) DO NOTHING`,
-		newUUID(), collectionID, targetType, targetID, note)
+		util.NewUUID(), collectionID, targetType, targetID, note)
 	return err
 }
 
@@ -266,7 +266,7 @@ func (r *EngagementRepo) CreateComment(ctx context.Context, businessID, userID, 
 	if parentID != "" {
 		parent = &parentID
 	}
-	c := &domain.Comment{ID: newUUID(), BusinessID: businessID, UserID: userID, ParentID: parent, Text: text}
+	c := &domain.Comment{ID: util.NewUUID(), BusinessID: businessID, UserID: userID, ParentID: parent, Text: text}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO comments (id, business_id, user_id, parent_id, text) VALUES ($1,$2,$3,$4,$5)`,
 		c.ID, c.BusinessID, c.UserID, c.ParentID, c.Text)
@@ -279,7 +279,7 @@ func (r *EngagementRepo) CreateComment(ctx context.Context, businessID, userID, 
 // MyReviews lists a user's reviews with business context (PRD §5.6.2).
 func (r *EngagementRepo) MyReviews(ctx context.Context, userID string, limit, offset int) ([]*domain.Review, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
+		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at, r.reply_edited_at,
 			r.status, r.created_at, u.name, u.username, u.avatar_url,
 			(SELECT coalesce(sum(vote),0) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count,
 			b.name AS business_name, b.slug AS business_slug
@@ -296,7 +296,7 @@ func (r *EngagementRepo) MyReviews(ctx context.Context, userID string, limit, of
 	for rows.Next() {
 		var rv domain.Review
 		if err := rows.Scan(&rv.ID, &rv.BusinessID, &rv.ProductID, &rv.UserID, &rv.Rating, &rv.Text, &rv.ImageIDs,
-			&rv.Reply, &rv.ReplyAt, &rv.Status, &rv.CreatedAt, &rv.AuthorName, &rv.AuthorUsername, &rv.AuthorAvatar,
+			&rv.Reply, &rv.ReplyAt, &rv.ReplyEditedAt, &rv.Status, &rv.CreatedAt, &rv.AuthorName, &rv.AuthorUsername, &rv.AuthorAvatar,
 			&rv.HelpfulCount, &rv.BusinessName, &rv.BusinessSlug); err != nil {
 			return nil, err
 		}
@@ -370,7 +370,7 @@ func (r *EngagementRepo) SetCommentLike(ctx context.Context, commentID, userID s
 	if on {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO comment_likes (id, comment_id, user_id) VALUES ($1,$2,$3)
-			ON CONFLICT (comment_id, user_id) DO NOTHING`, newUUID(), commentID, userID)
+			ON CONFLICT (comment_id, user_id) DO NOTHING`, util.NewUUID(), commentID, userID)
 		return err
 	}
 	_, err := r.pool.Exec(ctx, `DELETE FROM comment_likes WHERE comment_id=$1 AND user_id=$2`, commentID, userID)
@@ -383,13 +383,13 @@ func (r *EngagementRepo) CreateReview(ctx context.Context, businessID string, pr
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO reviews (id, business_id, product_id, user_id, rating, text, image_ids)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		newUUID(), businessID, productID, userID, rating, text, imageIDs)
+		util.NewUUID(), businessID, productID, userID, rating, text, imageIDs)
 	return err
 }
 
 func (r *EngagementRepo) GetReviewByUser(ctx context.Context, businessID string, productID *string, userID string) (*domain.Review, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
+		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at, r.reply_edited_at,
 			r.status, r.created_at, u.name, u.username, u.avatar_url
 		FROM reviews r JOIN users u ON u.id = r.user_id
 		WHERE r.business_id=$1 AND r.deleted_at IS NULL
@@ -418,7 +418,7 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 		order = "helpful_count DESC, r.created_at DESC"
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
+		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at, r.reply_edited_at,
 			r.status, r.created_at, u.name, u.username, u.avatar_url,
 			(SELECT coalesce(sum(vote),0) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count,
 			(SELECT vote FROM review_helpful_votes v WHERE v.review_id = r.id AND v.user_id = NULLIF($5::text,'')::uuid) AS my_vote
@@ -434,7 +434,7 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 	for rows.Next() {
 		var rw domain.Review
 		if err := rows.Scan(&rw.ID, &rw.BusinessID, &rw.ProductID, &rw.UserID, &rw.Rating, &rw.Text,
-			&rw.ImageIDs, &rw.Reply, &rw.ReplyAt, &rw.Status, &rw.CreatedAt, &rw.AuthorName, &rw.AuthorUsername,
+			&rw.ImageIDs, &rw.Reply, &rw.ReplyAt, &rw.ReplyEditedAt, &rw.Status, &rw.CreatedAt, &rw.AuthorName, &rw.AuthorUsername,
 			&rw.AuthorAvatar, &rw.HelpfulCount, &rw.MyVote); err != nil {
 			return nil, err
 		}
@@ -446,7 +446,7 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 func scanReview(row pgx.Row) (*domain.Review, error) {
 	var rw domain.Review
 	if err := row.Scan(&rw.ID, &rw.BusinessID, &rw.ProductID, &rw.UserID, &rw.Rating, &rw.Text,
-		&rw.ImageIDs, &rw.Reply, &rw.ReplyAt, &rw.Status, &rw.CreatedAt, &rw.AuthorName, &rw.AuthorUsername,
+		&rw.ImageIDs, &rw.Reply, &rw.ReplyAt, &rw.ReplyEditedAt, &rw.Status, &rw.CreatedAt, &rw.AuthorName, &rw.AuthorUsername,
 		&rw.AuthorAvatar); err != nil {
 		return nil, err
 	}
@@ -495,7 +495,7 @@ func (r *EngagementRepo) ClearReviewReply(ctx context.Context, id, ownerID strin
 
 func (r *EngagementRepo) GetReview(ctx context.Context, id string) (*domain.Review, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at,
+		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at, r.reply_edited_at,
 			r.status, r.created_at, u.name, u.username, u.avatar_url
 		FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.id=$1 AND r.deleted_at IS NULL`, id)
 	rw, err := scanReview(row)
@@ -509,7 +509,7 @@ func (r *EngagementRepo) SetHelpful(ctx context.Context, reviewID, userID string
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO review_helpful_votes (id, review_id, user_id, vote) VALUES ($1,$2,$3,$4)
 		ON CONFLICT (review_id, user_id) DO UPDATE SET vote = EXCLUDED.vote`,
-		newUUID(), reviewID, userID, vote)
+		util.NewUUID(), reviewID, userID, vote)
 	return err
 }
 
@@ -520,21 +520,10 @@ func (r *EngagementRepo) RemoveHelpful(ctx context.Context, reviewID, userID str
 	return err
 }
 
-func (r *EngagementRepo) GetHelpful(ctx context.Context, reviewID, userID string) (int, error) {
-	var v int
-	err := r.pool.QueryRow(ctx,
-		`SELECT vote FROM review_helpful_votes WHERE review_id=$1 AND user_id=$2`,
-		reviewID, userID).Scan(&v)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	return v, err
-}
-
 // ---- notifications (PRD §5.7) ----
 
 func (r *EngagementRepo) CreateNotification(ctx context.Context, userID, ntype string, payload map[string]any) (*domain.Notification, error) {
-	n := &domain.Notification{ID: newUUID(), UserID: userID, Type: ntype, Payload: payload}
+	n := &domain.Notification{ID: util.NewUUID(), UserID: userID, Type: ntype, Payload: payload}
 	// Retention tiers (PRD §5.7): 90d users, 180d business owners, 365d admins.
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO notifications (id, user_id, type, payload, expires_at)
@@ -661,5 +650,3 @@ func (r *EngagementRepo) InsertEvent(ctx context.Context, userID, targetType, ta
 	}
 	return tag.RowsAffected() > 0, nil
 }
-
-var _ = time.Now

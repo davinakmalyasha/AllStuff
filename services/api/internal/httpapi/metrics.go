@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"bizverse/api/internal/util"
 )
 
 // Metrics — minimal Prometheus text-format registry (PRD §5.8.6 ops depth).
@@ -61,7 +63,7 @@ func (m *syncMap) snapshot() map[string]uint64 {
 func (m *Metrics) Observe(method, path string, status int) {
 	m.requestsTotal.Add(1)
 	key := fmt.Sprintf("%s %s", method, normalizePath(path))
-	m.byPath.get(key + "|" + itoa(status)).Add(1)
+	m.byPath.get(key + "|" + util.Itoa(status)).Add(1)
 	if status >= 500 {
 		m.errorsTotal.Add(1)
 	}

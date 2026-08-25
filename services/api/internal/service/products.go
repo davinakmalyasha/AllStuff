@@ -2,10 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/repo"
@@ -321,7 +318,7 @@ func (s *Products) ToggleStockAlert(ctx context.Context, userID, productID strin
 	if on {
 		_, err := s.repos.Exec(ctx, `
 			INSERT INTO product_stock_alerts (id, user_id, product_id) VALUES ($1, $2, $3)
-			ON CONFLICT (user_id, product_id) DO NOTHING`, newUUID(), userID, productID)
+			ON CONFLICT (user_id, product_id) DO NOTHING`, util.NewUUID(), userID, productID)
 		return err
 	}
 	_, err := s.repos.Exec(ctx, `
@@ -486,6 +483,3 @@ func derefID(id *string) string {
 	}
 	return *id
 }
-
-var _ = errors.Is
-var _ = pgx.ErrNoRows

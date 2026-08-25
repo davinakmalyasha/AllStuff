@@ -53,7 +53,6 @@ export function ComparePage() {
       setUrlIds(remaining)
       return
     }
-    if (remaining.includes(id)) return
     const next = ids.filter((x) => x !== id)
     setIds(next)
     setUrlIds(next)

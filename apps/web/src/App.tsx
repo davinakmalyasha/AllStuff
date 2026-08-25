@@ -18,45 +18,53 @@ import { OwnerShell } from '@/app/shells/OwnerShell'
 import { AdminShell } from '@/app/shells/AdminShell'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { DiscoverPage } from '@/features/discover/DiscoverPage'
-import { CategoriesPage, ForBusinessPage } from '@/features/pages/StaticPages'
-import { ClaimPage } from '@/features/pages/ClaimPage'
-import { CityPage } from '@/features/discover/CityPage'
-import { UserProfilePage } from '@/features/me/UserProfilePage'
-import { FollowingFeedPage } from '@/features/me/FollowingFeedPage'
-import { HelpPage, BusinessHelpPage } from '@/features/help/HelpPages'
-import { ContactPage } from '@/features/help/ContactPage'
-import { TermsPage, PrivacyPage } from '@/features/pages/LegalPages'
-import { AdminKPIPage } from '@/features/admin/AdminKPIPage'
-import { AdminAppealsPage } from '@/features/admin/AdminAppealsPage'
-import { AdminAuditPage } from '@/features/admin/AdminAuditPage'
-import { AdminClaimsPage } from '@/features/admin/AdminClaimsPage'
-import { LeaderboardsPage } from '@/features/discover/LeaderboardsPage'
-import { PublicCollectionPage } from '@/features/me/PublicCollectionPage'
+// Low-traffic routes (admin, auth, legal, help, dashboard subpages) load on
+// demand: statically importing them put ~500kB in the entry chunk every
+// visitor paid for.
+const CategoriesPage = lazy(() => import('@/features/pages/StaticPages').then((m) => ({ default: m.CategoriesPage })))
+const ForBusinessPage = lazy(() => import('@/features/pages/StaticPages').then((m) => ({ default: m.ForBusinessPage })))
+const ClaimPage = lazy(() => import('@/features/pages/ClaimPage').then((m) => ({ default: m.ClaimPage })))
+const CityPage = lazy(() => import('@/features/discover/CityPage').then((m) => ({ default: m.CityPage })))
+const UserProfilePage = lazy(() => import('@/features/me/UserProfilePage').then((m) => ({ default: m.UserProfilePage })))
+const FollowingFeedPage = lazy(() => import('@/features/me/FollowingFeedPage').then((m) => ({ default: m.FollowingFeedPage })))
+const HelpPage = lazy(() => import('@/features/help/HelpPages').then((m) => ({ default: m.HelpPage })))
+const BusinessHelpPage = lazy(() => import('@/features/help/HelpPages').then((m) => ({ default: m.BusinessHelpPage })))
+const ContactPage = lazy(() => import('@/features/help/ContactPage').then((m) => ({ default: m.ContactPage })))
+const TermsPage = lazy(() => import('@/features/pages/LegalPages').then((m) => ({ default: m.TermsPage })))
+const PrivacyPage = lazy(() => import('@/features/pages/LegalPages').then((m) => ({ default: m.PrivacyPage })))
+const AdminKPIPage = lazy(() => import('@/features/admin/AdminKPIPage').then((m) => ({ default: m.AdminKPIPage })))
+const AdminAppealsPage = lazy(() => import('@/features/admin/AdminAppealsPage').then((m) => ({ default: m.AdminAppealsPage })))
+const AdminAuditPage = lazy(() => import('@/features/admin/AdminAuditPage').then((m) => ({ default: m.AdminAuditPage })))
+const AdminClaimsPage = lazy(() => import('@/features/admin/AdminClaimsPage').then((m) => ({ default: m.AdminClaimsPage })))
+const LeaderboardsPage = lazy(() => import('@/features/discover/LeaderboardsPage').then((m) => ({ default: m.LeaderboardsPage })))
+const PublicCollectionPage = lazy(() => import('@/features/me/PublicCollectionPage').then((m) => ({ default: m.PublicCollectionPage })))
 const MapPage = lazy(() => import('@/features/map/MapPage').then((m) => ({ default: m.MapPage })))
 const ComparePage = lazy(() => import('@/features/compare/ComparePage').then((m) => ({ default: m.ComparePage })))
-import { LoginPage } from '@/features/auth/LoginPage'
-import { RegisterPage } from '@/features/auth/RegisterPage'
-import { VerifyEmailPage } from '@/features/auth/VerifyEmailPage'
-import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
-import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
-import { MePage } from '@/features/me/MePage'
-import { CollectionsPage } from '@/features/me/CollectionsPage'
-import { NotificationsPage } from '@/features/me/NotificationsPage'
-import { MyReviewsPage, ExportPage } from '@/features/me/ActivityPages'
-import { SecurityPage } from '@/features/me/SecurityPage'
+const LoginPage = lazy(() => import('@/features/auth/LoginPage').then((m) => ({ default: m.LoginPage })))
+const RegisterPage = lazy(() => import('@/features/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })))
+const VerifyEmailPage = lazy(() => import('@/features/auth/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })))
+const ForgotPasswordPage = lazy(() => import('@/features/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('@/features/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })))
+const MePage = lazy(() => import('@/features/me/MePage').then((m) => ({ default: m.MePage })))
+const CollectionsPage = lazy(() => import('@/features/me/CollectionsPage').then((m) => ({ default: m.CollectionsPage })))
+const NotificationsPage = lazy(() => import('@/features/me/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
+const MyReviewsPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.MyReviewsPage })))
+const ExportPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.ExportPage })))
+const SecurityPage = lazy(() => import('@/features/me/SecurityPage').then((m) => ({ default: m.SecurityPage })))
 const InboxPage = lazy(() => import('@/features/chat/InboxPage').then((m) => ({ default: m.InboxPage })))
 const ThreadPage = lazy(() => import('@/features/chat/ThreadPage').then((m) => ({ default: m.ThreadPage })))
 const DashboardChatsPage = lazy(() => import('@/features/chat/DashboardChatsPage').then((m) => ({ default: m.DashboardChatsPage })))
 const BusinessPage = lazy(() => import('@/features/business/BusinessPage').then((m) => ({ default: m.BusinessPage })))
 const CategoryPage = lazy(() => import('@/features/discover/CategoryPage').then((m) => ({ default: m.CategoryPage })))
 const BusinessWizardPage = lazy(() => import('@/features/dashboard/BusinessWizardPage').then((m) => ({ default: m.BusinessWizardPage })))
-import { VerificationSettingsPage } from '@/features/dashboard/VerificationSettingsPage'
+const VerificationSettingsPage = lazy(() => import('@/features/dashboard/VerificationSettingsPage').then((m) => ({ default: m.VerificationSettingsPage })))
 const StorefrontBuilderPage = lazy(() => import('@/features/dashboard/StorefrontBuilderPage').then((m) => ({ default: m.StorefrontBuilderPage })))
 const ProductsPage = lazy(() => import('@/features/dashboard/ProductsPage').then((m) => ({ default: m.ProductsPage })))
-import { SettingsPage } from '@/features/dashboard/SettingsPage'
-import { AnalyticsPage } from '@/features/dashboard/AnalyticsPage'
-import { DashboardReviewsPage, DashboardCommentsPage } from '@/features/dashboard/EngagementPages'
-import { AdminSettingsPage } from '@/features/admin/AdminSettingsPage'
+const SettingsPage = lazy(() => import('@/features/dashboard/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const AnalyticsPage = lazy(() => import('@/features/dashboard/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })))
+const DashboardReviewsPage = lazy(() => import('@/features/dashboard/EngagementPages').then((m) => ({ default: m.DashboardReviewsPage })))
+const DashboardCommentsPage = lazy(() => import('@/features/dashboard/EngagementPages').then((m) => ({ default: m.DashboardCommentsPage })))
+const AdminSettingsPage = lazy(() => import('@/features/admin/AdminSettingsPage').then((m) => ({ default: m.AdminSettingsPage })))
 const AdminCategoriesPage = lazy(() => import('@/features/admin/AdminCategoriesPage').then((m) => ({ default: m.AdminCategoriesPage })))
 const AdminVerifyPage = lazy(() => import('@/features/admin/AdminVerifyPage').then((m) => ({ default: m.AdminVerifyPage })))
 const AdminModerationPage = lazy(() => import('@/features/admin/AdminModerationPage').then((m) => ({ default: m.AdminModerationPage })))

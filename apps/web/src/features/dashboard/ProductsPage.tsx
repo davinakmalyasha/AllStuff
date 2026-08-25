@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { Confirm } from '@/components/ui/Modal'
 import { useDialogA11y } from '@/components/ui/Modal'
 import { priceLabel } from './StorefrontPreview'
 
@@ -16,6 +17,7 @@ export function ProductsPage() {
   const business = useActiveBusiness()
   const [editing, setEditing] = useState<ProductDTO | null>(null)
   const [creating, setCreating] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<ProductDTO | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['products', business?.id],
@@ -92,7 +94,7 @@ export function ProductsPage() {
               <Button variant="ghost" size="sm" onClick={() => setEditing(p)} aria-label="Edit">
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { if (window.confirm(`Delete "${p.name}"?`)) void remove.mutateAsync(p) }} aria-label="Delete">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(p)} aria-label="Delete">
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -111,6 +113,16 @@ export function ProductsPage() {
           onSaved={refresh}
         />
       )}
+
+      <Confirm
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void remove.mutateAsync(deleteTarget)}
+        title="Delete product"
+        message={`Delete "${deleteTarget?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   )
 }

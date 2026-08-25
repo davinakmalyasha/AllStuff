@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { TrendingUp } from 'lucide-react'
-import { api, type TrendEntryDTO } from '@/lib/api'
+import { api, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
@@ -88,10 +88,4 @@ export function LeaderboardsPage() {
       )}
     </div>
   )
-}
-
-interface CategoryDTO {
-  id: string
-  parent_id: string | null
-  name: string
 }

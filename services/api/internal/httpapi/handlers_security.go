@@ -6,6 +6,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/security"
+	"bizverse/api/internal/util"
 )
 
 // ---- 2FA (PRD §5.9.1) ----
@@ -424,7 +425,7 @@ func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
 	_, err := s.deps.Repos.Exec(r.Context(), `
 		INSERT INTO reports (id, reporter_id, target_type, target_id, reason, evidence)
 		VALUES ($1, NULL, 'error', 'client', $3, $4)`,
-		newUUID(), in.Message, map[string]any{"stack": in.Stack, "url": in.URL})
+		util.NewUUID(), in.Message, map[string]any{"stack": in.Stack, "url": in.URL})
 	if err != nil {
 		fail(w, err)
 		return

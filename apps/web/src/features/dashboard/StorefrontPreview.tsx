@@ -1,5 +1,7 @@
 import { Clock, MapPin, Phone, Star, Heart, Bolt, Coffee, Wifi, Leaf, Scissors, Camera, Music, Sparkles, Zap } from 'lucide-react'
 import type { BusinessDTO, ProductDTO } from '@/lib/api'
+import { cap, FONTS } from '@/lib/format'
+import { formatMoney, useCurrency } from '@/stores/currency'
 import type { ThemeConfig, LayoutConfig } from './StorefrontBuilderPage'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
@@ -64,7 +66,7 @@ export function StorefrontPreview({
             </div>
             <button
               className="mt-5 rounded-full px-6 py-2.5 text-sm font-medium"
-              style={{ background: c.accent, color: c['--pv-accent-ink' as keyof typeof c] ?? c.bg }}
+              style={{ background: c.accent, color: c.bg }}
             >
               Message us
             </button>
@@ -170,8 +172,6 @@ function MailIcon() {
 }
 
 // Currency-aware formatting (PRD D5): display prices converted to the viewer's currency.
-import { formatMoney, useCurrency } from '@/stores/currency'
-
 export function priceLabel(p: ProductDTO, rates?: Record<string, number>, display?: string): string {
   const st = useCurrency.getState()
   const r = rates ?? st.rates
@@ -187,14 +187,4 @@ export function priceLabel(p: ProductDTO, rates?: Record<string, number>, displa
   }
   if (p.base_price !== null && p.base_price !== undefined) return formatMoney(p.base_price, p.currency, d, r)
   return '—'
-}
-
-const FONTS: Record<string, string> = {
-  inter: "'Inter', system-ui, sans-serif",
-  serif: 'Georgia, "Times New Roman", serif',
-  mono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-}
-
-function cap(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1)
 }

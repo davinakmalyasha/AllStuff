@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Heart, MessageSquare, Pencil, Trash2 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, type CommentDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Confirm } from '@/components/ui/Modal'
@@ -250,19 +250,4 @@ function renderMentions(text: string) {
       <span key={i}>{p}</span>
     ),
   )
-}
-
-interface CommentDTO {
-  id: string
-  business_id: string
-  user_id: string
-  parent_id: string | null
-  text: string
-  status: string
-  created_at: string
-  author_name: string
-  author_username: string
-  author_avatar: string | null
-  like_count: number
-  children?: CommentDTO[]
 }

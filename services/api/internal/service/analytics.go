@@ -28,7 +28,6 @@ type AnalyticsResult struct {
 	RatingAvg    *float64         `json:"rating_avg"`
 	TopProducts  []ProductCount   `json:"top_products"`
 	Series       []DailyCount     `json:"views_series"`
-	TrendScore   float64          `json:"trend_score"`
 	Leaderboard  *LeaderboardPos  `json:"leaderboard,omitempty"`
 }
 
@@ -178,5 +177,3 @@ func fillSeries(series []DailyCount, days int) []DailyCount {
 	}
 	return out
 }
-
-var _ = repo.Repos{}

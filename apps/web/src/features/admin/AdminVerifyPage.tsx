@@ -12,6 +12,8 @@ export function AdminVerifyPage() {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<BusinessDTO | null>(null)
   const [tab, setTab] = useState<'pending' | 'rejected'>('pending')
+  const [suspendOpen, setSuspendOpen] = useState(false)
+  const [suspendReason, setSuspendReason] = useState('')
   const dialogRef = useDialogA11y(!!selected, () => setSelected(null))
 
   const { data, isLoading } = useQuery({
@@ -161,15 +163,41 @@ export function AdminVerifyPage() {
 
               <div className="mt-4 border-t border-border pt-3">
                 <p className="mono-label mb-2">Danger</p>
-                <button
-                  onClick={() => {
-                    const reason = window.prompt('Suspension reason (shown to the owner):')
-                    if (reason?.trim()) void suspend.mutateAsync(reason.trim())
-                  }}
-                  className="rounded-lg border border-red-300 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
-                >
-                  Suspend business
-                </button>
+                {!suspendOpen ? (
+                  <button
+                    onClick={() => { setSuspendOpen(true); setSuspendReason('') }}
+                    className="rounded-lg border border-red-300 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+                  >
+                    Suspend business
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={suspendReason}
+                      onChange={(e) => setSuspendReason(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && suspendReason.trim()) void suspend.mutateAsync(suspendReason.trim())
+                      }}
+                      placeholder="Suspension reason (shown to the owner)"
+                      autoFocus
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink"
+                      aria-label="Suspension reason"
+                    />
+                    <button
+                      onClick={() => suspendReason.trim() && void suspend.mutateAsync(suspendReason.trim())}
+                      disabled={!suspendReason.trim() || suspend.isPending}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                    >
+                      Confirm suspend
+                    </button>
+                    <button
+                      onClick={() => { setSuspendOpen(false); setSuspendReason('') }}
+                      className="rounded-lg border border-border px-3 py-2 text-xs text-ink hover:bg-surface2"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </Card>

@@ -284,13 +284,6 @@ func currentUser(r *http.Request) (*domain.User, bool) {
 	return u, ok
 }
 
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 func clientIPValue(s string) net.IP {
 	if s == "" {
 		return nil

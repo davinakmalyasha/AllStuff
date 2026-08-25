@@ -143,7 +143,11 @@ export function AdminCurationPage() {  const qc = useQueryClient()
               >
                 {on ? '✓' : '+'}
               </button>
-              <img src={b.logo_url ?? ''} alt="" className="h-10 w-10 rounded-lg object-cover" />
+              {b.logo_url ? (
+                <img src={b.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface2 text-sm font-semibold">{b.name.charAt(0)}</div>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-ink">{b.name}</p>
                 <p className="text-xs text-ink3">{b.category_name} · {b.city}</p>

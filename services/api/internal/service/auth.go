@@ -24,6 +24,7 @@ import (
 	mail "bizverse/api/internal/email"
 	"bizverse/api/internal/repo"
 	"bizverse/api/internal/security"
+	"bizverse/api/internal/util"
 )
 
 // Auth — accounts, sessions, tokens (PRD §5.9, §8.1).
@@ -116,7 +117,7 @@ func (a *Auth) Register(ctx context.Context, in RegisterInput) (*domain.User, *T
 	}
 
 	user := &domain.User{
-		ID:         newUUID(),
+		ID:         util.NewUUID(),
 		Email:      in.Email,
 		PasswordHash: hash,
 		Name:       in.Name,
@@ -386,7 +387,7 @@ func (a *Auth) createSession(ctx context.Context, user *domain.User, meta *clien
 	}
 
 	sess := &domain.Session{
-		ID:        newUUID(),
+		ID:        util.NewUUID(),
 		UserID:    user.ID,
 		TokenHash: hex.EncodeToString(hash[:]),
 		IP:        ipStr,
@@ -485,7 +486,7 @@ func (a *Auth) Confirm2FA(ctx context.Context, userID, code string) ([]string, e
 		return nil, err
 	}
 	_, _ = a.repos.Exec(ctx, `INSERT INTO auth_events (id, user_id, event) VALUES ($1, $2, '2fa_enable')`,
-		newUUID(), userID)
+		util.NewUUID(), userID)
 	return codes, nil
 }
 
@@ -508,7 +509,7 @@ func (a *Auth) Disable2FA(ctx context.Context, userID, code string) error {
 		return err
 	}
 	_, _ = a.repos.Exec(ctx, `INSERT INTO auth_events (id, user_id, event) VALUES ($1, $2, '2fa_disable')`,
-		newUUID(), userID)
+		util.NewUUID(), userID)
 	return nil
 }
 
@@ -1067,7 +1068,7 @@ func (a *Auth) SaveSearch(ctx context.Context, userID, name string, query map[st
 	if name == "" || len([]rune(name)) > 80 {
 		return nil, domain.ErrValidation.WithField("name", "Name must be 1–80 characters.")
 	}
-	s := &SavedSearch{ID: newUUID(), UserID: userID, Name: name, Query: query, NotifyDaily: notifyDaily}
+	s := &SavedSearch{ID: util.NewUUID(), UserID: userID, Name: name, Query: query, NotifyDaily: notifyDaily}
 	_, err := a.repos.Exec(ctx, `
 		INSERT INTO saved_searches (id, user_id, name, query, notify_daily) VALUES ($1, $2, $3, $4, $5)`,
 		s.ID, s.UserID, s.Name, s.Query, s.NotifyDaily)
@@ -1112,8 +1113,6 @@ func (a *Auth) DeleteSavedSearch(ctx context.Context, userID, id string) error {
 	return err
 }
 
-var _ = net.IP{}
-
 func (a *Auth) checkUserStatus(u *domain.User) error {
 	switch u.Status {
 	case domain.UserStatusBanned:
@@ -1127,17 +1126,6 @@ func (a *Auth) checkUserStatus(u *domain.User) error {
 		return domain.ErrAccountSuspended
 	}
 	return nil
-}
-
-func newUUID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("rand: " + err.Error())
-	}
-	// RFC 4122 v4
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func htmlEscape(s string) string {

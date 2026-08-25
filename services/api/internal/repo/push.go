@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"bizverse/api/internal/security"
+	"bizverse/api/internal/util"
 )
 
 type PushRepo struct{ pool pooler }
@@ -18,7 +19,7 @@ func (r *PushRepo) Subscribe(ctx context.Context, userID string, sub security.Pu
 		INSERT INTO push_subscriptions (id, user_id, endpoint, keys, user_agent)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (endpoint) DO UPDATE SET last_seen_at = now()`,
-		newUUID(), userID, sub.Endpoint, keys, ua)
+		util.NewUUID(), userID, sub.Endpoint, keys, ua)
 	return err
 }
 

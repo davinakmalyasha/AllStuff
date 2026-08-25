@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
+import { cap, FONTS } from '@/lib/format'
 import { safeExternalUrl } from '@/lib/url'
 import { MiniMapLive } from '@/components/map/MiniMapLive'
 import { ProductModal } from '@/components/engagement/ProductModal'
@@ -35,12 +36,6 @@ import { ShareButton, ReportButton } from '@/components/engagement/ReportShare'
 const SOCIALS: Record<string, string> = {
   whatsapp: 'WhatsApp', instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook',
   x: 'X', youtube: 'YouTube', line: 'Line', telegram: 'Telegram',
-}
-
-const FONTS: Record<string, string> = {
-  inter: "'Inter', system-ui, sans-serif",
-  serif: 'Georgia, "Times New Roman", serif',
-  mono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 }
 
 export function BusinessPage() {
@@ -70,7 +65,7 @@ export function BusinessPage() {
           address: { '@type': 'PostalAddress', streetAddress: b.address, addressLocality: b.city, addressCountry: b.country },
           openingHours: Object.entries(b.hours)
             .filter(([, h]) => h && !h.closed)
-            .map(([d, h]) => `${capitalize(d)} ${h?.open}-${h?.close}`),
+            .map(([d, h]) => `${cap(d)} ${h?.open}-${h?.close}`),
           aggregateRating:
             b.review_count > 0
               ? { '@type': 'AggregateRating', ratingValue: b.rating_avg, reviewCount: b.review_count }
@@ -281,7 +276,7 @@ export function BusinessPage() {
                 {openDays.length === 0 && <li className="text-ink3">No hours set</li>}
                 {openDays.map(([d, h]) => (
                   <li key={d} className="flex items-center justify-between">
-                    <span className="text-ink2">{capitalize(d)}</span>
+                    <span className="text-ink2">{cap(d)}</span>
                     <span className="font-mono text-ink">{h?.open}–{h?.close}</span>
                   </li>
                 ))}
@@ -424,8 +419,4 @@ function ContactRow({ icon, label, href }: { icon: React.ReactNode; label: strin
       <span className="text-ink3">{icon}</span> {label}
     </a>
   )
-}
-
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1)
 }

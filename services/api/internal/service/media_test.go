@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"testing"
 
 	"bizverse/api/internal/domain"
@@ -86,5 +85,3 @@ func TestExtensionFor(t *testing.T) {
 		}
 	}
 }
-
-var _ = bytes.MinRead

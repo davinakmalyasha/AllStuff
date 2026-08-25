@@ -51,6 +51,7 @@ type Review struct {
 	Text           string    `json:"text"`
 	Reply          *string   `json:"reply"`
 	ReplyAt        *time.Time `json:"reply_at"`
+	ReplyEditedAt  *time.Time `json:"reply_edited_at"`
 	Status         string    `json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
 	AuthorName     string    `json:"author_name"`

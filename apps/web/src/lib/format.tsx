@@ -1,15 +1,13 @@
-/** Relative time ("2h ago") — Batch 3 polish. */
-export function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime()
-  const diff = Date.now() - then
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+/** Capitalize the first letter ("monday" → "Monday"). */
+export function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/** Font stacks for storefront theming (shared by BusinessPage + preview). */
+export const FONTS: Record<string, string> = {
+  inter: "'Inter', system-ui, sans-serif",
+  serif: 'Georgia, "Times New Roman", serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 }
 
 /** Card skeleton (Batch 3). */

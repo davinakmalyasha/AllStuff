@@ -1121,5 +1121,3 @@ func derefString(s *string) string {
 	}
 	return *s
 }
-
-var _ = repo.Repos{}

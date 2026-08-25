@@ -2,7 +2,6 @@
 
 import (
 	"context"
-	"errors"
 	"regexp"
 	"strings"
 
@@ -300,5 +299,3 @@ func slugify(s string) string {
 	}
 	return out
 }
-
-var _ = errors.New

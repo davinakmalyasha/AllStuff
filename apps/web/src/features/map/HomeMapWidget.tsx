@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
-import { SkeletonCard } from '@/components/ui/Spinner'
+import { SkeletonCard } from '@/lib/format'
 
 // Lazy-load the map so maplibre-gl stays out of the entry chunk.
 const BizMap = lazy(() => import('@/components/map/BizMap').then((m) => ({ default: m.BizMap })))

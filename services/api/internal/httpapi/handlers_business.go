@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"bizverse/api/internal/domain"
@@ -308,5 +307,3 @@ func (s *Server) authorizeChatMedia(r *http.Request, kind domain.MediaKind, medi
 	}
 	return nil
 }
-
-var _ = strconv.Itoa

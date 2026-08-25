@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 type UserRepo struct{ pool pooler }
@@ -128,13 +129,9 @@ func (r *UserRepo) UpdateProfile(ctx context.Context, id string, fields map[stri
 			return fmt.Errorf("field not allowed: %s", k)
 		}
 		args = append(args, v)
-		cols = append(cols, k+" = $"+itoa(len(args)))
+		cols = append(cols, k+" = $"+util.Itoa(len(args)))
 	}
 	sql := "UPDATE users SET " + strings.Join(cols, ", ") + " WHERE id = $1"
 	_, err := r.pool.Exec(ctx, sql, args...)
 	return err
-}
-
-func itoa(n int) string {
-	return fmt.Sprintf("%d", n)
 }

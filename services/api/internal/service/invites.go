@@ -126,5 +126,3 @@ func (s *Invites) KPIs(ctx context.Context) (map[string]any, error) {
 	}
 	return out, nil
 }
-
-var _ = repo.Repos{}
