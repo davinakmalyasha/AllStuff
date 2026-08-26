@@ -1,10 +1,20 @@
 import { useEffect } from 'react'
+import i18n from '@/lib/i18n'
+
+const SITE_NAME = 'BizVerse'
+const DEFAULT_TITLE = 'BizVerse — Every business. One place.'
+const DEFAULT_DESCRIPTION = 'Every business in the world, in one place. Find, compare, and contact any business.'
+
+function ogLocale(lang: string): string {
+  return lang?.startsWith('id') ? 'id_ID' : 'en_US'
+}
 
 /** Client-side SEO helper (PRD §9.4): sets document title + meta description
  *  + OG tags (incl. the dynamic OG image for businesses, B4). */
 export function usePageMeta(title: string, description?: string, og?: { image?: string; url?: string }) {
+  const lang = i18n.language ?? 'en'
   useEffect(() => {
-    document.title = title ? `${title} · BizVerse` : 'BizVerse — Every business. One place.'
+    document.title = title ? `${title} · ${SITE_NAME}` : DEFAULT_TITLE
     const setMeta = (attr: 'name' | 'property', key: string, content: string) => {
       let meta = document.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
       if (!meta) {
@@ -14,15 +24,28 @@ export function usePageMeta(title: string, description?: string, og?: { image?: 
       }
       meta.content = content
     }
-    const desc = description ?? 'Every business in the world, in one place. Find, compare, and contact any business.'
+    const desc = description ?? DEFAULT_DESCRIPTION
     setMeta('name', 'description', desc)
-    setMeta('property', 'og:title', title || 'BizVerse')
+    setMeta('property', 'og:title', title || DEFAULT_TITLE)
     setMeta('property', 'og:description', desc)
     setMeta('property', 'og:type', 'website')
     setMeta('property', 'og:url', og?.url ?? window.location.href)
-    if (og?.image) setMeta('property', 'og:image', og.image)
-    else setMeta('property', 'og:image', `${window.location.origin}/icon-512.svg`)
+    setMeta('property', 'og:site_name', SITE_NAME)
+    const locale = ogLocale(lang)
+    setMeta('property', 'og:locale', locale)
+    setMeta('property', 'og:locale:alternate', locale === 'id_ID' ? 'en_US' : 'id_ID')
+    const image = og?.image ?? `${window.location.origin}/icon-512.svg`
+    setMeta('property', 'og:image', image)
+    if (og?.image) {
+      setMeta('property', 'og:image:width', '1200')
+      setMeta('property', 'og:image:height', '630')
+    } else {
+      document.querySelectorAll('meta[property="og:image:width"], meta[property="og:image:height"]').forEach((m) => m.remove())
+    }
     setMeta('name', 'twitter:card', 'summary_large_image')
+    setMeta('name', 'twitter:title', title || DEFAULT_TITLE)
+    setMeta('name', 'twitter:description', desc)
+    setMeta('name', 'twitter:image', image)
     // Canonical link (Batch 3).
     let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
     if (!canonical) {
@@ -31,7 +54,7 @@ export function usePageMeta(title: string, description?: string, og?: { image?: 
       document.head.appendChild(canonical)
     }
     canonical.href = og?.url ?? window.location.href.split('?')[0]
-  }, [title, description, og?.image, og?.url])
+  }, [title, description, og?.image, og?.url, lang])
 }
 
 /** Injects Schema.org JSON-LD (LocalBusiness / CategoryCode / etc.). */

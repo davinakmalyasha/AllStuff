@@ -224,24 +224,30 @@ func (r *BusinessRepo) ListFeatured(ctx context.Context, limit int) ([]*domain.B
 	return out, rows.Err()
 }
 
+// PublicSlug is one sitemap entry: the slug plus its last-modified stamp.
+type PublicSlug struct {
+	Slug      string
+	UpdatedAt time.Time
+}
+
 // PublicSlugs returns slugs for the sitemap — selecting only the slug column
 // instead of full rows (the old path pulled hours + published_snapshot JSONB
 // for up to 100k businesses per sitemap hit).
-func (r *BusinessRepo) PublicSlugs(ctx context.Context, status string, limit int) ([]string, error) {
+func (r *BusinessRepo) PublicSlugs(ctx context.Context, status string, limit int) ([]PublicSlug, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT slug FROM businesses WHERE status = $1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT $2`,
+		`SELECT slug, updated_at FROM businesses WHERE status = $1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT $2`,
 		status, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []PublicSlug
 	for rows.Next() {
-		var slug string
-		if err := rows.Scan(&slug); err != nil {
+		var s PublicSlug
+		if err := rows.Scan(&s.Slug, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
-		out = append(out, slug)
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }
@@ -331,6 +337,7 @@ func (r *BusinessRepo) ListDocuments(ctx context.Context, businessID string) ([]
 	}
 	return out, rows.Err()
 }
+
 // CanManageBusiness: owner OR accepted co-owner invite (PRD §5.9.3).
 // The role matters: "viewer" invites are read-only and must never gain
 // management rights over the listing.
@@ -367,15 +374,15 @@ func (r *BusinessRepo) IsBusinessViewer(ctx context.Context, userID, businessID 
 // ---- co-owner invites (PRD §5.9.3) ----
 
 type BusinessInvite struct {
-	ID         string    `json:"id"`
-	BusinessID string    `json:"business_id"`
-	Email      string    `json:"email"`
-	Role       string    `json:"role"`
-	Token      string    `json:"-"`
-	InvitedBy  string    `json:"invited_by"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string     `json:"id"`
+	BusinessID string     `json:"business_id"`
+	Email      string     `json:"email"`
+	Role       string     `json:"role"`
+	Token      string     `json:"-"`
+	InvitedBy  string     `json:"invited_by"`
+	CreatedAt  time.Time  `json:"created_at"`
 	AcceptedAt *time.Time `json:"accepted_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
 }
 

@@ -15,10 +15,17 @@ func (r *PushRepo) Subscribe(ctx context.Context, userID string, sub security.Pu
 	if err != nil {
 		return err
 	}
+	// Re-subscribes replace stale rows wholesale: rotated keys, a new
+	// account on the same browser, or an updated UA must win over what is
+	// stored (previously only last_seen_at moved, keeping dead keys).
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO push_subscriptions (id, user_id, endpoint, keys, user_agent)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (endpoint) DO UPDATE SET last_seen_at = now()`,
+		ON CONFLICT (endpoint) DO UPDATE SET
+			user_id = EXCLUDED.user_id,
+			keys = EXCLUDED.keys,
+			user_agent = EXCLUDED.user_agent,
+			last_seen_at = now()`,
 		util.NewUUID(), userID, sub.Endpoint, keys, ua)
 	return err
 }
@@ -86,5 +93,3 @@ func (r *PushRepo) ByUsers(ctx context.Context, userIDs []string) (map[string][]
 	}
 	return out, rows.Err()
 }
-
-

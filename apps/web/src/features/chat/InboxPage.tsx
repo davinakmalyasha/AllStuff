@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
+import { formatDateTime } from '@/lib/format'
 import { ws } from '@/lib/ws'
 
 export function InboxPage({ businessId }: { businessId?: string }) {
@@ -81,7 +82,7 @@ export function InboxPage({ businessId }: { businessId?: string }) {
             {hits.messages.map((m) => (
               <Link key={m.id} to={`/me/messages/${m.thread_id}`} className="block px-4 py-2.5 text-sm hover:bg-surface2">
                 <span className="block truncate text-ink">{m.body ?? 'media'}</span>
-                <span className="text-xs text-ink3">{new Date(m.created_at).toLocaleString()}</span>
+                <span className="text-xs text-ink3">{formatDateTime(m.created_at)}</span>
               </Link>
             ))}
           </div>

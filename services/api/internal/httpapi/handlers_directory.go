@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -187,11 +188,21 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 
 // ---- sitemap (PRD §9.4) ----
 
+// uuidPattern: /compare ids must be well-formed UUIDs before they reach the
+// uuid-typed SQL column (an invalid literal would surface as a 500).
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 	ids := strings.Split(r.URL.Query().Get("b"), ",")
 	if len(ids) < 2 || len(ids) > 4 {
 		fail(w, domain.ErrValidation.WithField("b", "Compare 2–4 business ids (?b=id,id,id)."))
 		return
+	}
+	for _, id := range ids {
+		if !uuidPattern.MatchString(id) {
+			fail(w, domain.ErrValidation.WithField("b", "Each id must be a UUID (?b=id,id,id)."))
+			return
+		}
 	}
 	var businesses []*domain.Business
 	for _, id := range ids {
@@ -276,20 +287,31 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// All public business pages (slugs only — no JSONB row scans).
+	// All public business pages (slug + lastmod only — no JSONB row scans).
 	slugs, err := s.deps.Repos.Businesses.PublicSlugs(r.Context(), "verified", 100000)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	for _, slug := range slugs {
-		sb.WriteString(`  <url><loc>` + base + `/b/` + slug + `</loc></url>` + "\n")
+	for _, ps := range slugs {
+		sb.WriteString(`  <url><loc>` + base + `/b/` + ps.Slug + `</loc><lastmod>` +
+			ps.UpdatedAt.Format("2006-01-02") + `</lastmod></url>` + "\n")
 	}
 	sb.WriteString(`</urlset>`)
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	// Crawlable but not hammered: crawlers re-check at most hourly.
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(sb.String()))
+}
+
+// handleRobotsTxt serves the crawler entry point from the API root (outside
+// /api/v1) so one file covers the whole origin.
+func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("User-agent: *\nAllow: /\n\nSitemap: " + s.deps.Config.PublicURL + "/api/v1/sitemap.xml\n"))
 }
 
 // ---- helpers ----

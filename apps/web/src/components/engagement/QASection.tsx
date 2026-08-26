@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HelpCircle } from 'lucide-react'
 import { api } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
+import { toast } from '@/components/ui/Toast'
 import { useAuth } from '@/stores/auth'
 
 interface AnswerDTO {
@@ -45,7 +47,9 @@ export function QASection({ businessId }: { businessId: string }) {
     onSuccess: () => {
       setText('')
       qc.invalidateQueries({ queryKey: ['questions', businessId] })
+      toast.success('Question posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the question.'),
   })
   const answer = useMutation({
     mutationFn: () => api(`/questions/${answerFor}/answers`, { method: 'POST', body: { text: answerText } }),
@@ -53,7 +57,9 @@ export function QASection({ businessId }: { businessId: string }) {
       setAnswerFor(null)
       setAnswerText('')
       qc.invalidateQueries({ queryKey: ['questions', businessId] })
+      toast.success('Answer posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the answer.'),
   })
 
   return (
@@ -76,7 +82,7 @@ export function QASection({ businessId }: { businessId: string }) {
           <div key={q.id} className="rounded-lg border border-border p-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-ink">{q.author_name}</span>
-              <span className="text-[10px] text-ink3">{new Date(q.created_at).toLocaleDateString()}</span>
+              <span className="text-[10px] text-ink3">{formatDate(q.created_at)}</span>
             </div>
             <p className="mt-1 text-sm text-ink2">{q.text}</p>
             <div className="mt-2 space-y-2">

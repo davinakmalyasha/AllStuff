@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
   Ban,
@@ -37,7 +38,7 @@ import { PageSpinner } from '@/components/ui/Spinner'
 import { ws } from '@/lib/ws'
 import { safeExternalUrl } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
-import { copyText } from '@/lib/format'
+import { copyText, resetFileInput } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
 import { Confirm, Modal, useDialogA11y } from '@/components/ui/Modal'
 
@@ -65,6 +66,7 @@ function LinkPreview({ preview }: { preview: Record<string, unknown> }) {
 }
 
 export function ThreadPage({ businessMode = false }: { businessMode?: boolean }) {
+  const { t } = useTranslation()
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -198,6 +200,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     const body = text.trim()
     if (!body && !pendingFile) return
     const clientMsgId = crypto.randomUUID()
+    const repliedTo = replyTo
     setText('')
     setReplyTo(null)
     // Optimistic append: without it a dropped socket made sent messages
@@ -240,16 +243,25 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       setRecording(false)
     } catch {
       setMessages((prev) => prev.filter((x) => x.client_msg_id !== clientMsgId))
+      // Restore the draft AND the reply context so the user can retry as-is.
       setText(body)
+      setReplyTo(repliedTo)
       toast.error('Message failed to send.')
     }
   }
 
+  const [uploadingMedia, setUploadingMedia] = useState(false)
   const uploadImage = async (file: File, kind: 'chat_image' | 'chat_file' | 'chat_video' | 'chat_audio' = 'chat_image') => {
-    const r = await uploadMedia(kind, file)
-    setPendingFile(r.media.id)
-    setPendingKind(kind === 'chat_file' ? 'file' : kind === 'chat_video' ? 'video' : kind === 'chat_audio' ? 'audio' : 'image')
-    setText('')
+    setUploadingMedia(true)
+    try {
+      const r = await uploadMedia(kind, file)
+      setPendingFile(r.media.id)
+      setPendingKind(kind === 'chat_file' ? 'file' : kind === 'chat_video' ? 'video' : kind === 'chat_audio' ? 'audio' : 'image')
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not upload the attachment.')
+    } finally {
+      setUploadingMedia(false)
+    }
   }
   const [pendingKind, setPendingKind] = useState<'image' | 'file' | 'video' | 'audio'>('image')
 
@@ -555,7 +567,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     <div className="flex h-[calc(100vh-64px)] flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <button onClick={() => navigate(businessMode ? '/dashboard/chats' : '/me/messages')} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Back">
+        <button onClick={() => navigate(businessMode ? '/dashboard/chats' : '/me/messages')} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Back" title="Back">
           <ArrowLeft className="h-4 w-4" />
         </button>
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{headerTitle}</p>
@@ -565,14 +577,14 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         <button onClick={() => void toggleMute()} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label={muted ? 'Unmute notifications' : 'Mute notifications'} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
         </button>
-        <button onClick={() => setSearching((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Search">
+        <button onClick={() => setSearching((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Search" title="Search">
           <Search className="h-4 w-4" />
         </button>
         <button onClick={() => setGalleryOpen(true)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Shared media" title="Shared media">
           <Images className="h-4 w-4" />
         </button>
         <div className="relative">
-          <button onClick={() => setHeaderMenu((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Conversation options" aria-expanded={headerMenu}>
+          <button onClick={() => setHeaderMenu((v) => !v)} className="rounded-lg p-1.5 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Conversation options" title="Options" aria-expanded={headerMenu}>
             <MoreVertical className="h-4 w-4" />
           </button>
           {headerMenu && (
@@ -616,7 +628,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
 
       {closed && (
         <div className="border-b border-border bg-surface2 px-4 py-2 text-center text-xs text-ink2">
-          This conversation was closed by the business. New messages are disabled.
+          {t('chat.closedBanner')}
         </div>
       )}
 
@@ -625,7 +637,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
           <input
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
-            placeholder="Search in this thread…"
+            placeholder={t('chat.searchPlaceholder')}
             className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink"
             autoFocus
           />
@@ -661,14 +673,16 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             onForward={() => { setForwardFor(m); setMenuFor(null) }}
           />
         ))}
-        {typing && <p className="px-1 text-xs text-ink3">typing…</p>}
+        {typing && (
+          <p className="px-1 text-xs text-ink3" aria-live="polite">{t('chat.typing')}</p>
+        )}
         <div ref={bottomRef} />
       </div>
 
       {/* Reply quote */}
       {replyTo && (
         <div className="flex items-center gap-2 border-t border-border bg-surface2 px-4 py-2">
-          <p className="flex-1 truncate text-xs text-ink2">Replying to: {replyTo.body ?? 'media'}</p>
+          <p className="flex-1 truncate text-xs text-ink2">{t('chat.replyingTo')} {replyTo.body ?? 'media'}</p>
           <button onClick={() => setReplyTo(null)} className="text-ink3 hover:text-ink">✕</button>
         </div>
       )}
@@ -689,19 +703,19 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             ))}
           </div>
         )}
-        {pendingFile && <p className="mb-2 text-xs text-ink2">📎 {pendingKind} ready to send</p>}
+        {pendingFile && <p className="mb-2 text-xs text-ink2">{uploadingMedia ? '⏳' : '📎'} {pendingKind} ready to send</p>}
         <div className="flex items-end gap-2">
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send image">
             <ImageIcon className="h-5 w-5" />
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f, 'chat_image') }} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadImage(f, 'chat_image') }} />
           </label>
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send file">
             <FileUp className="h-5 w-5" />
-            <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f, 'chat_file') }} />
+            <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadImage(f, 'chat_file') }} />
           </label>
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send video">
             <Video className="h-5 w-5" />
-            <input type="file" accept="video/mp4,video/webm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f, 'chat_video') }} />
+            <input type="file" accept="video/mp4,video/webm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadImage(f, 'chat_video') }} />
           </label>
           <button
             onClick={() => void toggleVoice()}
@@ -730,10 +744,10 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
                 onChange={(e) => { setText(e.target.value); sendTyping() }}
                 onKeyDown={(e) => e.key === 'Enter' && void send()}
                 className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
-                placeholder={replyTo ? 'Reply…' : 'Message…'}
+                placeholder={replyTo ? t('chat.replyPlaceholder') : t('chat.composerPlaceholder')}
                 disabled={closed}
               />
-              <Button size="sm" onClick={() => void send()} disabled={closed || (!text.trim() && !pendingFile)}>
+              <Button size="sm" onClick={() => void send()} disabled={closed || (!text.trim() && !pendingFile)} aria-label={t('chat.send')}>
                 <Send className="h-4 w-4" />
               </Button>
             </>
@@ -742,7 +756,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       </div>
 
       {/* Forward message */}
-      <Modal open={!!forwardFor} onClose={() => { setForwardFor(null); setForwardQ('') }} title="Forward message" maxWidth="max-w-md">
+      <Modal open={!!forwardFor} onClose={() => { setForwardFor(null); setForwardQ('') }} title={t('chat.forwardTitle')} maxWidth="max-w-md">
         <input
           value={forwardQ}
           onChange={(e) => setForwardQ(e.target.value)}
@@ -773,7 +787,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       </Modal>
 
       {/* Shared media */}
-      <Modal open={galleryOpen} onClose={() => { setGalleryOpen(false); setFullMedia(null) }} title="Shared media" maxWidth="max-w-2xl">
+      <Modal open={galleryOpen} onClose={() => { setGalleryOpen(false); setFullMedia(null) }} title={t('chat.galleryTitle')} maxWidth="max-w-2xl">
         {gallery.length === 0 ? (
           <p className="py-10 text-center text-sm text-ink3">No photos or videos shared here yet.</p>
         ) : (
@@ -813,31 +827,31 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         open={confirmAction === 'close'}
         onClose={() => setConfirmAction(null)}
         onConfirm={() => void closeThread()}
-        title="Close conversation"
-        message="The customer will see a notice explaining why, and no new messages can be sent. This can't be undone."
-        confirmLabel="Close conversation"
+        title={t('chat.confirmCloseTitle')}
+        message={t('chat.confirmCloseMessage')}
+        confirmLabel={t('chat.closeCta')}
         danger
       />
       <Confirm
         open={confirmAction === 'leave'}
         onClose={() => setConfirmAction(null)}
         onConfirm={() => void leaveThread()}
-        title="Leave conversation"
-        message="You will lose access to this conversation and its history."
-        confirmLabel="Leave"
+        title={t('chat.confirmLeaveTitle')}
+        message={t('chat.confirmLeaveMessage')}
+        confirmLabel={t('chat.leaveCta')}
         danger
       />
       <Confirm
         open={confirmAction === 'block'}
         onClose={() => setConfirmAction(null)}
         onConfirm={() => void toggleBlock()}
-        title={isBlocked ? 'Unblock user' : 'Block user'}
+        title={isBlocked ? t('chat.confirmUnblockTitle') : t('chat.confirmBlockTitle')}
         message={
           isBlocked
-            ? 'They will be able to message you again.'
-            : "They won't be able to message you anymore. You can unblock later."
+            ? t('chat.confirmUnblockMessage')
+            : t('chat.confirmBlockMessage')
         }
-        confirmLabel={isBlocked ? 'Unblock' : 'Block'}
+        confirmLabel={isBlocked ? t('chat.unblockCta') : t('chat.blockCta')}
         danger={!isBlocked}
       />
     </div>
@@ -881,6 +895,7 @@ function MessageRow({
   onJump: (id: number) => void
   onForward?: () => void
 }) {
+  const { t } = useTranslation()
   const pickerRef = useDialogA11y(pickerOpen, closePicker)
   if (m.deleted_for === 'everyone') {
     return (
@@ -916,8 +931,8 @@ function MessageRow({
           {m.link_preview && (
             <LinkPreview preview={m.link_preview} />
           )}
-          {m.forwarded_from_message_id && <p className="mt-1 text-[10px] opacity-60">Forwarded</p>}
-          {m.edited_at && <p className="mt-0.5 text-right text-[9px] opacity-50">edited</p>}
+          {m.forwarded_from_message_id && <p className="mt-1 text-[10px] opacity-60">{t('chat.forwardedBadge')}</p>}
+          {m.edited_at && <p className="mt-0.5 text-right text-[9px] opacity-50">{t('chat.editedBadge')}</p>}
           <p className={`mt-0.5 text-right text-[9px] ${own ? 'opacity-60' : 'text-ink3'}`}>
             {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
@@ -926,12 +941,12 @@ function MessageRow({
           // Visible on keyboard focus and coarse pointers too — hover-only
           // actions were unreachable without a mouse.
           <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
-            <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">copy</button>
-            <button onClick={onReply} className="text-[10px] text-ink3 hover:text-ink">reply</button>
-            {onForward && <button onClick={onForward} className="text-[10px] text-ink3 hover:text-ink">forward</button>}
-            <button onClick={togglePicker} className="text-[10px] text-ink3 hover:text-ink">react</button>
-            {own && <button onClick={onEdit} className="text-[10px] text-ink3 hover:text-ink"><Pencil className="h-2.5 w-2.5 inline" /> edit</button>}
-            {own && <button onClick={() => setMenuOpen(true)} className="text-[10px] text-ink3 hover:text-ink"><Trash2 className="h-2.5 w-2.5 inline" /> delete</button>}
+            <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actCopy')}</button>
+            <button onClick={onReply} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actReply')}</button>
+            {onForward && <button onClick={onForward} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actForward')}</button>}
+            <button onClick={togglePicker} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actReact')}</button>
+            {own && <button onClick={onEdit} className="text-[10px] text-ink3 hover:text-ink"><Pencil className="h-2.5 w-2.5 inline" /> {t('chat.actEdit')}</button>}
+            {own && <button onClick={() => setMenuOpen(true)} className="text-[10px] text-ink3 hover:text-ink"><Trash2 className="h-2.5 w-2.5 inline" /> {t('chat.actDelete')}</button>}
           </div>
         )}
         {onPin && (

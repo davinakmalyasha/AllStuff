@@ -407,7 +407,7 @@ export function DiscoverPage() {
               </Link>
             </>
           )}
-          {hasFilters && <Button variant="secondary" size="sm" className="mt-2" onClick={() => { setCats([]); setPriceLevels([]); setMinRating(0); setOpenNow(false); setVerifiedOnly(false); setFullyVerified(false); }}>Clear filters</Button>}
+          {hasFilters && <Button variant="secondary" size="sm" className="mt-2" onClick={() => { setCats([]); setPriceLevels([]); setMinRating(0); setOpenNow(false); setVerifiedOnly(false); setFullyVerified(false); setHasChat(false); setCoords(null) }}>Clear filters</Button>}
         </div>
       )}
 

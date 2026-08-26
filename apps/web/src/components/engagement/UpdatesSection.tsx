@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Megaphone } from 'lucide-react'
 import { api } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { toast } from '@/components/ui/Toast'
 
 interface UpdateDTO {
   id: string
@@ -31,7 +33,9 @@ export function UpdatesSection({ businessId, isOwner }: { businessId: string; is
       setTitle('')
       setBody('')
       qc.invalidateQueries({ queryKey: ['updates', businessId] })
+      toast.success('Announcement posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the announcement.'),
   })
 
   return (
@@ -49,7 +53,7 @@ export function UpdatesSection({ businessId, isOwner }: { businessId: string; is
           <div key={u.id} className="rounded-lg border border-border p-3">
             <p className="text-sm font-semibold text-ink">{u.title}</p>
             <p className="mt-1 text-sm text-ink2">{u.body}</p>
-            <p className="mt-1.5 text-[10px] text-ink3">{new Date(u.created_at).toLocaleString()}</p>
+            <p className="mt-1.5 text-[10px] text-ink3">{formatDateTime(u.created_at)}</p>
           </div>
         ))}
         {(data?.updates?.length ?? 0) === 0 && <p className="text-sm text-ink3">No announcements yet.</p>}

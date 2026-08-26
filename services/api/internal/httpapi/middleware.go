@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"net"
@@ -35,12 +36,31 @@ func (s *Server) withRecover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.deps.Logger.Error("panic", "err", rec, "stack", string(debug.Stack()))
+				s.deps.Logger.Error("panic", "err", rec, "stack", string(debug.Stack()),
+					"request_id", requestID(r))
 				fail(w, domain.ErrInternal)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ---- request correlation ----
+
+// withRequestID stamps every request with a crypto/rand UUID, echoes it in
+// X-Request-ID, and exposes it via context so access logs and panic logs can
+// be correlated with a client-reported ID.
+func (s *Server) withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := util.NewUUID()
+		w.Header().Set("X-Request-ID", id)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyRequestID, id)))
+	})
+}
+
+func requestID(r *http.Request) string {
+	id, _ := r.Context().Value(ctxKeyRequestID).(string)
+	return id
 }
 
 // ---- access log ----
@@ -84,6 +104,7 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 			"dur_ms", time.Since(start).Milliseconds(),
 			"ip", s.clientIP(r),
 			"ua", r.UserAgent(),
+			"req_id", requestID(r),
 		)
 		if !strings.HasPrefix(r.URL.Path, "/api/v1/health") && r.URL.Path != "/metrics" {
 			// Label by the MATCHED ROUTE PATTERN when available: slugs
@@ -320,6 +341,11 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			if u, found := currentUser(r); found {
 				key = u.ID
 			}
+		case strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/typing"):
+			// Typing indicators are high-frequency but nearly free; a cheap
+			// dedicated tier keeps them out of the global IP budget.
+			tier = "typing"
+			limit, window = 60, time.Minute
 		case engagementPath(p) && r.Method != http.MethodGet:
 			tier = "engage"
 			limit, window = 30, time.Minute // engagement writes: 30/min per user
@@ -544,13 +570,24 @@ func (s *Server) clearSessionCookies(w http.ResponseWriter) {
 // ---- ops metrics guard ----
 
 // metricsGuard keeps /metrics open for local/dev tooling but requires an
-// admin session in prod (it exposes traffic counts and internals).
+// admin session in prod (it exposes traffic counts and internals). A
+// METRICS_TOKEN Bearer match is accepted as a scraper escape hatch; an empty
+// token disables that path entirely.
 func (s *Server) metricsGuard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		env := strings.ToLower(s.deps.Config.AppEnv)
 		if env != "prod" && env != "production" {
 			next(w, r)
 			return
+		}
+		if tok := s.deps.Config.MetricsToken; tok != "" {
+			auth := r.Header.Get("Authorization")
+			const prefix = "Bearer "
+			if strings.HasPrefix(auth, prefix) &&
+				subtle.ConstantTimeCompare([]byte(strings.TrimSpace(auth[len(prefix):])), []byte(tok)) == 1 {
+				next(w, r)
+				return
+			}
 		}
 		user, found := currentUser(r)
 		if !found || !user.IsAdmin() {
@@ -627,7 +664,7 @@ func (g *gzipResponseWriter) WriteHeader(code int) {
 		ct := g.Header().Get("Content-Type")
 		ce := g.Header().Get("Content-Encoding")
 		if ce == "" && (strings.HasPrefix(ct, "application/json") ||
-			strings.HasPrefix(ct, "text/") || ct == "" ) &&
+			strings.HasPrefix(ct, "text/") || ct == "") &&
 			g.Header().Get("Content-Disposition") == "" {
 			g.Header().Set("Content-Encoding", "gzip")
 			g.Header().Del("Content-Length")

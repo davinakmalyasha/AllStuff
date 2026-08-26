@@ -108,10 +108,10 @@ func (a *SearchAlerts) sendOne(ctx context.Context, al alertRow) error {
 		}
 		sb.WriteString(`</li>`)
 	}
-	sb.WriteString(`</ul><p style="color:#999;font-size:12px">Manage alerts: ` + a.cfg.PublicURL + `/me</p>`)
+	sb.WriteString(`</ul><p style="color:#999;font-size:12px"><a href="` + a.cfg.PublicURL + `/me" style="color:#999">Manage alerts</a></p>`)
 
 	title := fmt.Sprintf("New matches for %q", al.name)
-	if err := a.email.Send(ctx, al.email, title, email.WrapHTML(a.cfg.PublicURL, title, sb.String())); err != nil {
+	if err := a.email.SendBulk(ctx, al.email, title, email.WrapHTML(a.cfg.PublicURL, title, sb.String())); err != nil {
 		return err
 	}
 	// Persist the diff-state ONLY after a successful send — previously the

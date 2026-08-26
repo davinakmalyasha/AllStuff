@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { AlertCircle } from 'lucide-react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -11,6 +11,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, hint, suffix, className = '', id, ...rest }, ref) => {
     const inputId = id ?? (label ? `field-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined)
+    // Stable unique id for the error text so screen readers announce it via
+    // aria-describedby (labels can repeat across forms — useId cannot).
+    const errorId = useId()
     return (
       <div className="w-full">
         {label && (
@@ -32,6 +35,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className,
             ].join(' ')}
             aria-invalid={!!error}
+            aria-describedby={error ? errorId : undefined}
             {...rest}
           />
           {suffix && (
@@ -39,7 +43,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
         {error && (
-          <p className="mt-1.5 flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+          <p id={errorId} role="alert" className="mt-1.5 flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
             <AlertCircle className="h-3 w-3" aria-hidden /> {error}
           </p>
         )}

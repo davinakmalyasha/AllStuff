@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
+import { formatDateTime } from '@/lib/format'
 
 interface FeedUpdateDTO {
   id: string
@@ -38,7 +39,7 @@ export function FollowingFeedPage() {
             <div className="flex items-center gap-2">
               <Megaphone className="h-4 w-4 text-ink3" />
               <Link to={`/b/${u.business_slug}`} className="text-xs text-ink3 hover:text-ink">{u.business_name}</Link>
-              <span className="ml-auto text-[10px] text-ink3">{new Date(u.created_at).toLocaleString()}</span>
+              <span className="ml-auto text-[10px] text-ink3">{formatDateTime(u.created_at)}</span>
             </div>
             <p className="mt-2 text-sm font-semibold text-ink">{u.title}</p>
             <p className="mt-1 text-sm text-ink2">{u.body}</p>

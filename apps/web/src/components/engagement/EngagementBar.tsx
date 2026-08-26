@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, Heart, ThumbsUp } from 'lucide-react'
@@ -31,6 +31,24 @@ export function EngagementBar({
   // server state arrives (prevents double-count while my-state is loading).
   const [likeDelta, setLikeDelta] = useState(0)
   const [recDelta, setRecDelta] = useState(0)
+
+  // Save popover dismissal: outside click + Escape.
+  const barRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (barRef.current && !barRef.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
 
   const { data: myState } = useQuery({
     queryKey: ['my-state', businessId],
@@ -132,7 +150,7 @@ export function EngagementBar({
   }
 
   return (
-    <div className="relative flex items-center gap-2">
+    <div ref={barRef} className="relative flex items-center gap-2">
       <Button
         variant={isLiked ? 'primary' : 'secondary'}
         onClick={() => void likeMut.mutateAsync(!isLiked)}

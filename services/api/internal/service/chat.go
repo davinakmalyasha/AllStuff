@@ -292,16 +292,16 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		clientID = util.NewUUID()
 	}
 	m := &domain.ChatMessage{
-		ThreadID:       threadID,
-		SenderID:       userID,
-		SenderRole:     role,
-		Type:           msgType,
-		Body:           in.Body,
-		ReplyToID:      in.ReplyToID,
+		ThreadID:        threadID,
+		SenderID:        userID,
+		SenderRole:      role,
+		Type:            msgType,
+		Body:            in.Body,
+		ReplyToID:       in.ReplyToID,
 		ForwardedFromID: in.ForwardedFromID,
-		MediaID:        in.MediaID,
-		ClientMsgID:    clientID,
-		EditHistory:    []map[string]any{},
+		MediaID:         in.MediaID,
+		ClientMsgID:     clientID,
+		EditHistory:     []map[string]any{},
 	}
 	// Atomic core write: message insert + thread preview/touch commit or
 	// roll back together (PRD §7.3). Best-effort side effects below run
@@ -551,6 +551,10 @@ func (c *Chat) PinMessage(ctx context.Context, userID, threadID string, messageI
 	}
 	m, err := c.repos.Chat.MessageByID(ctx, messageID)
 	if err != nil || m == nil || m.ThreadID != threadID {
+		return domain.ErrNotFound
+	}
+	// Withdrawn ("delete for everyone") messages cannot be pinned.
+	if m.DeletedFor == "everyone" {
 		return domain.ErrNotFound
 	}
 	var pinned []int64

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -169,7 +170,11 @@ func (t *Trending) flagSpikes(ctx context.Context) error {
 			WHERE period='30d' AND taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='30d')
 		)
 		SELECT l.business_id FROM latest l LEFT JOIN base b ON b.business_id = l.business_id
-		WHERE l.score > 25 AND l.score > 10 * coalesce(b.score30, 0)`)
+		JOIN businesses bs ON bs.id = l.business_id
+		WHERE l.score > 25 AND l.score > 10 * coalesce(b.score30, 0)
+		  -- Launches younger than 14 days have no 30d baseline; a legit
+		  -- launch spike must not be flagged as gaming.
+		  AND bs.created_at <= now() - interval '14 days'`)
 	if err != nil {
 		return err
 	}
@@ -196,13 +201,16 @@ func (t *Trending) flagSpikes(ctx context.Context) error {
 		return nil // best-effort notify
 	}
 	defer admins.Close()
+	// Dedupe per business-set + UTC day: the 10-minute recompute previously
+	// re-notified admins for the same anomaly all day long.
+	dedupeKey := strings.Join(spiked, ",") + ":" + time.Now().UTC().Format("2006-01-02")
 	for admins.Next() {
 		var adminID string
 		if err := admins.Scan(&adminID); err != nil {
 			continue
 		}
 		if t.notifier != nil {
-			t.notifier.Create(ctx, adminID, "trend_anomaly", map[string]any{
+			t.notifier.CreateDeduped(ctx, adminID, "trend_anomaly", dedupeKey, 24*time.Hour, map[string]any{
 				"business_ids": spiked, "reason": "Engagement spike detected; events flagged for review.",
 			})
 		}
@@ -260,7 +268,8 @@ func (t *Trending) markRising(ctx context.Context, cfg TrendingConfig) error {
 }
 
 // Leaderboard returns the ranked list for a window/scope (PRD §5.1.5).
-func (t *Trending) Leaderboard(ctx context.Context, period, scope string, limit int) ([]*domain.TrendEntry, error) {	if limit <= 0 || limit > 100 {
+func (t *Trending) Leaderboard(ctx context.Context, period, scope string, limit int) ([]*domain.TrendEntry, error) {
+	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	base := `

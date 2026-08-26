@@ -48,7 +48,7 @@ export function ToastStack() {
         return (
           <div
             key={t.id}
-            role="status"
+            role={t.kind === 'error' ? 'alert' : 'status'}
             className="pointer-events-auto flex items-start gap-2 rounded-xl border border-border bg-surface px-4 py-3 shadow-cardHover animate-fadeUp"
           >
             <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${t.kind === 'error' ? 'text-red-500' : t.kind === 'warning' ? 'text-amber-500' : 'text-ink'}`} />

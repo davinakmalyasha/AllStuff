@@ -1,6 +1,6 @@
 # BizVerse — API Reference
 
-Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` rotating) · CSRF: `X-CSRF-Token` header on mutations · Errors: `{ "error": { "code", "message", "fields? } }` · Pagination: `limit`/`offset` (≤100).
+Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` rotating) · CSRF: `X-CSRF-Token` header on mutations · Errors: `{ "error": { "code", "message", "fields? } }` · Pagination: `limit`/`offset` — general cap 50 on search/list endpoints; leaderboards accept up to 100 (documented exception).
 
 ## Auth & accounts
 - `POST /auth/register` · `POST /auth/login` (2FA-gated: returns `challenge`) · `POST /auth/2fa/verify`
@@ -21,13 +21,14 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - `GET /compare?b=id,id` (2–4) · `GET /featured` · `GET /trending` · `GET /rising` · `GET /leaderboards?window=24h|7d|30d&scope=global|category:{id}|city:{c}`
 - Cities: `GET /cities` · `GET /cities/{slug}` (landing page payload)
 - `GET /rates` (currency) · `GET /meta` (announcement, rates freshness) · `GET /sitemap.xml` · `GET /og/b/{slug}` (SVG share card)
+- `GET /robots.txt` (public, no auth, `text/plain`): `User-agent: *` allow-all plus an absolute `Sitemap:` URL built from `PUBLIC_URL` (e.g. `Sitemap: https://<your-domain>/api/v1/sitemap.xml`)
 
 ## Businesses (owner)
 - `POST /businesses` (draft) · `GET /businesses` · `GET|PATCH /businesses/{id}` · `POST /businesses/{id}/submit|resubmit|publish|unpublish|pause|reopen|close`
 - `POST /businesses/{id}/slug-change` (one-time owner-requested slug change, PRD §8.2)
 - `PUT /businesses/{id}/storefront` · `GET /businesses/{id}/analytics?period=7d|30d|all`
 - Documents: `GET|POST /businesses/{id}/documents` · `DELETE /businesses/{id}/documents/{docId}`
-- Invites: `GET|POST /businesses/{id}/invites` (role: `co_owner` | `viewer`; viewer is reserved and grants no access yet — only co_owners gain management rights) · `DELETE /businesses/{id}/invites/{inviteId}` · `GET /invites/{token}` (public preview) · `POST /invites/{token}/accept` (invitee receives an email with the accept link `{PUBLIC_URL}/invite/{token}`)
+- Invites: `GET|POST /businesses/{id}/invites` (roles: `co_owner` | `viewer`; `viewer` grants read-only access to `GET /businesses/{id}/analytics` only, `co_owner` grants full management rights) · `DELETE /businesses/{id}/invites/{inviteId}` · `GET /invites/{token}` (public preview) · `POST /invites/{token}/accept` (invitee receives an email with the accept link `{PUBLIC_URL}/invite/{token}`)
 - Quick replies: `GET|POST /businesses/{id}/quick-replies` · `DELETE .../quick-replies/{replyId}`
 
 ## Products
@@ -53,7 +54,7 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - Pins: `PUT|DELETE /threads/{id}/pin/{messageId}` · `GET /threads/{id}/pinned` · Pinned conversations: `PUT|DELETE /threads/{id}/pinned-thread` · `GET /me/pinned-threads` (max 5)
 - Blocks: `GET /blocks` · `POST|DELETE /blocks/{userId}`
 - Push: `POST|DELETE /push/subscribe` · `GET /push/vapid-key`
-- WS: `GET /ws` (cookie or `?token=`); frames per ARCHITECTURE §3. `subscribe` frames are gated on thread membership.
+- WS: `GET /ws` (cookie-authenticated only — no `?token=` query parameter); frames per ARCHITECTURE §3. `subscribe` frames are gated on thread membership.
 - Support & client errors: `POST /support/contact` · `POST /errors`
 
 ## Admin (`admin` claim)

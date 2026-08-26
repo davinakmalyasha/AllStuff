@@ -598,6 +598,11 @@ func (s *Server) pushToThread(ctx context.Context, threadID string, msg *domain.
 		body = *msg.Body
 	}
 	for _, t := range targets {
+		// Push opt-out: channels.push absent = enabled, present-and-falsy =
+		// disabled (mirrors the email channel reader in service/notifications.go).
+		if !pushOn(t.prefs) {
+			continue
+		}
 		// Quiet hours (PRD §5.7): defer push between 22:00–08:00 in the
 		// RECIPIENT's timezone — the old server-local hour pushed at 3 PM
 		// (or silenced midday) for anyone ±8h of the server clock.
@@ -644,4 +649,18 @@ func quietHoursNow(prefs map[string]any) bool {
 	}
 	hour := time.Now().In(locByName(tzName)).Hour()
 	return hour >= 22 || hour < 8
+}
+
+// pushOn reports whether web-push may be delivered to the recipient.
+// Convention (no legacy push key exists): channels.push absent = enabled,
+// present-and-falsy (explicit JSON false) = disabled.
+func pushOn(prefs map[string]any) bool {
+	channels, ok := prefs["channels"].(map[string]any)
+	if !ok {
+		return true
+	}
+	if b, ok := channels["push"].(bool); ok && !b {
+		return false
+	}
+	return true
 }

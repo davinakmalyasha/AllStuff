@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
+import { Confirm } from '@/components/ui/Modal'
+import { toast } from '@/components/ui/Toast'
 
 interface InviteDTO {
   id: string
@@ -26,6 +28,7 @@ export function TeamSection() {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'co_owner' | 'viewer'>('co_owner')
   const [flash, setFlash] = useState('')
+  const [revokeTarget, setRevokeTarget] = useState<InviteDTO | null>(null)
 
   const { data } = useQuery({
     queryKey: ['invites', business?.id],
@@ -45,7 +48,11 @@ export function TeamSection() {
 
   const revoke = useMutation({
     mutationFn: (id: string) => api(`/businesses/${business!.id}/invites/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['invites', business?.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invites', business?.id] })
+      toast.success('Invite revoked')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not revoke the invite.'),
   })
 
   if (!business) return null
@@ -55,13 +62,13 @@ export function TeamSection() {
       <p className="mono-label">Team & co-owners</p>
       <p className="text-sm text-ink2">
         Invite people to help manage this business. Invitees get an email with an accept link. Co-owners get full
-        management access; the viewer role is not active yet and grants no access.
+        management access; viewers get read-only access to analytics.
       </p>
       <div className="flex items-end gap-2">
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" />
         <select value={role} onChange={(e) => setRole(e.target.value as 'co_owner' | 'viewer')} className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-ink">
           <option value="co_owner">Co-owner</option>
-          <option value="viewer">Viewer (coming soon)</option>
+          <option value="viewer">Viewer</option>
         </select>
         <Button onClick={() => void invite.mutateAsync()} disabled={!email.includes('@') || invite.isPending}>
           <UserPlus className="h-4 w-4" /> Invite
@@ -81,7 +88,7 @@ export function TeamSection() {
             ) : (
               <>
                 <span className="text-xs text-ink3">pending</span>
-                <button onClick={() => void revoke.mutateAsync(i.id)} className="text-ink3 hover:text-ink" aria-label="Revoke invite">
+                <button onClick={() => setRevokeTarget(i)} className="text-ink3 hover:text-ink" aria-label="Revoke invite">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </>
@@ -90,6 +97,16 @@ export function TeamSection() {
         ))}
         {(data?.invites.length ?? 0) === 0 && <p className="text-xs text-ink3">No invites yet.</p>}
       </div>
+
+      <Confirm
+        open={!!revokeTarget}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => revokeTarget && void revoke.mutateAsync(revokeTarget.id)}
+        title="Revoke invite"
+        message={`Revoke the pending invite for ${revokeTarget?.email}? The link will stop working.`}
+        confirmLabel="Revoke"
+        danger
+      />
     </Card>
   )
 }

@@ -41,6 +41,8 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
 - **Media:** stored on local disk (`MEDIA_DIR`) — attach a persistent volume in prod (S3/R2 adapter is roadmap). Orphan files/rows are cleaned daily by the ops job with a 24h grace; verification documents are AES-GCM encrypted at rest when `MEDIA_ENCRYPTION_KEY` (64 hex chars) is set.
 - **Rate limits:** auth 5/min/IP, search 60/min, engagement 30/min/user, media 20/h, chat sends 30/min/user, 2FA 3/15min, API keys 300/min/key, global 120/min/IP. In-memory per instance — set `REDIS_URL` to enable multi-instance WS fan-out (pub/sub) and share nothing else yet.
 - **Jobs:** trending + spike anomaly flagging (10 min), currency (1 h), digest Monday + search alerts + notification purge + account-deletion anonymization + snapshot prune + media cleanup (24 h). Check `last_trend_run` in `/health`.
+- **Retention sub-jobs (daily):** consumed_tokens > 48h, revoked sessions > 90d, engagement_events > 90d, auth_events > 180d.
+- **Job claiming:** jobs claim their cadence window in the `job_runs` table; failed runs release their slot and retry on the next tick.
 
 ## Incident response
 
@@ -57,3 +59,4 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
 | Push not delivered | `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` set? Subscriptions present? Quiet hours? |
 | Emails not sent | `RESEND_API_KEY` set (prod); dev logs to console |
 | 2FA login loop | Challenge token valid 5 min; check clock sync |
+| Migration fails on `CREATE INDEX CONCURRENTLY` | Safe to redeploy: the runner records the `schema_migrations` version only AFTER the concurrent index statements succeed, so the next run picks the migration back up. Manual repair if needed: `DROP INDEX CONCURRENTLY IF EXISTS <index>_ccnew;` then redeploy |

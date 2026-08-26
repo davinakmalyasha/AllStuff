@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { Confirm } from '@/components/ui/Modal'
+import { resetFileInput } from '@/lib/format'
 
 const DAYS = [
   ['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'],
@@ -168,7 +169,7 @@ export function SettingsPage() {
           <select value={str(form.category_id ?? '')} onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))} className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink">
             {leafCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <p className="mt-1 text-xs text-ink3">Changing category triggers re-verification (PRD §8.2).</p>
+          <p className="mt-1 text-xs text-ink3">Changing category triggers re-verification.</p>
         </div>
         <textarea rows={4} value={str(form.description ?? '')} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description (min 50 chars)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -179,10 +180,10 @@ export function SettingsPage() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-ink2 hover:bg-surface2">
-            {logo ? 'Logo: uploaded ✓' : 'Upload logo'} <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f, 'logo') }} />
+            {logo ? 'Logo: uploaded ✓' : 'Upload logo'} <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadLogo(f, 'logo') }} />
           </label>
           <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-ink2 hover:bg-surface2">
-            {cover ? 'Cover: uploaded ✓' : 'Upload cover'} <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f, 'cover') }} />
+            {cover ? 'Cover: uploaded ✓' : 'Upload cover'} <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadLogo(f, 'cover') }} />
           </label>
         </div>
       </Card>
@@ -271,7 +272,7 @@ export function SettingsPage() {
             <XCircle className="h-4 w-4" /> Close permanently
           </Button>
         </div>
-        <p className="text-xs text-ink3">Paused: hidden from search/map, page shows "temporarily closed". Closed: 410, irreversible (PRD §8.2).</p>
+        <p className="text-xs text-ink3">Paused: hidden from search/map, page shows "temporarily closed". Closed: 410, irreversible.</p>
       </Card>
 
       <Confirm

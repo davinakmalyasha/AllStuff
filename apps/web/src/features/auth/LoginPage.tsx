@@ -86,10 +86,10 @@ export function LoginPage() {
               </p>
             )}
             <p className="text-sm text-ink3">
-              Enter the 6-digit code from your authenticator app, or a recovery code.
+              {t('auth.twoFaHint')}
             </p>
             <Input
-              label="Authentication code"
+              label={t('auth.twoFaCode')}
               inputMode="text"
               autoComplete="one-time-code"
               autoFocus
@@ -104,10 +104,10 @@ export function LoginPage() {
           </form>
         ) : (
           <>
-            <GoogleButton />
+            <GoogleButton label={t('auth.googleContinue')} />
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
-              <span className="text-xs text-ink3">or</span>
+              <span className="text-xs text-ink3">{t('auth.orDivider')}</span>
               <span className="h-px flex-1 bg-border" />
             </div>
             <form onSubmit={submit} className="space-y-4" noValidate>

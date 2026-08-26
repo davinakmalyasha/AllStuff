@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { Confirm, Modal } from '@/components/ui/Modal'
 import { ReportButton } from '@/components/engagement/ReportShare'
 import { toast } from '@/components/ui/Toast'
+import { formatDate, resetFileInput } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
 
 /** Reviews with helpful votes and owner replies (PRD §5.6.2). */
@@ -76,7 +77,9 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       setText('')
       setPhotoIds([])
       refresh()
+      toast.success('Review posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the review.'),
   })
 
   // Helpful votes now feed back: without invalidation/optimism the count
@@ -87,6 +90,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       qc.setQueryData<{ reviews: ReviewDTO[] }>(['reviews', businessId, sort], (old) =>
         old ? { ...old, reviews: old.reviews.map((r) => r.id === id ? { ...r, my_vote: vote, helpful_count: Math.max(0, r.helpful_count + (vote === 0 ? -1 : r.my_vote === 0 ? 1 : 0)) } : r) } : old)
     },
+    onError: () => toast.error('Could not record your vote.'),
     onSettled: () => refresh(),
   })
 
@@ -96,7 +100,9 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       setReplyingTo(null)
       setReplyText('')
       refresh()
+      toast.success('Reply posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the reply.'),
   })
 
   // Reply edit/delete (PRD §5.6.2): PATCH stamps reply_edited_at.
@@ -218,9 +224,14 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
                 <ImagePlus className="h-4 w-4" />
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={async (e) => {
                   const f = e.target.files?.[0]
+                  resetFileInput(e)
                   if (!f) return
-                  const r = await uploadMedia('gallery', f)
-                  setPhotoIds((prev) => [...prev, r.media.id])
+                  try {
+                    const r = await uploadMedia('gallery', f)
+                    setPhotoIds((prev) => [...prev, r.media.id])
+                  } catch (err) {
+                    toast.error((err as Error).message || 'Could not upload the photo.')
+                  }
                 }} />
               </label>
             )}
@@ -245,7 +256,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
                   {[1, 2, 3, 4, 5].map((n) => (
                     <Star key={n} className={`h-3 w-3 ${n <= r.rating ? 'fill-current text-ink' : 'text-ink3'}`} />
                   ))}
-                  <span className="ml-1 text-[10px] text-ink3">{new Date(r.created_at).toLocaleDateString()}</span>
+                  <span className="ml-1 text-[10px] text-ink3">{formatDate(r.created_at)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs text-ink3">

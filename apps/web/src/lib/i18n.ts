@@ -25,6 +25,18 @@ i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 })
 
+// Keep <html lang> in sync so screen readers and search engines see the
+// active language (en/id).
+function syncDocLang(lng: string) {
+  try {
+    document.documentElement.lang = lng?.startsWith('id') ? 'id' : 'en'
+  } catch {
+    /* noop */
+  }
+}
+syncDocLang(i18n.language)
+i18n.on('languageChanged', syncDocLang)
+
 export function setLanguage(lng: 'en' | 'id') {
   try {
     localStorage.setItem('bv.lang', lng)

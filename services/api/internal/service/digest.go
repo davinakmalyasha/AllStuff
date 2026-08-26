@@ -47,15 +47,14 @@ func (d *Digest) SendWeekly(ctx context.Context) error {
 			<td style="padding:10px;border-bottom:1px solid #eee"><a href="%s/b/%s" style="color:#111">View</a></td></tr>`,
 			i+1, xmlEsc(e.Name), esc(e.Category), xmlEsc(e.City), d.publicURL(), e.Slug))
 	}
-	html := fmt.Sprintf(`<html><body style="margin:0;background:#f5f5f5;padding:24px">
-		<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;font-family:Arial,sans-serif">
-		<h1 style="font-size:20px;margin:0">This week in BizVerse</h1>
-		<p style="color:#666">The businesses everyone is talking about.</p>
+	bodyHTML := fmt.Sprintf(`<p style="color:#666">The businesses everyone is talking about.</p>
 		<table style="width:100%%;border-collapse:collapse">%s</table>
-		<p style="color:#999;font-size:12px;margin-top:16px">Unsubscribe anytime from your notification settings.</p>
-		</div></body></html>`, rows.String())
+		<p style="color:#999;font-size:12px;margin-top:16px">Unsubscribe anytime: <a href="%s/me/security" style="color:#999">manage preferences</a>.</p>`,
+		rows.String(), d.publicURL())
+	// Branded template for parity with every other sender; bulk headers keep
+	// mailbox providers from classifying the weekly blast as spam.
 	for _, u := range users {
-		_ = d.email.Send(ctx, u, "This week in BizVerse", html)
+		_ = d.email.SendBulk(ctx, u, "This week in BizVerse", email.WrapHTML(d.publicURL(), "This week in BizVerse", bodyHTML))
 	}
 	return nil
 }

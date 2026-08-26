@@ -120,10 +120,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 				return fmt.Errorf("%s: %w", version, err)
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
-			_ = tx.Rollback(ctx)
-			return err
-		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
@@ -132,6 +128,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 			if _, err := conn.Exec(context.WithoutCancel(ctx), stmt); err != nil {
 				return fmt.Errorf("%s (concurrent): %w", version, err)
 			}
+		}
+		// Version marker only AFTER concurrent statements succeed: a failed
+		// CREATE INDEX CONCURRENTLY leaves no index but must not burn the
+		// file — returning here leaves it unrecorded so the next boot
+		// retries (the IF NOT EXISTS clauses in 0016/0027 make reruns safe).
+		if _, err := conn.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
+			return err
 		}
 	}
 	return nil

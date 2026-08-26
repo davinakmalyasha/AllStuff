@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { Confirm } from '@/components/ui/Modal'
 import { ReportButton } from '@/components/engagement/ReportShare'
 import { toast } from '@/components/ui/Toast'
+import { formatDateTime } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
 
 interface MentionUser {
@@ -50,7 +51,9 @@ export function CommentsSection({ businessId }: { businessId: string }) {
       setReplyTo(null)
       setReplyText('')
       refresh()
+      toast.success('Comment posted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the comment.'),
   })
 
   const updateMut = useMutation({
@@ -67,12 +70,15 @@ export function CommentsSection({ businessId }: { businessId: string }) {
     onSuccess: () => {
       setDeleteId(null)
       refresh()
+      toast.success('Comment deleted')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not delete the comment.'),
   })
 
   const likeMut = useMutation({
     mutationFn: ({ id, on }: { id: string; on: boolean }) =>
       api(`/comments/${id}/like`, { method: on ? 'PUT' : 'DELETE' }),
+    onError: () => toast.error('Could not update the like.'),
   })
 
   // @-mention autocomplete (Batch 2): trigger on "@prefix".
@@ -124,7 +130,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
         <div className="flex items-center gap-2">
           <Link to={`/u/${c.author_username}`} className="text-xs font-medium text-ink hover:underline">{c.author_name}</Link>
           <span className="text-[10px] text-ink3">@{c.author_username}</span>
-          <span className="ml-auto text-[10px] text-ink3">{new Date(c.created_at).toLocaleString()}</span>
+          <span className="ml-auto text-[10px] text-ink3">{formatDateTime(c.created_at)}</span>
         </div>
         {editId === c.id ? (
           <div className="mt-1.5 flex gap-2">

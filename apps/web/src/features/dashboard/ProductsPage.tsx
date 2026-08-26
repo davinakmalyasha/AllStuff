@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { Confirm } from '@/components/ui/Modal'
 import { useDialogA11y } from '@/components/ui/Modal'
+import { toast } from '@/components/ui/Toast'
+import { resetFileInput } from '@/lib/format'
 import { priceLabel } from './StorefrontPreview'
 
 export function ProductsPage() {
@@ -30,17 +32,29 @@ export function ProductsPage() {
   const togglePublish = useMutation({
     mutationFn: (p: ProductDTO) =>
       api(`/products/${p.id}/${p.is_published ? 'unpublish' : 'publish'}`, { method: 'POST' }),
-    onSuccess: refresh,
+    onSuccess: (_r, p) => {
+      refresh()
+      toast.success(p.is_published ? 'Product unpublished' : 'Product published')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not update the product.'),
   })
 
   const duplicate = useMutation({
     mutationFn: (p: ProductDTO) => api(`/products/${p.id}/duplicate`, { method: 'POST' }),
-    onSuccess: refresh,
+    onSuccess: (_r, p) => {
+      refresh()
+      toast.success(`Duplicated "${p.name}"`)
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not duplicate the product.'),
   })
 
   const remove = useMutation({
     mutationFn: (p: ProductDTO) => api(`/products/${p.id}`, { method: 'DELETE' }),
-    onSuccess: refresh,
+    onSuccess: (_r, p) => {
+      refresh()
+      toast.success(`Deleted "${p.name}"`)
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not delete the product.'),
   })
 
   if (!business) {
@@ -59,7 +73,7 @@ export function ProductsPage() {
         <div>
           <p className="mono-label mb-1">Catalog</p>
           <h1 className="text-2xl font-semibold tracking-tight">Products & services</h1>
-          <p className="mt-1 text-sm text-ink2">Drafts are private; publish when ready (PRD §5.4.3).</p>
+          <p className="mt-1 text-sm text-ink2">Drafts are private; publish when ready.</p>
         </div>
         <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> New product</Button>
       </div>
@@ -86,10 +100,10 @@ export function ProductsPage() {
             </div>
             <div className="flex shrink-0 gap-1">
               <Button variant="ghost" size="sm" onClick={() => void togglePublish.mutateAsync(p)} aria-label="Toggle publish">
-                {togglePublish.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : p.is_published ? 'Unpublish' : 'Publish'}
+                {togglePublish.isPending && togglePublish.variables?.id === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : p.is_published ? 'Unpublish' : 'Publish'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => void duplicate.mutateAsync(p)} aria-label="Duplicate">
-                <Copy className="h-3.5 w-3.5" />
+                {duplicate.isPending && duplicate.variables?.id === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setEditing(p)} aria-label="Edit">
                 <Pencil className="h-3.5 w-3.5" />
@@ -210,6 +224,8 @@ function ProductEditor({
     try {
       const r = await uploadMedia('product', file)
       setImageIds((prev) => [...prev, r.media.id])
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not upload the image.')
     } finally {
       setUploading(false)
     }
@@ -248,7 +264,7 @@ function ProductEditor({
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">{product ? 'Edit product' : 'New product'}</h2>
-              <p className="text-xs text-ink3">Variants, pricing, stock — the full catalog model (PRD §5.4.3).</p>
+              <p className="text-xs text-ink3">Variants, pricing, stock.</p>
             </div>
             <button onClick={onClose} className="rounded-lg p-1 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Close">✕</button>
           </div>
@@ -309,7 +325,7 @@ function ProductEditor({
               ))}
               <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-ink3 hover:bg-surface2">
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f) }} />
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadImage(f) }} />
               </label>
             </div>
           </div>
@@ -371,7 +387,7 @@ function ProductEditor({
               </div>
             )}
             {options.length === 0 && variants.length === 0 && (
-              <p className="text-xs text-ink3">No variants — the base price applies (PRD §8.3).</p>
+              <p className="text-xs text-ink3">No variants — the base price applies.</p>
             )}
           </div>
 

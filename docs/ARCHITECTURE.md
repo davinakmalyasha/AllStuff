@@ -48,7 +48,7 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 | POST | `/auth/register` | email+password; emits verify email |
 | POST | `/auth/login` | password; if 2FA enabled → `2fa_required` challenge id |
 | POST | `/auth/2fa/verify` | TOTP or recovery code; returns session cookies |
-| POST | `/auth/oauth/:provider` | google\|facebook\|apple\|github redirect flow |
+| POST | `/auth/oauth/:provider` | **Google only** (implemented as `GET /auth/oauth/google` + `/callback`); facebook\|apple\|github are out-of-scope/roadmap — see deviations note |
 | POST | `/auth/refresh` | rotate refresh token (cookie) |
 | POST | `/auth/logout` | revoke session |
 | POST | `/auth/verify-email` | `{token}` |
@@ -146,7 +146,7 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 | POST | `/blocks` / DELETE `/blocks/:userId` | block/unblock |
 | GET | `/blocks` | my block list |
 
-**WS** — `/ws?token=<access>`: see §3.
+**WS** — `/ws` (cookie-authenticated only): see §3.
 
 ### 2.6 Notifications
 | Method | Path | Notes |
@@ -173,20 +173,20 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 | GET/PUT | `/admin/curation` | featured picker, rising strip, leaderboard config (weights, windows, N) |
 | GET/PUT | `/admin/settings` | site config, announcement banner |
 | GET | `/admin/analytics` | KPIs per §5.8.6 |
-| GET | `/admin/health` | jobs, ws connections, queue depths, errors |
+| GET | `/admin/health` | roadmap; covered today by public `/health` (liveness + depth) and `/metrics` |
 | GET | `/admin/moderation-actions` | audit trail query |
 
 ### 2.8 Media & misc
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/media/presign` | `{kind, mime, size, duration_ms?}` → presigned upload URL; job pipeline (transcode/scan) runs async; status via WS event + media row |
-| GET | `/media/:id/status` | pipeline status |
+| POST | `/media/presign` | documented deviation — replaced by direct multipart `POST /media` streaming upload (see note above); presigned URLs remain roadmap |
+| GET | `/media/:id/status` | pipeline status (documented deviation: uploads are direct multipart today; async FFmpeg variant pipeline is roadmap) |
 | GET | `/meta` | leaderboard "updated X min ago", currency rates fresh flag, announcement banner |
-| GET | `/sitemap.xml`, `/robots.txt` | SEO (PRD §9.4) |
+| GET | `/sitemap.xml`, `/robots.txt` | SEO (PRD §9.4); both **implemented** — the API serves `/robots.txt` publicly (`text/plain`) with an absolute `Sitemap:` URL derived from `PUBLIC_URL` |
 
 ## 3. WebSocket Protocol
 
-**Connect:** `/ws?token=<access_jwt>` (cookie fallback). One connection per client; presence shared per user across devices (`device_id` query param).
+**Connect:** `/ws` — cookie-authenticated only (no `?token=` query parameter, no `device_id`). One connection per user; presence shared per user across devices.
 
 **Frames** — JSON envelope: `{ "id": "<client uuid>", "type": "<event>", "payload": {...} }`
 
@@ -198,7 +198,7 @@ Companion to `PRD.md`. Golden standard applies: every endpoint in this doc is th
 | S→C | `message.edited` | `{message_id, body, edited_at}` | |
 | S→C | `message.deleted` | `{message_id, deleted_for}` | tombstone |
 | S→C | `reaction.updated` | `{message_id, emoji, delta, user_id}` | |
-| S→C | `receipt.delivered` | `{message_id}` | server ack |
+| S→C | `receipt.delivered` | `{message_id}` | documented deviation — not sent today; clients refetch the thread tail on reconnect |
 | S→C | `receipt.read` | `{thread_id, user_id, last_read_message_id}` | |
 | S→C | `typing` | `{thread_id, user_id, is_typing}` | 3s expiry |
 | S→C | `notification.new` | notification payload | real-time in-app |

@@ -193,6 +193,9 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
         return t ? { ...b, trend: { is_booming: t.is_booming, is_rising: t.is_rising, velocity: t.velocity } } : b
       })
       setMarkers(withTrend)
+    } catch {
+      // Silent like the rest of the map: transient viewport fetch failures
+      // (offline pan, abort during fast zoom) just keep the previous pins.
     } finally {
       if (seq === querySeq.current) setLoading(false)
     }

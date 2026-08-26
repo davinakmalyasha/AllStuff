@@ -27,6 +27,12 @@ GOOGLE_OAUTH_CLIENT_ID=<id>
 GOOGLE_OAUTH_CLIENT_SECRET=<secret>
 VAPID_PUBLIC_KEY=<base64url 65-byte P-256>
 VAPID_PRIVATE_KEY=<base64url PKCS8 P-256>
+MEDIA_ENCRYPTION_KEY=<64 hex chars>   # REQUIRED in prod — generate: openssl rand -hex 32
+CLAMAV_ADDR=<clamd host:port>         # REQUIRED in prod — uploads fail closed while the scanner is unreachable
+REDIS_URL=redis://…                   # optional — multi-instance WS fan-out (single instance needs none)
+RATELIMIT_GLOBAL=120/min              # optional global rate-limit override
+LOG_LEVEL=info                        # optional (debug|info|warn|error)
+METRICS_TOKEN=<random bearer>         # optional — bearer token for prod /metrics scraping
 ```
 
 Generate VAPID keys:
@@ -85,7 +91,7 @@ The migrations directory MUST ship inside the image — `-migrate` reads it at s
 
 - Import the repo, root directory `apps/web`, build command `npm run build`, output `dist`.
 - `vercel.json` rewrites `/api/*` and `/og/*` to the Railway domain. In production you may prefer a custom domain for the API and same-site cookies — set `CORS_ORIGINS` and `COOKIE_SECURE=true` accordingly.
-- **SEO:** after deploy, run `npm run prerender` (needs a running API) or add the prerender step to CI, serving `dist/prerendered/*.html`. Add `robots.txt` and submit the sitemap (`/api/v1/sitemap.xml`) in Search Console.
+- **SEO:** after deploy, run `npm run prerender` (needs a running API) or add the prerender step to CI, serving `dist/prerendered/*.html`. The API serves `/robots.txt` automatically — verify the Sitemap URL shows your production domain — and submit the sitemap (`/api/v1/sitemap.xml`) in Search Console.
 
 ## 5. Object storage (media)
 

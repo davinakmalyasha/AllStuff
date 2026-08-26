@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
@@ -15,13 +15,14 @@ const FAQS: { q: string; a: string }[] = [
 
 function FaqItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false)
+  const panelId = useId()
   return (
-    <button onClick={() => setOpen((v) => !v)} className="card w-full p-4 text-left">
+    <button onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls={panelId} className="card w-full p-4 text-left">
       <div className="flex items-center gap-2">
         {open ? <ChevronDown className="h-4 w-4 shrink-0 text-ink3" /> : <ChevronRight className="h-4 w-4 shrink-0 text-ink3" />}
         <span className="text-sm font-medium text-ink">{q}</span>
       </div>
-      {open && <p className="mt-2 text-sm leading-relaxed text-ink2">{a}</p>}
+      {open && <p id={panelId} className="mt-2 text-sm leading-relaxed text-ink2">{a}</p>}
     </button>
   )
 }

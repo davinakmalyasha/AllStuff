@@ -8,7 +8,6 @@ import {
 } from 'react-router-dom'
 import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import '@/lib/i18n'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { ws } from '@/lib/ws'
@@ -77,7 +76,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { CurrencyProvider } from '@/components/CurrencyProvider'
-import { ToastStack } from '@/components/ui/Toast'
+import { ToastStack, toast } from '@/components/ui/Toast'
 import { api, type BusinessDTO } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { useAuth } from '@/stores/auth'
@@ -119,11 +118,14 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 }
 
 function NotFoundPage() {
-  const { t } = useTranslation()
   return (
-    <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-2 text-center">
+    <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
       <p className="font-mono text-5xl font-semibold tracking-tight">404</p>
-      <p className="text-sm text-ink2">{t('common.error')}</p>
+      <p className="text-sm text-ink2">This page doesn't exist or may have moved.</p>
+      <div className="mt-2 flex gap-2">
+        <Link to="/"><Button variant="secondary" size="sm">Home</Button></Link>
+        <Link to="/discover"><Button variant="secondary" size="sm">Discover</Button></Link>
+      </div>
     </div>
   )
 }
@@ -276,7 +278,7 @@ function DashboardIndex() {
       </div>
       {businesses.length === 0 ? (
         <Card className="py-12 text-center">
-          <p className="text-sm text-ink2">No businesses yet. Register your first storefront â€” it takes about 10 minutes and it's free forever.</p>
+          <p className="text-sm text-ink2">No businesses yet. Register your first storefront — it takes about 10 minutes and it's free forever.</p>
           <Link to="/dashboard/register" className="mt-4 inline-block">
             <Button>Start registration</Button>
           </Link>
@@ -317,7 +319,22 @@ function Bootstrap() {
   useEffect(() => {
     void fetchMe()
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          // Update flow: when a waiting SW activates while a controller is
+          // already driving the page, tell the user a refresh is available.
+          reg.addEventListener('updatefound', () => {
+            const installing = reg.installing
+            if (!installing) return
+            installing.addEventListener('statechange', () => {
+              if (installing.state === 'activated' && navigator.serviceWorker.controller) {
+                toast.info('A new version is available — refresh to update.')
+              }
+            })
+          })
+        })
+        .catch(() => undefined)
     }
     const orig = window.onerror
     window.onerror = (msg, src, line, col, err) => {

@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card'
 import { Confirm } from '@/components/ui/Modal'
 import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
+import { formatDate } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
 import { toast } from '@/components/ui/Toast'
 
@@ -58,7 +59,7 @@ export function UserProfilePage() {
         </div>
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{data.name}</h1>
-          <p className="text-sm text-ink3">@{data.username} · joined {new Date(data.joined_at).toLocaleDateString()}</p>
+          <p className="text-sm text-ink3">@{data.username} · joined {formatDate(data.joined_at)}</p>
           {data.bio && <p className="mt-1 text-sm text-ink2">{data.bio}</p>}
         </div>
         {!isSelf && <ProfileActions userId={data.id} profileUsername={username} />}

@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { ApiError } from '@/lib/api'
+import { resetFileInput } from '@/lib/format'
 
 const STEPS = ['Info', 'Location', 'Contact', 'Hours', 'Documents', 'Review']
 
@@ -393,7 +394,7 @@ export function BusinessWizardPage() {
             >
               {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
             </select>
-            <p className="mt-1 text-xs text-ink3">Used for "Open now" (PRD §5.3.4).</p>
+            <p className="mt-1 text-xs text-ink3">Used for "Open now".</p>
           </div>
           <Button variant="secondary" onClick={useMyLocation}>
             <MapPin className="h-4 w-4" /> Use my location
@@ -455,7 +456,7 @@ export function BusinessWizardPage() {
               </div>
             )
           })}
-          <p className="pt-2 text-xs text-ink3">Open at least 5 days is required (PRD §8.2).</p>
+          <p className="pt-2 text-xs text-ink3">Open at least 5 days is required.</p>
         </Card>
       )}
 
@@ -486,6 +487,7 @@ export function BusinessWizardPage() {
                   disabled={uploading}
                   onChange={(e) => {
                     const f = e.target.files?.[0]
+                    resetFileInput(e)
                     if (f) void upload('document_verification', f, kind)
                   }}
                 />
@@ -579,6 +581,7 @@ function UploadField({
         {media ? 'Uploaded ✓' : 'Choose image'}
         <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => {
           const f = e.target.files?.[0]
+          resetFileInput(e)
           if (f) onFile(f)
         }} />
       </label>

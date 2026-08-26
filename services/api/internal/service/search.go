@@ -1,7 +1,8 @@
-﻿package service
+package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ type SearchParams struct {
 	OpenNow           bool
 	VerifiedOnly      bool
 	FullyVerifiedOnly bool
-	HasChat           bool // businesses that engage in chat (PRD §5.1.2)
+	HasChat           bool   // businesses that engage in chat (PRD §5.1.2)
 	Sort              string // trending|rating|newest|nearest|relevance
 	Limit             int
 	Offset            int
@@ -224,7 +225,10 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
 		WHERE ` + strings.Join(where, " AND ")
 	if err := s.repos.QueryRow(ctx, countSQL, whereArgs...).Scan(&total); err != nil {
-		return out, len(out), nil // best-effort: fall back to page size
+		// Best-effort: fall back to page size, but leave a trace — silent
+		// wrong counts are indistinguishable from real ones.
+		slog.Warn("search count fallback", "err", err)
+		return out, len(out), nil
 	}
 	return out, total, nil
 }

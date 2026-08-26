@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { Confirm } from '@/components/ui/Modal'
+import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
 
 export function CollectionsPage() {
@@ -35,22 +36,36 @@ export function CollectionsPage() {
       setName('')
       setCreating(false)
       qc.invalidateQueries({ queryKey: ['my-collections'] })
+      toast.success('Collection created')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not create the collection.'),
   })
 
   const togglePublic = useMutation({
     mutationFn: (c: CollectionDTO) => api(`/me/collections/${c.id}`, { method: 'PATCH', body: { is_public: !c.is_public } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-collections'] }),
+    onSuccess: (_r, c) => {
+      qc.invalidateQueries({ queryKey: ['my-collections'] })
+      toast.success(c.is_public ? 'Collection is now private' : 'Collection is now public')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not update the collection.'),
   })
 
   const remove = useMutation({
     mutationFn: (c: CollectionDTO) => api(`/me/collections/${c.id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-collections'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-collections'] })
+      toast.success('Collection deleted')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not delete the collection.'),
   })
 
   const removeItem = useMutation({
     mutationFn: (item: CollectionItemDTO) => api(`/me/collections/${openId}/items/${item.id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['collection-items', openId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['collection-items', openId] })
+      toast.success('Item removed')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not remove the item.'),
   })
 
   if (isLoading) return <PageSpinner />
@@ -61,7 +76,7 @@ export function CollectionsPage() {
         <div>
           <p className="mono-label mb-1">Saved</p>
           <h1 className="text-2xl font-semibold tracking-tight">Collections</h1>
-          <p className="mt-1 text-sm text-ink2">Organized lists — "Favorites" is created automatically (PRD D3).</p>
+          <p className="mt-1 text-sm text-ink2">Organized lists — "Favorites" is created automatically.</p>
         </div>
         <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> New collection</Button>
       </div>
@@ -88,7 +103,7 @@ export function CollectionsPage() {
                 <p className="text-sm font-semibold text-ink">{c.name} <span className="text-xs font-normal text-ink3">({c.item_count})</span></p>
                 <p className="text-xs text-ink3">/{c.slug}</p>
               </button>
-              <Button variant="ghost" size="sm" onClick={() => void togglePublic.mutateAsync(c)}>
+              <Button variant="ghost" size="sm" onClick={() => void togglePublic.mutateAsync(c)} disabled={togglePublic.isPending}>
                 {c.is_public ? 'Public' : 'Private'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(c)} aria-label="Delete collection">

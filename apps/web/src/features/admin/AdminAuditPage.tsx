@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { formatDateTime } from '@/lib/format'
 
 interface AuditActionDTO {
   id: string
@@ -28,7 +29,7 @@ export function AdminAuditPage() {
     <div className="mx-auto max-w-3xl">
       <p className="mono-label mb-1">Admin · Audit</p>
       <h1 className="text-2xl font-semibold tracking-tight">Moderation trail</h1>
-      <p className="mt-1 text-sm text-ink2">Append-only: every hide, warn, suspend, ban, approve, and reject (PRD §8.7).</p>
+      <p className="mt-1 text-sm text-ink2">Append-only: every hide, warn, suspend, ban, approve, and reject.</p>
 
       <Card className="mt-6 divide-y divide-border p-0">
         {(data?.actions ?? []).map((a) => (
@@ -37,7 +38,7 @@ export function AdminAuditPage() {
             <span className="font-mono text-xs text-ink3">{a.target_type}:{a.target_id.slice(0, 10)}…</span>
             <span className="min-w-0 flex-1 truncate text-ink2">{a.reason || '—'}</span>
             <span className="text-xs text-ink3">{a.admin_name}</span>
-            <span className="text-xs text-ink3">{new Date(a.created_at).toLocaleString()}</span>
+            <span className="text-xs text-ink3">{formatDateTime(a.created_at)}</span>
           </div>
         ))}
         {(data?.actions.length ?? 0) === 0 && <p className="px-4 py-8 text-center text-sm text-ink3">No moderation actions yet.</p>}

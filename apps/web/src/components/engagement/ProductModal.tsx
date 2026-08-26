@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { BellPlus, Bookmark, MessageSquare, Star } from 'lucide-react'
@@ -84,9 +84,27 @@ export function ProductModal({
       await api(`/threads/${r.thread.id}/messages`, { method: 'POST', body: { body: q, type: 'text', client_msg_id: crypto.randomUUID() } }).catch(() => undefined)
       navigate(`/me/messages/${r.thread.id}`)
     } catch {
-      /* navigation still attempted below on success path only */
+      toast.error('Could not start conversation')
     }
   }
+
+  // Save-to-collection popover dismissal (outside click + Escape).
+  const pickerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
 
   const createReview = useMutation({
     mutationFn: () =>
@@ -216,7 +234,7 @@ export function ProductModal({
                 <span className="text-xs text-ink3">No reviews yet</span>
               )}
             </div>
-            <div className="relative ml-auto flex shrink-0 flex-col items-end gap-2">
+            <div ref={pickerRef} className="relative ml-auto flex shrink-0 flex-col items-end gap-2">
               {user && (
                 <>
                   <Button variant="secondary" size="sm" onClick={() => setPickerOpen((v) => !v)}>

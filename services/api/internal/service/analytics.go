@@ -17,18 +17,18 @@ type Analytics struct {
 func NewAnalytics(repos *repo.Repos) *Analytics { return &Analytics{repos: repos} }
 
 type AnalyticsResult struct {
-	Period       string           `json:"period"`
-	Views        int              `json:"views"`
-	Likes        int              `json:"likes"`
-	Recommends   int              `json:"recommends"`
-	Comments     int              `json:"comments"`
-	Reviews      int              `json:"reviews"`
-	Saves        int              `json:"saves"`
-	ChatMessages int              `json:"chat_messages"`
-	RatingAvg    *float64         `json:"rating_avg"`
-	TopProducts  []ProductCount   `json:"top_products"`
-	Series       []DailyCount     `json:"views_series"`
-	Leaderboard  *LeaderboardPos  `json:"leaderboard,omitempty"`
+	Period       string          `json:"period"`
+	Views        int             `json:"views"`
+	Likes        int             `json:"likes"`
+	Recommends   int             `json:"recommends"`
+	Comments     int             `json:"comments"`
+	Reviews      int             `json:"reviews"`
+	Saves        int             `json:"saves"`
+	ChatMessages int             `json:"chat_messages"`
+	RatingAvg    *float64        `json:"rating_avg"`
+	TopProducts  []ProductCount  `json:"top_products"`
+	Series       []DailyCount    `json:"views_series"`
+	Leaderboard  *LeaderboardPos `json:"leaderboard,omitempty"`
 }
 
 type ProductCount struct {
@@ -48,7 +48,7 @@ type LeaderboardPos struct {
 	Category *int `json:"category"`
 }
 
-func (a *Analytics) ForBusiness(ctx context.Context, ownerID, businessID, period string) (*AnalyticsResult, error) {
+func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period string) (*AnalyticsResult, error) {
 	b, err := a.repos.Businesses.GetByID(ctx, businessID)
 	if err != nil {
 		return nil, err
@@ -56,8 +56,22 @@ func (a *Analytics) ForBusiness(ctx context.Context, ownerID, businessID, period
 	if b == nil {
 		return nil, domain.ErrNotFound
 	}
-	if b.OwnerID != ownerID {
-		return nil, domain.ErrForbidden
+	// Read-only analytics access: owner OR co-owner OR accepted viewer
+	// (PRD §5.9.3). Viewers get nothing beyond this read.
+	if b.OwnerID != userID {
+		can, err := a.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
+		if err != nil {
+			return nil, err
+		}
+		if !can {
+			viewer, err := a.repos.Businesses.IsBusinessViewer(ctx, userID, businessID)
+			if err != nil {
+				return nil, err
+			}
+			if !viewer {
+				return nil, domain.ErrForbidden
+			}
+		}
 	}
 
 	since, days := sinceFor(period)

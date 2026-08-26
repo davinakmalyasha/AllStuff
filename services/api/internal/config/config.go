@@ -20,11 +20,16 @@ type Config struct {
 	MigrationsDir string
 	CookieSecure  bool
 	CORSOrigins   []string
+	// LogLevel is the slog threshold from LOG_LEVEL (debug|info|warn|error).
+	LogLevel slog.Level
 	// Allowed WebSocket origins; when empty, only the same-origin host and
 	// CORSOrigins are accepted (PRD §9.3 CSWSH protection).
 	WSOrigins []string
 	// TrustXForwardedFor: only set behind a proxy that strips spoofed values.
 	TrustXForwardedFor bool
+	// MetricsToken: Bearer token that may scrape /metrics in prod without an
+	// admin session. Empty = admin session required (previous behavior).
+	MetricsToken string
 	// RateLimitGlobal overrides the default 120 req/min/IP global bucket.
 	// Useful behind corporate NAT/proxies where many users share one egress
 	// IP, and for E2E runs where all browser traffic funnels through the
@@ -62,27 +67,29 @@ type Config struct {
 
 func Load() Config {
 	cfg := Config{
-		Port:          env("PORT", "8080"),
-		AppEnv:        env("APP_ENV", "dev"),
-		PublicURL:     env("PUBLIC_URL", "http://localhost:5173"),
-		DatabaseURL:   env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable"),
-		JWTSecret:     env("JWT_SECRET", "dev-secret-change-me-in-production-0123456789abcdef"),
-		MigrationsDir: env("MIGRATIONS_DIR", "../../infra/postgres/migrations"),
-		CookieSecure:  env("COOKIE_SECURE", "false") == "true",
-		CORSOrigins:   splitCSV(env("CORS_ORIGINS", "http://localhost:5173")),
-		WSOrigins:     splitCSV(env("WS_ORIGINS", "")),
-		TrustXForwardedFor: env("TRUST_X_FORWARDED_FOR", "false") == "true",
-		RateLimitGlobal:    envInt("RATELIMIT_GLOBAL", 120),
-		RedisURL:           os.Getenv("REDIS_URL"),
-		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
-		EmailFrom:     env("EMAIL_FROM", "no-reply@bizverse.app"),
-		SMTPAddr:      os.Getenv("SMTP_ADDR"),
-		SMTPUser:      os.Getenv("SMTP_USER"),
-		SMTPPass:      os.Getenv("SMTP_PASS"),
-		MediaDir:      env("MEDIA_DIR", "./data/media"),
-		MediaBase:     env("MEDIA_BASE", "http://localhost:8080/api/v1/media"),
-		MediaEncryptionKey: os.Getenv("MEDIA_ENCRYPTION_KEY"),
-		ClamAVAddr:         os.Getenv("CLAMAV_ADDR"),
+		Port:                env("PORT", "8080"),
+		AppEnv:              env("APP_ENV", "dev"),
+		PublicURL:           env("PUBLIC_URL", "http://localhost:5173"),
+		DatabaseURL:         env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable"),
+		JWTSecret:           env("JWT_SECRET", "dev-secret-change-me-in-production-0123456789abcdef"),
+		MigrationsDir:       env("MIGRATIONS_DIR", "../../infra/postgres/migrations"),
+		CookieSecure:        env("COOKIE_SECURE", "false") == "true",
+		LogLevel:            envLogLevel(os.Getenv("LOG_LEVEL")),
+		CORSOrigins:         splitCSV(env("CORS_ORIGINS", "http://localhost:5173")),
+		WSOrigins:           splitCSV(env("WS_ORIGINS", "")),
+		TrustXForwardedFor:  env("TRUST_X_FORWARDED_FOR", "false") == "true",
+		RateLimitGlobal:     envInt("RATELIMIT_GLOBAL", 120),
+		MetricsToken:        os.Getenv("METRICS_TOKEN"),
+		RedisURL:            os.Getenv("REDIS_URL"),
+		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
+		EmailFrom:           env("EMAIL_FROM", "no-reply@bizverse.app"),
+		SMTPAddr:            os.Getenv("SMTP_ADDR"),
+		SMTPUser:            os.Getenv("SMTP_USER"),
+		SMTPPass:            os.Getenv("SMTP_PASS"),
+		MediaDir:            env("MEDIA_DIR", "./data/media"),
+		MediaBase:           env("MEDIA_BASE", "http://localhost:8080/api/v1/media"),
+		MediaEncryptionKey:  os.Getenv("MEDIA_ENCRYPTION_KEY"),
+		ClamAVAddr:          os.Getenv("CLAMAV_ADDR"),
 		GoogleOAuthClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		GoogleOAuthSecret:   os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
 	}
@@ -143,6 +150,23 @@ func envInt(key string, fallback int) int {
 		slog.Warn("invalid RATELIMIT_GLOBAL; using default", "value", v)
 	}
 	return fallback
+}
+
+// envLogLevel parses LOG_LEVEL (debug|info|warn|error), defaulting to info.
+func envLogLevel(v string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	case "", "info":
+		return slog.LevelInfo
+	default:
+		slog.Warn("invalid LOG_LEVEL; using info", "value", v)
+		return slog.LevelInfo
+	}
 }
 
 func splitCSV(s string) []string {

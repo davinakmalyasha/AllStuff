@@ -51,7 +51,7 @@ Dev emails (verification, reset) are logged to the API console when no `RESEND_A
 ```powershell
 cd apps/web
 npx playwright install chromium
-npx playwright test          # E2E smoke: register/login, discover, storefront, compare
+npx playwright test          # smoke + notifications journeys (Playwright): register/login, discover, storefront, compare
 ```
 
 ## Documentation
@@ -71,7 +71,7 @@ npx playwright test          # E2E smoke: register/login, discover, storefront, 
 - ✅ M4 Map & compare — MapLibre viewport search, Booming/Rising markers, compare tray + page
 - ✅ M5 Messaging — direct + business threads, full message features, WS delivery, push subscriptions
 - ✅ M6 Admin — verification, moderation queues + audit trail, users, curation
-- ✅ M7 Hardening — TOTP 2FA + challenge login, sessions/security page, data export, E2E suite
+- ✅ M7 Hardening — TOTP 2FA + challenge login, sessions/security page, data export, smoke + notifications journeys (Playwright)
 
 ## Platform extras
 
@@ -79,7 +79,7 @@ npx playwright test          # E2E smoke: register/login, discover, storefront, 
 - ✅ User profiles, follow feed, Q&A, review photos, owner announcements (co-owners included), weekly digest
 - ✅ Help center, contact + appeals, admin KPIs, co-owner invites (email + accept page), link previews, pinned messages
 - ✅ Chat power features: forward, media gallery, JSON export, close/leave thread, blocks, quick replies, jump-to-message
-- ✅ Code-splitting, CI (vet/test/lint/migrate/E2E), OG images, prerender script
+- ✅ Code-splitting, CI (vet/test/lint/migrate/smoke), OG images, prerender script
 - ✅ 2026-08 audit hardening: single-use email tokens, per-account throttles, chat-media authz, streaming uploads, WS chain fix + regression test, job idempotency & retention, fail-closed malware scanning, push SSRF dial guards, decompression-bomb bounds, security headers + CSP, batched fan-outs, two-phase search, concurrent index migrations 0026/0027
 
 ## Structure

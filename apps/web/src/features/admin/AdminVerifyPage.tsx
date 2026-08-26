@@ -57,7 +57,7 @@ export function AdminVerifyPage() {
       <div className="mb-6">
         <p className="mono-label mb-1">Admin · Verification</p>
         <h1 className="text-2xl font-semibold tracking-tight">Verification queue</h1>
-        <p className="mt-1 text-sm text-ink2">Review info + documents, then approve (with trust level) or reject with a reason (PRD §5.8.1). Every decision is audited.</p>
+        <p className="mt-1 text-sm text-ink2">Review info + documents, then approve (with trust level) or reject with a reason. Every decision is audited.</p>
       </div>
 
       <div className="mb-4 flex gap-2">

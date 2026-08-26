@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { api, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
+import { usePageMeta } from '@/lib/meta'
 import { useAuth } from '@/stores/auth'
 import { categoryIcon } from '@/components/ui/CategoryIcon'
 import { HomeMapWidget } from '@/features/map/HomeMapWidget'
@@ -43,13 +44,14 @@ const STEPS = [
   { icon: Store, titleKey: 'landing.howStep3Title', textKey: 'landing.howStep3Text' },
 ]
 
+// Icons only — titles/texts come from i18n at render time (landing.feature*).
 const FEATURES = [
-  { icon: Search, title: 'Complex search', text: 'Full-text search with filters for category, location, price, rating, and open-now. Results on a list or a map.' },
-  { icon: TrendingUp, title: 'Honest trending', text: 'Time-weighted engagement drives leaderboards. Rising tier gives new businesses a real chance to be found.' },
-  { icon: Store, title: 'Owner-crafted storefronts', text: 'Themes, sections, products with variants and pricing. Every page unique, published by the owner.' },
-  { icon: MessageSquare, title: 'Full messaging', text: 'Chat with any business or user: media, replies, reactions, receipts. Real conversations, no apps to install.' },
-  { icon: ShieldCheck, title: 'Golden-standard verification', text: 'Document-backed verification with two trust levels, so you know who you are dealing with.' },
-  { icon: MapPin, title: 'Everything, everywhere', text: 'Category-agnostic by design: food, photo booths, barbers, studios — every business in the world fits.' },
+  { icon: Search, titleKey: 'landing.featureSearchTitle', textKey: 'landing.featureSearchText' },
+  { icon: TrendingUp, titleKey: 'landing.featureTrendingTitle', textKey: 'landing.featureTrendingText' },
+  { icon: Store, titleKey: 'landing.featureStorefrontTitle', textKey: 'landing.featureStorefrontText' },
+  { icon: MessageSquare, titleKey: 'landing.featureChatTitle', textKey: 'landing.featureChatText' },
+  { icon: ShieldCheck, titleKey: 'landing.featureVerificationTitle', textKey: 'landing.featureVerificationText' },
+  { icon: MapPin, titleKey: 'landing.featureCategoriesTitle', textKey: 'landing.featureCategoriesText' },
 ]
 
 function Stat({ value, label }: { value: string; label: string }) {
@@ -65,6 +67,8 @@ export function LandingPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
+
+  usePageMeta('', undefined, { url: '/' })
 
   const { data: catData } = useQuery({
     queryKey: ['categories'],
@@ -189,12 +193,9 @@ export function LandingPage() {
       <section className="border-t border-border bg-surface/50 py-16 sm:py-20">
         <div className="container-page grid gap-8 lg:grid-cols-2">
           <div>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <p className="mono-label mb-2">Live</p>
-                <h2 className="text-xl font-semibold tracking-tight">{t('landing.trending')}</h2>
-              </div>
-              <Badge tone="attention" dot>Updated 10 min ago</Badge>
+            <div className="mb-6">
+              <p className="mono-label mb-2">Live</p>
+              <h2 className="text-xl font-semibold tracking-tight">{t('landing.trending')}</h2>
             </div>
             <Card className="divide-y divide-border p-0">
               {trending.length === 0 && <p className="px-5 py-6 text-center text-sm text-ink3">Signals are warming up — leaderboards fill as people engage.</p>}
@@ -298,10 +299,10 @@ export function LandingPage() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <Card key={f.title} hover>
+              <Card key={f.titleKey} hover>
                 <f.icon className="h-5 w-5 text-ink" aria-hidden />
-                <h3 className="mt-4 text-sm font-semibold text-ink">{f.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-ink2">{f.text}</p>
+                <h3 className="mt-4 text-sm font-semibold text-ink">{t(f.titleKey)}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-ink2">{t(f.textKey)}</p>
               </Card>
             ))}
           </div>

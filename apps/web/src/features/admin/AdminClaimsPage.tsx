@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { toast } from '@/components/ui/Toast'
 
 interface ClaimDTO {
   id: string
@@ -36,7 +38,11 @@ export function AdminClaimsPage() {
   const decide = useMutation({
     mutationFn: ({ id, decision, note }: { id: string; decision: string; note: string }) =>
       api(`/admin/claims/${id}/decide`, { method: 'POST', body: { decision, note } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-claims'] }),
+    onSuccess: (_r, vars) => {
+      qc.invalidateQueries({ queryKey: ['admin-claims'] })
+      toast.success(vars.decision === 'approve' ? 'Claim approved — draft created for the claimer' : 'Claim rejected')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Decision failed.'),
   })
 
   const tone = (s: string) => (s === 'approved' ? 'positive' : s === 'rejected' ? 'danger' : 'attention') as 'positive' | 'danger' | 'attention'
@@ -61,7 +67,7 @@ export function AdminClaimsPage() {
             {c.website ? ` · ${c.website}` : ''}
           </p>
           <p className="text-xs text-ink2">
-            Claimed by <span className="font-medium">{c.user_name}</span> ({c.user_email}) · {new Date(c.created_at).toLocaleDateString()}
+            Claimed by <span className="font-medium">{c.user_name}</span> ({c.user_email}) · {formatDate(c.created_at)}
           </p>
           {c.evidence && <p className="rounded-lg bg-surface2 px-3 py-2 text-sm text-ink2">“{c.evidence}”</p>}
           {c.note && <p className="text-xs text-ink3">Note: {c.note}</p>}

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge'
 import { useAuth } from '@/stores/auth'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/components/ui/Toast'
+import { formatDate, resetFileInput } from '@/lib/format'
 
 interface SavedSearchDTO {
   id: string
@@ -15,6 +16,24 @@ interface SavedSearchDTO {
   query: Record<string, unknown>
   notify_daily: boolean
   created_at: string
+}
+
+/** Rebuild the FULL /discover query string a saved search stores — mirrors
+ *  what DiscoverPage reads back from the URL on load. */
+function savedSearchHref(query: Record<string, unknown>): string {
+  const p = new URLSearchParams()
+  if (query.q != null && String(query.q) !== '') p.set('q', String(query.q))
+  if (typeof query.city === 'string' && query.city) p.set('city', query.city)
+  for (const c of Array.isArray(query.category) ? query.category : []) p.append('category', String(c))
+  for (const v of Array.isArray(query.price_level) ? query.price_level : []) p.append('price_level', String(v))
+  if (typeof query.min_rating === 'number' && query.min_rating > 0) p.set('min_rating', String(query.min_rating))
+  if (query.open_now === true) p.set('open_now', 'true')
+  if (query.verified_only === true) p.set('verified_only', 'true')
+  if (query.fully_verified === true) p.set('fully_verified', 'true')
+  if (query.has_chat === true) p.set('has_chat', 'true')
+  if (typeof query.sort === 'string' && query.sort && query.sort !== 'trending') p.set('sort', query.sort)
+  const qs = p.toString()
+  return qs ? `/discover?${qs}` : '/discover'
 }
 
 export function MePage() {
@@ -31,20 +50,32 @@ export function MePage() {
 
   const removeSearch = useMutation({
     mutationFn: (id: string) => api(`/me/saved-searches/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-searches'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['saved-searches'] })
+      toast.success('Saved search deleted')
+    },
+    onError: (e) => toast.error((e as Error).message),
   })
 
   const toggleAlert = useMutation({
     mutationFn: ({ id, on }: { id: string; on: boolean }) =>
       api(`/me/saved-searches/${id}`, { method: 'PATCH', body: { notify_daily: on } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-searches'] }),
+    onSuccess: (_r, vars) => {
+      qc.invalidateQueries({ queryKey: ['saved-searches'] })
+      toast.success(vars.on ? 'Daily alerts enabled' : 'Daily alerts disabled')
+    },
+    onError: (e) => toast.error((e as Error).message),
   })
 
   const uploadAvatar = async (file: File) => {
-    const r = await uploadMedia('avatar', file)
-    await api('/me', { method: 'PATCH', body: { avatar_url: r.media.url } })
-    await fetchMe()
-    toast.success('Avatar updated')
+    try {
+      const r = await uploadMedia('avatar', file)
+      await api('/me', { method: 'PATCH', body: { avatar_url: r.media.url } })
+      await fetchMe()
+      toast.success('Avatar updated')
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not update avatar.')
+    }
   }
 
   if (!user) return null
@@ -58,7 +89,7 @@ export function MePage() {
           </div>
           <label className="absolute -bottom-1 -right-1 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border bg-surface text-ink3 shadow-card hover:text-ink" title="Change avatar">
             <Camera className="h-3 w-3" />
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAvatar(f) }} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; resetFileInput(e); if (f) void uploadAvatar(f) }} />
           </label>
         </div>
         <div className="min-w-0">
@@ -91,7 +122,7 @@ export function MePage() {
           <div>
             <dt className="mono-label">Member since</dt>
             <dd className="mt-1 text-sm text-ink">
-              {new Date(user.created_at).toLocaleDateString()}
+              {formatDate(user.created_at)}
             </dd>
           </div>
         </dl>
@@ -112,7 +143,7 @@ export function MePage() {
               />
               Daily alert
             </label>
-            <Link to={`/discover?q=${encodeURIComponent(String(s.query?.q ?? ''))}`} className="text-xs text-ink3 hover:text-ink">Open</Link>
+            <Link to={savedSearchHref(s.query)} className="text-xs text-ink3 hover:text-ink">Open</Link>
             <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">✕</button>
           </div>
         ))}

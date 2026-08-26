@@ -3,13 +3,17 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Star } from 'lucide-react'
 import { api, type ReviewDTO } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { Confirm } from '@/components/ui/Modal'
+import { toast } from '@/components/ui/Toast'
 
-/** My reviews (PRD §5.6.2): every review the user wrote, with business links. */
+/** My reviews: every review the user wrote, with business links. */
 export function MyReviewsPage() {
   const qc = useQueryClient()
   const [deleted, setDeleted] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const { data } = useQuery({
     queryKey: ['me-reviews'],
@@ -18,9 +22,14 @@ export function MyReviewsPage() {
   const reviews = data?.reviews ?? []
 
   const remove = async (id: string) => {
-    await api(`/reviews/${id}`, { method: 'DELETE' })
-    setDeleted(id)
-    qc.invalidateQueries({ queryKey: ['me-reviews'] })
+    try {
+      await api(`/reviews/${id}`, { method: 'DELETE' })
+      setDeleted(id)
+      toast.success('Review deleted')
+      qc.invalidateQueries({ queryKey: ['me-reviews'] })
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not delete the review.')
+    }
   }
 
   return (
@@ -56,9 +65,9 @@ export function MyReviewsPage() {
             </div>
             <p className="text-sm leading-relaxed text-ink2">{r.text}</p>
             <div className="flex items-center justify-between text-xs text-ink3">
-              <span>{new Date(r.created_at).toLocaleDateString()}</span>
+              <span>{formatDate(r.created_at)}</span>
               {deleted !== r.id ? (
-                <button onClick={() => void remove(r.id)} className="hover:text-ink">Delete</button>
+                <button onClick={() => setDeleteTarget(r.id)} className="hover:text-ink">Delete</button>
               ) : (
                 <span className="italic">deleted</span>
               )}
@@ -66,11 +75,21 @@ export function MyReviewsPage() {
           </Card>
         ))}
       </div>
+
+      <Confirm
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void remove(deleteTarget)}
+        title="Delete review"
+        message="This removes your review permanently."
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   )
 }
 
-/** Data export (PRD §5.9.2): synchronous JSON download today. */
+/** Data export: synchronous JSON download today. */
 export function ExportPage() {
   const [busy, setBusy] = useState(false)
 
@@ -86,6 +105,9 @@ export function ExportPage() {
       a.download = 'bizverse-export.json'
       a.click()
       URL.revokeObjectURL(url)
+      toast.success('Export downloaded')
+    } catch (e) {
+      toast.error((e as Error).message || 'Export failed. Try again later.')
     } finally {
       setBusy(false)
     }
@@ -98,7 +120,7 @@ export function ExportPage() {
       <Card className="mt-4 space-y-3">
         <p className="text-sm text-ink2">
           Download everything BizVerse stores about you: profile, reviews, comments, collections,
-          messages and activity (PRD §5.9.2). The file is a JSON snapshot.
+          messages and activity. The file is a JSON snapshot.
         </p>
         <Button onClick={() => void run()} disabled={busy}>
           <Download className="h-4 w-4" /> {busy ? 'Preparing…' : 'Download JSON'}

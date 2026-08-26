@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { toast } from '@/components/ui/Toast'
 
 interface AppealDTO {
   id: string
@@ -46,11 +48,19 @@ export function AdminAppealsPage() {
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: string; decision: string }) =>
       api(`/admin/appeals/${id}/decide`, { method: 'POST', body: { decision } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-appeals'] }),
+    onSuccess: (_r, vars) => {
+      qc.invalidateQueries({ queryKey: ['admin-appeals'] })
+      toast.success(vars.decision === 'approve' ? 'Account restored' : 'Appeal rejected')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Decision failed.'),
   })
   const resolveAnomaly = useMutation({
     mutationFn: (id: string) => api(`/admin/anomalies/${id}/resolve`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-anomalies'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-anomalies'] })
+      toast.success('Anomaly resolved')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not resolve the anomaly.'),
   })
 
   if (isLoading) return <PageSpinner />
@@ -76,7 +86,7 @@ export function AdminAppealsPage() {
                 <Badge tone={a.user_status === 'suspended' ? 'attention' : 'danger'} dot>{a.user_status}</Badge>
                 <span className="text-sm font-medium text-ink">{a.name}</span>
                 <span className="text-xs text-ink3">{a.email}</span>
-                <span className="ml-auto text-xs text-ink3">{new Date(a.created_at).toLocaleString()}</span>
+                <span className="ml-auto text-xs text-ink3">{formatDateTime(a.created_at)}</span>
               </div>
               <p className="mt-2 rounded-lg bg-surface2 p-3 text-sm text-ink2">{a.reason}</p>
               <div className="mt-3 flex gap-2">
@@ -95,7 +105,7 @@ export function AdminAppealsPage() {
             <Card key={x.id} className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-ink">{x.business_name} <span className="font-normal text-ink3">({x.signal} ×{x.weight})</span></p>
-                <p className="text-xs text-ink3">flagged {new Date(x.occurred_at).toLocaleString()} · {x.normal_count} normal events</p>
+                <p className="text-xs text-ink3">flagged {formatDateTime(x.occurred_at)} · {x.normal_count} normal events</p>
               </div>
               <Button variant="secondary" size="sm" onClick={() => void resolveAnomaly.mutateAsync(x.id)} disabled={resolveAnomaly.isPending}>Looks fine</Button>
             </Card>

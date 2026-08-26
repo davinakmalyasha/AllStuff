@@ -91,7 +91,6 @@ export function AnalyticsPage() {
           <span>{data?.views_series?.[0]?.day}</span>
           <span>{data?.views_series?.[data.views_series.length - 1]?.day}</span>
         </div>
-        <p className="mt-3 text-xs text-ink3">View events begin flowing with the M3 engagement pipeline; counters are live today.</p>
       </Card>
 
       <Card className="mt-6 p-5">
@@ -113,7 +112,7 @@ export function AnalyticsPage() {
 
       {data?.leaderboard && (
         <p className="mt-4 text-xs text-ink3">
-          Leaderboard: global #{data.leaderboard.global ?? '—'} · category #{data.leaderboard.category ?? '—'} (updates with M3 trending)
+          Leaderboard: global #{data.leaderboard.global ?? '—'} · category #{data.leaderboard.category ?? '—'}
         </p>
       )}
     </div>

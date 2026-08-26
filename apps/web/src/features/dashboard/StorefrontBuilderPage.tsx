@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
+import { toast } from '@/components/ui/Toast'
+import { formatDateTime } from '@/lib/format'
 import { StorefrontPreview } from './StorefrontPreview'
 
 const PRESETS: Record<string, { name: string; colors: Record<string, string>; font: string }> = {
@@ -93,27 +95,39 @@ export function StorefrontBuilderPage() {
       await api(`/businesses/${b.id}/storefront`, { method: 'PUT', body: { theme, layout } })
       setFlash('Draft saved')
       setTimeout(() => setFlash(''), 2000)
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not save the draft.')
     } finally {
       setSaving(false)
     }
   }
 
+  // Publish must chain the draft save first: the publish endpoint snapshots
+  // what is already persisted, so publishing directly dropped unsaved
+  // theme/layout edits.
   const publishMutation = useMutation({
-    mutationFn: () => api(`/businesses/${b!.id}/publish`, { method: 'POST' }),
+    mutationFn: async () => {
+      await api(`/businesses/${b!.id}/storefront`, { method: 'PUT', body: { theme, layout } })
+      return api(`/businesses/${b!.id}/publish`, { method: 'POST' })
+    },
     onSuccess: () => {
       setFlash('Published — your storefront is live')
+      toast.success('Published — your storefront is live')
       qc.invalidateQueries({ queryKey: ['business', b?.id] })
       setTimeout(() => setFlash(''), 2500)
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not publish.'),
   })
 
   const unpublishMutation = useMutation({
     mutationFn: () => api(`/businesses/${b!.id}/unpublish`, { method: 'POST' }),
     onSuccess: () => {
       setFlash('Unpublished')
+      toast.success('Unpublished')
       qc.invalidateQueries({ queryKey: ['business', b?.id] })
       setTimeout(() => setFlash(''), 2000)
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not unpublish.'),
   })
 
   if (!business) {
@@ -159,7 +173,7 @@ export function StorefrontBuilderPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{b.name}</h1>
           <div className="mt-1 flex items-center gap-2 text-xs text-ink3">
             {b.last_published_at ? (
-              <span>Published {new Date(b.last_published_at).toLocaleString()}</span>
+              <span>Published {formatDateTime(b.last_published_at)}</span>
             ) : (
               <span>Never published</span>
             )}

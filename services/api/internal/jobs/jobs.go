@@ -74,9 +74,9 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 
 	trendTicker := time.NewTicker(10 * time.Minute)
 	currencyTicker := time.NewTicker(time.Hour)
-	// Digest scheduling: check hourly whether it's Monday-UTC and not yet
-	// sent this ISO week (job_runs marker). A 24h ticker phased at boot time
-	// skipped or double-sent around DST/week boundaries.
+	// Digest scheduling: check hourly whether the current ISO week's period
+	// has been claimed yet (job_runs marker). A 24h ticker phased at boot
+	// time skipped or double-sent around DST/week boundaries.
 	digestCheckTicker := time.NewTicker(time.Hour)
 	alertTicker := time.NewTicker(24 * time.Hour)
 	purgeTicker := time.NewTicker(24 * time.Hour)
@@ -136,25 +136,25 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				logger.Info("currency sync done")
 			})
 		case <-digestCheckTicker.C:
-			// Weekly digest on Mondays UTC (PRD 5.7), idempotent per ISO
-			// week. Go layouts have NO week verb ("W" is literal), so the
-			// old Format("2006-W02") keyed on day-of-month; use ISOWeek().
+			// Weekly digest (PRD 5.7): every hourly tick tries to claim the
+			// current ISO-week period; claimPeriod dedupes, so the first
+			// tick after the week rolls over wins and later ticks no-op.
+			// Go layouts have NO week verb ("W" is literal), so the old
+			// Format("2006-W02") keyed on day-of-month; use ISOWeek().
 			now := time.Now().UTC()
-			if now.Weekday() == time.Monday {
-				y, w := now.ISOWeek()
-				period := fmt.Sprintf("%04d-W%02d", y, w)
-				spawn("weekly_digest", func(ctx context.Context) {
-					if !claimPeriod(ctx, repos, "weekly_digest", period) {
-						return
-					}
-					if err := digest.SendWeekly(ctx); err != nil {
-						// Release the slot: a failed run must not burn the
-						// whole week's digest; next hourly check retries.
-						releasePeriod(context.WithoutCancel(ctx), repos, "weekly_digest", period)
-						logger.Warn("digest", "err", err)
-					}
-				})
-			}
+			y, w := now.ISOWeek()
+			period := fmt.Sprintf("%04d-W%02d", y, w)
+			spawn("weekly_digest", func(ctx context.Context) {
+				if !claimPeriod(ctx, repos, "weekly_digest", period) {
+					return
+				}
+				if err := digest.SendWeekly(ctx); err != nil {
+					// Release the slot: a failed run must not burn the
+					// whole week's digest; next hourly check retries.
+					releasePeriod(context.WithoutCancel(ctx), repos, "weekly_digest", period)
+					logger.Warn("digest", "err", err)
+				}
+			})
 		case <-alertTicker.C:
 			// Daily search alerts (PRD 5.1.2), idempotent per day.
 			day := time.Now().UTC().Format("2006-01-02")

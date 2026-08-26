@@ -40,7 +40,7 @@ func NewAuth(repos *repo.Repos, cfg config.Config, sender mail.Sender, logger *s
 }
 
 var (
-	emailRe   = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	emailRe    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 	usernameRe = regexp.MustCompile(`^[a-z0-9_]{3,30}$`)
 )
 
@@ -117,14 +117,14 @@ func (a *Auth) Register(ctx context.Context, in RegisterInput) (*domain.User, *T
 	}
 
 	user := &domain.User{
-		ID:         util.NewUUID(),
-		Email:      in.Email,
+		ID:           util.NewUUID(),
+		Email:        in.Email,
 		PasswordHash: hash,
-		Name:       in.Name,
-		Username:   in.Username,
-		Timezone:   "UTC",
-		Role:       domain.RoleUser,
-		Status:     domain.UserStatusActive,
+		Name:         in.Name,
+		Username:     in.Username,
+		Timezone:     "UTC",
+		Role:         domain.RoleUser,
+		Status:       domain.UserStatusActive,
 	}
 	if err := a.repos.Users.Create(ctx, user); err != nil {
 		return nil, nil, err
@@ -323,8 +323,9 @@ func (a *Auth) ForgotPassword(ctx context.Context, email string) error {
 	link := fmt.Sprintf("%s/reset-password?token=%s", a.cfg.PublicURL, url.QueryEscape(token))
 	return a.email.Send(ctx, user.Email, "Reset your password",
 		mail.WrapHTML(a.cfg.PublicURL, "Reset your password",
-			fmt.Sprintf(`<p>Hi %s,</p><p>Reset your password: <a href="%s">%s</a>.</p><p>Link expires in 15 minutes.</p>`,
-				htmlEscape(user.Name), link, link)))
+			// Human label only; the raw token stays in the href.
+			fmt.Sprintf(`<p>Hi %s,</p><p><a href="%s">Reset your password</a>.</p><p>Link expires in 15 minutes.</p>`,
+				htmlEscape(user.Name), link)))
 }
 
 func (a *Auth) ResetPassword(ctx context.Context, token, password string) error {
@@ -422,8 +423,9 @@ func (a *Auth) sendVerificationEmail(ctx context.Context, user *domain.User) err
 	link := fmt.Sprintf("%s/verify-email?token=%s", a.cfg.PublicURL, url.QueryEscape(token))
 	return a.email.Send(ctx, user.Email, "Verify your email",
 		mail.WrapHTML(a.cfg.PublicURL, "Verify your email",
-			fmt.Sprintf(`<p>Welcome to BizVerse, %s.</p><p>Verify your email: <a href="%s">%s</a>.</p><p>Link expires in 24 hours.</p>`,
-				htmlEscape(user.Name), link, link)))
+			// Human label only; the raw token stays in the href.
+			fmt.Sprintf(`<p>Welcome to BizVerse, %s.</p><p><a href="%s">Verify your email</a>.</p><p>Link expires in 24 hours.</p>`,
+				htmlEscape(user.Name), link)))
 }
 
 // ResendVerification re-issues the registration-time verify-email token and
@@ -815,6 +817,12 @@ func (a *Auth) PurgeExpiredDeletions(ctx context.Context) (int64, error) {
 			FROM users u
 			WHERE u.id = s.user_id AND s.revoked_at IS NULL
 			  AND u.deleted_at IS NOT NULL AND u.deleted_at < now() - interval '14 days'`)
+		// Push subscriptions are device credentials tied to the account:
+		// they must not outlive the purge.
+		_, _ = a.repos.Exec(ctx, `
+			DELETE FROM push_subscriptions p USING users u
+			WHERE p.user_id = u.id
+			  AND u.deleted_at IS NOT NULL AND u.deleted_at < now() - interval '14 days'`)
 	}
 	return n, nil
 }
@@ -945,17 +953,18 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 			"email": user.Email, "bio": user.Bio, "timezone": user.Timezone,
 			"created_at": user.CreatedAt,
 		},
-		"businesses": businesses,
-		"products":   products,
+		"businesses":  businesses,
+		"products":    products,
 		"collections": colItems,
-		"reviews":    revRows,
-		"comments":   comRows,
-		"threads":    threads,
-		"messages":   messages,
+		"reviews":     revRows,
+		"comments":    comRows,
+		"threads":     threads,
+		"messages":    messages,
 	}, nil
 }
 
-func (a *Auth) LoginHistory(ctx context.Context, userID string, limit int) ([]map[string]any, error) {	rows, err := a.repos.Query(ctx, `
+func (a *Auth) LoginHistory(ctx context.Context, userID string, limit int) ([]map[string]any, error) {
+	rows, err := a.repos.Query(ctx, `
 		SELECT event, ip, user_agent, created_at FROM auth_events
 		WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
@@ -1133,14 +1142,14 @@ func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string)
 // ---- saved searches (search alerts) ----
 
 type SavedSearch struct {
-	ID           string         `json:"id"`
-	UserID       string         `json:"user_id"`
-	Name         string         `json:"name"`
-	Query        map[string]any `json:"query"`
-	NotifyDaily  bool           `json:"notify_daily"`
-	LastSentAt   *time.Time     `json:"last_sent_at,omitempty"`
-	LastResultIDs []string      `json:"last_result_ids,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID            string         `json:"id"`
+	UserID        string         `json:"user_id"`
+	Name          string         `json:"name"`
+	Query         map[string]any `json:"query"`
+	NotifyDaily   bool           `json:"notify_daily"`
+	LastSentAt    *time.Time     `json:"last_sent_at,omitempty"`
+	LastResultIDs []string       `json:"last_result_ids,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
 }
 
 func (a *Auth) SaveSearch(ctx context.Context, userID, name string, query map[string]any, notifyDaily bool) (*SavedSearch, error) {

@@ -573,19 +573,29 @@ func (r *EngagementRepo) ListNotifications(ctx context.Context, userID, ntype st
 }
 
 // CreateNotificationsForFollowers inserts an in-app notification for every
-// follower of a business in ONE statement. The previous per-follower loop
-// (INSERT + prefs SELECT + unread COUNT each) serialized ~4 queries per
-// follower inside the announcement request and starved the pool.
-func (r *EngagementRepo) CreateNotificationsForFollowers(ctx context.Context, businessID, ntype string, payload map[string]any) (int64, error) {
-	tag, err := r.pool.Exec(ctx, `
+// follower of a business in ONE statement and returns the created rows so the
+// caller dispatches WS/email for exactly those notifications (the previous
+// GetLatestUnread hydration could surface an older unread notification).
+func (r *EngagementRepo) CreateNotificationsForFollowers(ctx context.Context, businessID, ntype string, payload map[string]any) ([]*domain.Notification, error) {
+	rows, err := r.pool.Query(ctx, `
 		INSERT INTO notifications (id, user_id, type, payload, expires_at)
 		SELECT gen_random_uuid(), f.user_id, $2, $3, now() + interval '90 days'
 		FROM follows f
-		WHERE f.business_id = $1`, businessID, ntype, payload)
+		WHERE f.business_id = $1
+		RETURNING id, user_id, created_at`, businessID, ntype, payload)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var out []*domain.Notification
+	for rows.Next() {
+		n := domain.Notification{Type: ntype, Payload: payload}
+		if err := rows.Scan(&n.ID, &n.UserID, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &n)
+	}
+	return out, rows.Err()
 }
 
 // PurgeExpired removes notifications past their retention window (PRD §5.7).

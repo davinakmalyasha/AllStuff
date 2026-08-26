@@ -4,10 +4,11 @@ import { Bell, Download, KeyRound, ShieldCheck, Smartphone, Trash2 } from 'lucid
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Modal } from '@/components/ui/Modal'
+import { Modal, Confirm } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { usePageMeta } from '@/lib/meta'
 import { toast } from '@/components/ui/Toast'
+import { copyText, formatDateTime } from '@/lib/format'
 import { CURRENCIES, useCurrency } from '@/stores/currency'
 
 interface SessionDTO {
@@ -116,11 +117,19 @@ export function SecurityPage() {
   })
   const revoke = useMutation({
     mutationFn: (id: string) => api(`/me/security/sessions/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+      toast.success('Session revoked')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not revoke the session.'),
   })
   const revokeOthers = useMutation({
     mutationFn: () => api('/me/security/sessions/revoke-others', { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+      toast.success('Other sessions revoked')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not revoke other sessions.'),
   })
 
   const { data: prefs } = useQuery({
@@ -163,8 +172,16 @@ export function SecurityPage() {
   })
   const revokeKey = useMutation({
     mutationFn: (id: string) => api(`/me/api-keys/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['api-keys'] })
+      toast.success('API key revoked')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not revoke the key.'),
   })
+
+  // Destructive revocations pass through a Confirm dialog first.
+  type RevokeTarget = { kind: 'session' | 'sessions-others' | 'api-key'; id?: string }
+  const [revokeTarget, setRevokeTarget] = useState<RevokeTarget | null>(null)
 
   // Web Push enrollment (PRD §5.5.3).
   const enablePush = async () => {
@@ -291,7 +308,7 @@ export function SecurityPage() {
       <Card className="space-y-3">
         <div className="flex items-center justify-between">
           <p className="mono-label">Active sessions</p>
-          <button onClick={() => void revokeOthers.mutateAsync()} className="text-xs text-ink3 hover:text-ink">
+          <button onClick={() => setRevokeTarget({ kind: 'sessions-others' })} className="text-xs text-ink3 hover:text-ink">
             Revoke all others
           </button>
         </div>
@@ -299,9 +316,9 @@ export function SecurityPage() {
           <div key={s.id} className="flex items-center gap-3 text-sm">
             <span className={`h-2 w-2 rounded-full ${s.revoked_at ? 'bg-ink3' : 'bg-ink'}`} />
             <span className="min-w-0 flex-1 truncate text-ink2">{s.user_agent ?? 'Unknown device'} · {s.ip ?? '—'}</span>
-            <span className="text-xs text-ink3">{new Date(s.last_seen_at).toLocaleString()}</span>
+            <span className="text-xs text-ink3">{formatDateTime(s.last_seen_at)}</span>
             {!s.revoked_at && (
-              <button onClick={() => void revoke.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink">Revoke</button>
+              <button onClick={() => setRevokeTarget({ kind: 'session', id: s.id })} className="text-xs text-ink3 hover:text-ink">Revoke</button>
             )}
           </div>
         ))}
@@ -310,7 +327,7 @@ export function SecurityPage() {
           <div key={i} className="flex items-center gap-3 text-sm">
             <span className="font-mono text-xs text-ink3">{h.event}</span>
             <span className="flex-1 truncate text-xs text-ink3">{h.ip ?? '—'}</span>
-            <span className="text-xs text-ink3">{new Date(h.created_at).toLocaleString()}</span>
+            <span className="text-xs text-ink3">{formatDateTime(h.created_at)}</span>
           </div>
         ))}
       </Card>
@@ -319,7 +336,7 @@ export function SecurityPage() {
       <Card className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-ink">Export your data</p>
-          <p className="text-xs text-ink3">Full JSON snapshot: profile, businesses, products, reviews, comments, collections (PRD §5.9.2).</p>
+          <p className="text-xs text-ink3">Full JSON snapshot: profile, businesses, products, reviews, comments, collections.</p>
         </div>
         <a href="/api/v1/me/export" download>
           <Button variant="secondary"><Download className="h-4 w-4" /> Export</Button>
@@ -329,7 +346,7 @@ export function SecurityPage() {
       <Card className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-ink">Display currency</p>
-          <p className="text-xs text-ink3">Prices convert automatically across the platform (PRD D5).</p>
+          <p className="text-xs text-ink3">Prices convert automatically across the platform.</p>
         </div>
         <select value={display} onChange={(e) => setDisplay(e.target.value)} className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-ink">
           {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -341,7 +358,7 @@ export function SecurityPage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-ink">Push notifications</p>
-            <p className="text-xs text-ink3">Browser notifications when you're not on BizVerse (PRD §5.5.3).</p>
+            <p className="text-xs text-ink3">Browser notifications when you're not on BizVerse.</p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => void enablePush()} disabled={pushState === 'subscribing' || pushState === 'subscribed'}>
             <Bell className="h-4 w-4" /> {pushState === 'subscribed' ? 'Enabled' : pushState === 'unsupported' ? 'Unsupported' : 'Enable'}
@@ -362,7 +379,7 @@ export function SecurityPage() {
         </div>
         <div className="border-t border-border pt-3">
           <p className="mono-label mb-2">Email alerts</p>
-          <p className="mb-2 text-xs text-ink3">Get email copies for important events (PRD §5.7 channel matrix).</p>
+          <p className="mb-2 text-xs text-ink3">Get email copies for important events.</p>
           <div className="grid gap-1.5">
             {EMAIL_ALERT_TYPES.map(([type, label]) => {
               const enabled = (prefs?.channels?.email as string[] | undefined)?.includes(type) ?? false
@@ -422,7 +439,7 @@ export function SecurityPage() {
                 {k.revoked_at ? (
                   <span className="text-xs text-ink3">revoked</span>
                 ) : (
-                  <button onClick={() => void revokeKey.mutateAsync(k.id)} className="text-xs text-ink3 hover:text-ink">Revoke</button>
+                  <button onClick={() => setRevokeTarget({ kind: 'api-key', id: k.id })} className="text-xs text-ink3 hover:text-ink">Revoke</button>
                 )}
               </li>
             ))}
@@ -432,7 +449,12 @@ export function SecurityPage() {
           <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
             <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Key created — copy it now, it won't be shown again:</p>
             <code className="mt-1 block break-all font-mono text-xs">{freshKey}</code>
-            <button onClick={() => void navigator.clipboard.writeText(freshKey)} className="mt-2 text-xs underline underline-offset-2">Copy</button>
+            <button
+              onClick={() => void copyText(freshKey).then((ok) => (ok ? toast.success('Copied to clipboard') : toast.error('Copy failed')))}
+              className="mt-2 text-xs underline underline-offset-2"
+            >
+              Copy
+            </button>
           </div>
         )}
         <Modal open={keyOpen} onClose={() => setKeyOpen(false)} title="New API key">
@@ -465,6 +487,35 @@ export function SecurityPage() {
         </div>
         {deleteAccount.error && <p className="text-sm text-red-600 dark:text-red-400">{(deleteAccount.error as Error).message}</p>}
       </Card>
+
+      {/* Revocation confirmations */}
+      <Confirm
+        open={revokeTarget?.kind === 'session'}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => revokeTarget?.id && void revoke.mutateAsync(revokeTarget.id)}
+        title="Revoke session"
+        message="This device will be signed out and must sign in again."
+        confirmLabel="Revoke"
+        danger
+      />
+      <Confirm
+        open={revokeTarget?.kind === 'sessions-others'}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => void revokeOthers.mutateAsync()}
+        title="Revoke all other sessions"
+        message="Every other signed-in device will be signed out."
+        confirmLabel="Revoke all"
+        danger
+      />
+      <Confirm
+        open={revokeTarget?.kind === 'api-key'}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => revokeTarget?.id && void revokeKey.mutateAsync(revokeTarget.id)}
+        title="Revoke API key"
+        message="Requests using this key will stop working immediately. This cannot be undone."
+        confirmLabel="Revoke key"
+        danger
+      />
     </div>
   )
 }

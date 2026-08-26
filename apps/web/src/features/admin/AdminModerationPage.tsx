@@ -67,11 +67,18 @@ export function AdminModerationPage() {
   const decide = useMutation({
     mutationFn: (action: string) =>
       api(`/admin/reports/${active!.id}/decide`, { method: 'POST', body: { action, note } }),
-    onSuccess: () => {
+    onSuccess: (_r, action) => {
       setActive(null)
       setNote('')
       qc.invalidateQueries({ queryKey: ['reports'] })
+      toast.success(
+        action === 'dismiss' ? 'Report dismissed'
+          : action === 'hide' ? 'Content hidden'
+          : action === 'warn' ? 'Author warned'
+          : 'User suspended',
+      )
     },
+    onError: (e) => toast.error((e as Error).message || 'Action failed.'),
   })
 
   if (isLoading) return <PageSpinner />
@@ -82,7 +89,7 @@ export function AdminModerationPage() {
         <div>
           <p className="mono-label mb-1">Admin · Moderation</p>
           <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-          <p className="mt-1 text-sm text-ink2">Every action is written to the immutable audit trail (PRD §8.7).</p>
+          <p className="mt-1 text-sm text-ink2">Every action is written to the immutable audit trail.</p>
         </div>
         <div className="flex gap-2">
           <Button variant={tab === 'open' ? 'primary' : 'secondary'} size="sm" onClick={() => setTab('open')}>Open</Button>

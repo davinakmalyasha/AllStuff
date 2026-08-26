@@ -237,7 +237,9 @@ func scanMessage(row pgx.Row) (*domain.ChatMessage, error) {
 }
 
 func (r *ChatRepo) MessagesByThread(ctx context.Context, threadID string, before int64, limit int) ([]*domain.ChatMessage, error) {
-	query := `SELECT ` + messageCols + ` FROM chat_messages WHERE thread_id = $1`
+	// Withdrawn messages ("delete for everyone") never come back on refetch
+	// or export — every reader path funnels through this query.
+	query := `SELECT ` + messageCols + ` FROM chat_messages WHERE thread_id = $1 AND deleted_for <> 'everyone'`
 	args := []any{threadID}
 	if before > 0 {
 		query += ` AND id < $2`

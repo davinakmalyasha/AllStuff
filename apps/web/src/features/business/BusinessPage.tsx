@@ -38,6 +38,29 @@ const SOCIALS: Record<string, string> = {
   x: 'X', youtube: 'YouTube', line: 'Line', telegram: 'Telegram',
 }
 
+const SOCIAL_URLS: Record<string, (handle: string) => string> = {
+  whatsapp: (h) => `https://wa.me/${h}`,
+  instagram: (h) => `https://instagram.com/${h}`,
+  tiktok: (h) => `https://tiktok.com/@${h}`,
+  facebook: (h) => `https://facebook.com/${h}`,
+  x: (h) => `https://x.com/${h}`,
+  youtube: (h) => `https://youtube.com/@${h}`,
+  line: (h) => `https://line.me/R/ti/p/@${h}`,
+  telegram: (h) => `https://t.me/${h}`,
+}
+
+const SCHEMA_DAYS: Record<string, string> = {
+  mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday',
+  fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
+}
+
+function socialLinks(contact: Record<string, string>): string[] {
+  return Object.keys(SOCIALS)
+    .filter((k) => contact[k])
+    .map((k) => SOCIAL_URLS[k]?.(contact[k]))
+    .filter((u): u is string => !!u)
+}
+
 export function BusinessPage() {
   const { slug = '' } = useParams()
   const { user } = useAuth()
@@ -62,10 +85,19 @@ export function BusinessPage() {
           name: b.name,
           description: b.description,
           image: b.logo_url ?? undefined,
+          url: b.contact.website ? safeExternalUrl(b.contact.website) ?? `${window.location.origin}/b/${b.slug}` : `${window.location.origin}/b/${b.slug}`,
+          telephone: b.contact.phone || undefined,
           address: { '@type': 'PostalAddress', streetAddress: b.address, addressLocality: b.city, addressCountry: b.country },
-          openingHours: Object.entries(b.hours)
-            .filter(([, h]) => h && !h.closed)
-            .map(([d, h]) => `${cap(d)} ${h?.open}-${h?.close}`),
+          geo: b.lat && b.lng ? { '@type': 'GeoCoordinates', latitude: b.lat, longitude: b.lng } : undefined,
+          openingHoursSpecification: Object.entries(b.hours)
+            .filter(([, h]) => h && !h.closed && h.open && h.close)
+            .map(([d, h]) => ({
+              '@type': 'OpeningHoursSpecification',
+              dayOfWeek: `https://schema.org/${SCHEMA_DAYS[d] ?? cap(d)}`,
+              opens: h!.open,
+              closes: h!.close,
+            })),
+          sameAs: socialLinks(b.contact).length ? socialLinks(b.contact) : undefined,
           aggregateRating:
             b.review_count > 0
               ? { '@type': 'AggregateRating', ratingValue: b.rating_avg, reviewCount: b.review_count }
@@ -282,7 +314,12 @@ export function BusinessPage() {
                 ))}
               </ul>
               <p className="flex items-center gap-1.5 border-t border-border pt-3 text-xs text-ink3">
-                <Clock className="h-3 w-3" /> Local time
+                <Clock className="h-3 w-3" /> Local time{' '}
+                {b.timezone && (
+                  <span className="font-mono">
+                    {new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZone: b.timezone }).format(new Date())}
+                  </span>
+                )}
               </p>
             </Card>
           )}
@@ -309,22 +346,12 @@ export function BusinessPage() {
               .filter(([k]) => b.contact[k])
               .map(([k, label]) => {
                 const handle = b.contact[k]
-                const urls: Record<string, string> = {
-                  whatsapp: `https://wa.me/${handle}`,
-                  instagram: `https://instagram.com/${handle}`,
-                  tiktok: `https://tiktok.com/@${handle}`,
-                  facebook: `https://facebook.com/${handle}`,
-                  x: `https://x.com/${handle}`,
-                  youtube: `https://youtube.com/@${handle}`,
-                  line: `https://line.me/R/ti/p/@${handle}`,
-                  telegram: `https://t.me/${handle}`,
-                }
                 return (
                   <ContactRow
                     key={k}
                     icon={<span className="text-ink3">↗</span>}
                     label={`${label} · @${handle}`}
-                    href={urls[k] ?? handle}
+                    href={SOCIAL_URLS[k]?.(handle) ?? handle}
                   />
                 )
               })}

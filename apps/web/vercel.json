@@ -1,7 +1,8 @@
 {
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://bizverse-api.up.railway.app/api/:path*" },
-    { "source": "/og/:path*", "destination": "https://bizverse-api.up.railway.app/og/:path*" }
+    { "source": "/og/:path*", "destination": "https://bizverse-api.up.railway.app/og/:path*" },
+    { "source": "/robots.txt", "destination": "https://bizverse-api.up.railway.app/robots.txt" }
   ],
   "headers": [
     {

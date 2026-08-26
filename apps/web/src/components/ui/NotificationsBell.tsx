@@ -5,6 +5,7 @@ import { Bell } from 'lucide-react'
 import { api, type NotificationDTO } from '@/lib/api'
 import { NOTIF_LABELS, notifUrl } from '@/lib/notifications'
 import { useAuth } from '@/stores/auth'
+import { formatDateTime } from '@/lib/format'
 import { ws } from '@/lib/ws'
 import { useDialogA11y } from '@/components/ui/Modal'
 
@@ -94,7 +95,7 @@ export function NotificationsBell() {
                     <p className="mt-0.5 text-xs text-ink3">
                       {typeof n.payload.title === 'string' ? `${n.payload.title} · ` : ''}
                       {typeof n.payload.body === 'string' ? `${n.payload.body} · ` : ''}
-                      {new Date(n.created_at).toLocaleString()}
+                      {formatDateTime(n.created_at)}
                     </p>
                   </>
                 )

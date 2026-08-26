@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,12 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 		var r mrow
 		if err := rows.Scan(&r.id, &r.path); err != nil {
 			rows.Close()
+			// A truncated/errored scan must never feed the destructive walk below:
+			// missing rows would look like orphans and their files would be deleted.
+			if err := rows.Err(); err != nil {
+				slog.Warn("orphan media scan aborted; skipping cleanup", "err", err)
+				return err
+			}
 			return err
 		}
 		all = append(all, r)

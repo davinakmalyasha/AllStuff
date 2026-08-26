@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BusinessDTO, type ReviewDTO } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 import { Star } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { toast } from '@/components/ui/Toast'
 import { useAuth } from '@/stores/auth'
 
 function useMyBusinesses(): BusinessDTO[] {
@@ -43,7 +45,12 @@ export function DashboardReviewsPage() {
   const reply = useMutation({
     mutationFn: ({ reviewId, reply }: { reviewId: string; reply: string }) =>
       api(`/reviews/${reviewId}/reply`, { method: 'POST', body: { reply } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard-reviews', id] }),
+    onSuccess: (_r, vars) => {
+      setReplyDraft((d) => ({ ...d, [vars.reviewId]: '' }))
+      qc.invalidateQueries({ queryKey: ['dashboard-reviews', id] })
+      toast.success('Reply posted')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not post the reply.'),
   })
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
 
@@ -72,7 +79,7 @@ export function DashboardReviewsPage() {
                   ))}
                 </span>
               </div>
-              <span className="text-xs text-ink3">{new Date(r.created_at).toLocaleDateString()}</span>
+              <span className="text-xs text-ink3">{formatDate(r.created_at)}</span>
             </div>
             <p className="text-sm leading-relaxed text-ink2">{r.text}</p>
             {r.reply ? (
@@ -133,7 +140,7 @@ export function DashboardCommentsPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-ink">{c.author_name}</p>
-                <span className="text-xs text-ink3">{new Date(c.created_at).toLocaleDateString()}</span>
+                <span className="text-xs text-ink3">{formatDate(c.created_at)}</span>
               </div>
               <p className="mt-0.5 text-sm text-ink2">{c.text}</p>
             </div>

@@ -100,12 +100,18 @@ export function AdminCurationPage() {  const qc = useQueryClient()
     onSuccess: () => {
       setWord('')
       qc.invalidateQueries({ queryKey: ['banned-words'] })
+      toast.success('Word blocked')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not add the word.'),
   })
 
   const removeWord = useMutation({
     mutationFn: (w: string) => api(`/admin/banned-words/${encodeURIComponent(w)}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['banned-words'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['banned-words'] })
+      toast.success('Word removed')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not remove the word.'),
   })
 
   const saveAnnouncement = useMutation({
@@ -173,7 +179,7 @@ export function AdminCurationPage() {  const qc = useQueryClient()
       <TrendingConfigCard />
 
       <Card className="space-y-3">
-        <p className="mono-label">Banned words (chat & content, PRD §8.7)</p>
+        <p className="mono-label">Banned words (chat & content)</p>
         <div className="flex gap-2">
           <input
             value={word}
@@ -199,7 +205,7 @@ export function AdminCurationPage() {  const qc = useQueryClient()
       </Card>
 
       <Card className="space-y-3">
-        <p className="mono-label">Allowlist (false-positive escapes, PRD E13)</p>
+        <p className="mono-label">Allowlist (false-positive escapes)</p>
         <p className="text-xs text-ink2">Allowed words are ignored by the banned-word filter.</p>
         <AllowlistEditor />
       </Card>
@@ -275,7 +281,7 @@ function TrendingConfigCard() {
 
   return (
     <Card className="space-y-3">
-      <p className="mono-label">Trending engine (PRD §5.6.3)</p>
+      <p className="mono-label">Trending engine</p>
       {numField('lambda_24h', '24h decay λ', 0.001)}
       {numField('lambda_7d', '7d decay λ', 0.001)}
       {numField('lambda_30d', '30d decay λ', 0.001)}

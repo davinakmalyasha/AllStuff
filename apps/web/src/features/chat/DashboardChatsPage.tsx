@@ -5,6 +5,7 @@ import { api, type QuickReplyDTO } from '@/lib/api'
 import { useActiveBusiness } from '@/app/shells/OwnerShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { toast } from '@/components/ui/Toast'
 import { InboxPage } from '@/features/chat/InboxPage'
 
 /** Business-side messaging (PRD §6.4 /dashboard/chats) with quick replies. */
@@ -24,12 +25,18 @@ export function DashboardChatsPage() {
     onSuccess: () => {
       setText('')
       qc.invalidateQueries({ queryKey: ['quick-replies', business?.id] })
+      toast.success('Quick reply added')
     },
+    onError: (e) => toast.error((e as Error).message || 'Could not add the quick reply.'),
   })
 
   const remove = useMutation({
     mutationFn: (q: QuickReplyDTO) => api(`/businesses/${business!.id}/quick-replies/${q.id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['quick-replies', business?.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quick-replies', business?.id] })
+      toast.success('Quick reply deleted')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not delete the quick reply.'),
   })
 
   return (

@@ -72,9 +72,10 @@ func (s *Invites) sendInviteEmail(ctx context.Context, ownerID, businessID, emai
 	link := s.cfg.PublicURL + "/invite/" + token
 	return s.email.Send(ctx, email, subject,
 		mail.WrapHTML(s.cfg.PublicURL, subject,
+			// Human label only; the raw token stays in the href.
 			fmt.Sprintf(`<p>Hi %s,</p><p>%s has invited you to help manage <strong>%s</strong> on BizVerse as %s.</p>
-			<p>Accept your invitation: <a href="%s">%s</a>.</p><p>The link expires in 7 days and can be used once.</p>`,
-				htmlEscape(email), htmlEscape(inviterName), htmlEscape(businessName), roleLabel, link, link)))
+			<p><a href="%s">Accept your invitation</a>.</p><p>The link expires in 7 days and can be used once.</p>`,
+				htmlEscape(email), htmlEscape(inviterName), htmlEscape(businessName), roleLabel, link)))
 }
 
 // Preview serves the public invite landing page (PRD §5.9.3). Unknown,
@@ -147,6 +148,15 @@ func (s *Invites) Accept(ctx context.Context, userID, token string) error {
 	}
 	if !strings.EqualFold(user.Email, inv.Email) {
 		return domain.ErrForbidden
+	}
+	// A deleted or suspended business must not gain new collaborators.
+	// (GetByID already filters deleted_at; nil therefore covers deletion.)
+	b, err := s.repos.Businesses.GetByID(ctx, inv.BusinessID)
+	if err != nil {
+		return err
+	}
+	if b == nil || b.Status == domain.BusinessSuspended {
+		return domain.ErrValidation.WithField("_", "This business is no longer accepting invitations.")
 	}
 	return s.repos.Businesses.AcceptInvite(ctx, inv.ID)
 }

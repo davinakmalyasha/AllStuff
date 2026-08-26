@@ -105,7 +105,7 @@ export function AdminCategoriesPage() {
         <div>
           <p className="mono-label mb-1">Admin · Directory</p>
           <h1 className="text-2xl font-semibold tracking-tight">Categories</h1>
-          <p className="mt-1 text-sm text-ink2">Create, edit, or delete the category tree (PRD §5.8.3). Deleting a category with businesses requires moving them first.</p>
+          <p className="mt-1 text-sm text-ink2">Create, edit, or delete the category tree. Deleting a category with businesses requires moving them first.</p>
         </div>
         <Button onClick={() => setCreating({ parentId: null })}>
           <Plus className="h-4 w-4" /> Top-level

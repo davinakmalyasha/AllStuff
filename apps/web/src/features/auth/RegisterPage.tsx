@@ -34,7 +34,7 @@ export function RegisterPage() {
     setErrors({})
     setGeneral('')
     if (values.password !== values.confirm) {
-      setErrors({ confirm: 'Passwords do not match.' })
+      setErrors({ confirm: t('auth.passwordMismatch') })
       return
     }
     setPending(true)
@@ -66,8 +66,8 @@ export function RegisterPage() {
         <AuthFooterLink text={t('auth.haveAccount')} to="/login" label={t('auth.signIn')} />
       }
     >
-      <div className="space-y-4"><GoogleButton label="Sign up with Google" />
-      <div className="flex items-center gap-3"><span className="h-px flex-1 bg-border" /><span className="text-xs text-ink3">or</span><span className="h-px flex-1 bg-border" /></div>
+      <div className="space-y-4"><GoogleButton label={t('auth.googleSignup')} />
+      <div className="flex items-center gap-3"><span className="h-px flex-1 bg-border" /><span className="text-xs text-ink3">{t('auth.orDivider')}</span><span className="h-px flex-1 bg-border" /></div>
       <form onSubmit={submit} className="space-y-4" noValidate>
         {general && (
           <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">

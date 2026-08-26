@@ -44,8 +44,8 @@ type Deps struct {
 }
 
 type Server struct {
-	deps Deps
-	mux  *http.ServeMux
+	deps    Deps
+	mux     *http.ServeMux
 	metrics Metrics
 }
 
@@ -141,6 +141,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/rates", s.handleRates)
 	mux.HandleFunc("GET /og/b/{slug}", s.handleOGImage)
 	mux.HandleFunc("GET /api/v1/sitemap.xml", s.handleSitemap)
+	// Crawler entry points live at the origin root, outside /api/v1.
+	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
 
 	// Businesses (owner)
 	mux.HandleFunc("POST /api/v1/businesses", s.handleBusinessCreate)
@@ -334,10 +336,11 @@ func (s *Server) Handler() http.Handler {
 // so the FIRST assignment ends up innermost and the request executes in the
 // reverse order of these lines:
 //
-//	recover → accessLog → etag → cors → csrf → auth → rateLimit → admin2FA → routes
+//	requestID → recover → accessLog → etag → cors → csrf → auth → rateLimit → admin2FA → routes
 //
 // auth MUST run before rateLimit/admin2FA: both inspect the authenticated
-// user (per-user buckets, 2FA mandate).
+// user (per-user buckets, 2FA mandate). withRequestID is outermost so every
+// log line and panic recovery below it can read the correlation ID.
 func (s *Server) chain(next http.Handler) http.Handler {
 	next = s.withAdmin2FA(next)
 	next = s.withRateLimit(next)
@@ -351,6 +354,7 @@ func (s *Server) chain(next http.Handler) http.Handler {
 	// Innermost: compress route payloads before ETag sees them, so the ETag
 	// hashes the compressed representation every browser requests anyway.
 	next = s.withGzip(next)
+	next = s.withRequestID(next)
 	return next
 }
 
@@ -362,9 +366,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func ok(w http.ResponseWriter, v any)  { writeJSON(w, http.StatusOK, v) }
+func ok(w http.ResponseWriter, v any)      { writeJSON(w, http.StatusOK, v) }
 func created(w http.ResponseWriter, v any) { writeJSON(w, http.StatusCreated, v) }
-func noContent(w http.ResponseWriter)   { w.WriteHeader(http.StatusNoContent) }
+func noContent(w http.ResponseWriter)      { w.WriteHeader(http.StatusNoContent) }
 
 func fail(w http.ResponseWriter, err error) {
 	de := domain.FromError(err)
@@ -381,4 +385,5 @@ type ctxKey int
 const (
 	ctxKeyClaims ctxKey = iota
 	ctxKeyUser
+	ctxKeyRequestID
 )

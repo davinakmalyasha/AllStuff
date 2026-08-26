@@ -1,13 +1,33 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 
 /** Mobile fallback for dashboard/admin sidebars (hamburger). */
 export function MobileNav({ links }: { links: { to: string; label: string; end?: boolean }[] }) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Dismiss on outside click or Escape — the menu used to stay open until a
+  // link was tapped or the button pressed again.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   return (
-    <div className="md:hidden">
-      <button onClick={() => setOpen((v) => !v)} className="rounded-lg border border-border p-2 text-ink2" aria-label="Menu">
+    <div ref={rootRef} className="md:hidden">
+      <button onClick={() => setOpen((v) => !v)} className="rounded-lg border border-border p-2 text-ink2" aria-label="Menu" aria-expanded={open}>
         {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
       </button>
       {open && (

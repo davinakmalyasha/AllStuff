@@ -6,6 +6,7 @@ import { NOTIF_FILTERS, NOTIF_LABELS, notifUrl } from '@/lib/notifications'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
+import { formatDateTime } from '@/lib/format'
 
 /** Full notification inbox (PRD §5.7): type filters, mark-read, deep links. */
 export function NotificationsPage() {
@@ -75,7 +76,7 @@ export function NotificationsPage() {
               <p className="mt-0.5 text-xs text-ink3">
                 {typeof n.payload.title === 'string' ? `${n.payload.title} · ` : ''}
                 {typeof n.payload.body === 'string' ? `${n.payload.body} · ` : ''}
-                {new Date(n.created_at).toLocaleString()}
+                {formatDateTime(n.created_at)}
               </p>
             </>
           )

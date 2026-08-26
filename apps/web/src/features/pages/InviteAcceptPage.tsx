@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Building2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
@@ -20,6 +21,7 @@ interface InviteInfoDTO {
 
 /** Invite landing (/invite/:token): works signed-out (login first) and in. */
 export function InviteAcceptPage() {
+  const { t } = useTranslation()
   const { token = '' } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -27,7 +29,7 @@ export function InviteAcceptPage() {
   const [pending, setPending] = useState(false)
   const [acceptError, setAcceptError] = useState('')
 
-  usePageMeta('Team invite')
+  usePageMeta(t('invite.metaTitle'))
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['invite', token],
@@ -43,12 +45,12 @@ export function InviteAcceptPage() {
     setAcceptError('')
     try {
       await api(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' })
-      toast.success(`You're now a team member of ${data?.business_name ?? 'the business'}.`)
+      toast.success(t('invite.acceptedToast', { business: data?.business_name ?? t('invite.businessLabel') }))
       // The dashboard reads the membership list — refresh it before landing.
       void qc.invalidateQueries({ queryKey: ['my-businesses'] })
       navigate('/dashboard')
     } catch (err) {
-      setAcceptError(err instanceof Error ? err.message : 'Could not accept the invite.')
+      setAcceptError(err instanceof Error ? err.message : t('invite.acceptFailed'))
       setPending(false)
     }
   }
@@ -58,9 +60,9 @@ export function InviteAcceptPage() {
     return (
       <div className="container-page flex min-h-[50vh] max-w-md flex-col items-center justify-center gap-3 text-center">
         <p className="font-mono text-5xl font-semibold tracking-tight">404</p>
-        <p className="text-sm text-ink2">This invite is invalid, revoked, or expired.</p>
+        <p className="text-sm text-ink2">{t('invite.invalid')}</p>
         <Link to="/" className="text-sm font-medium text-ink underline underline-offset-4">
-          Back to home
+          {t('invite.backHome')}
         </Link>
       </div>
     )
@@ -74,28 +76,28 @@ export function InviteAcceptPage() {
             <Building2 className="h-6 w-6 text-ink2" aria-hidden />
           </span>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight text-ink">Join {data.business_name}</h1>
-            <p className="text-sm text-ink2">{data.inviter_name} invited you as a collaborator.</p>
+            <h1 className="text-lg font-semibold tracking-tight text-ink">{t('invite.joinTitle', { business: data.business_name })}</h1>
+            <p className="text-sm text-ink2">{t('invite.subtitle', { name: data.inviter_name })}</p>
           </div>
         </div>
 
         <dl className="space-y-1.5 rounded-lg bg-surface2 px-4 py-3 text-sm">
           <div className="flex items-center gap-2">
-            <dt className="w-16 shrink-0 text-ink3">Business</dt>
+            <dt className="w-16 shrink-0 text-ink3">{t('invite.businessLabel')}</dt>
             <dd className="truncate font-medium text-ink">{data.business_name}</dd>
           </div>
           <div className="flex items-center gap-2">
-            <dt className="w-16 shrink-0 text-ink3">Invited by</dt>
+            <dt className="w-16 shrink-0 text-ink3">{t('invite.inviterLabel')}</dt>
             <dd className="truncate text-ink">{data.inviter_name}</dd>
           </div>
           <div className="flex items-center gap-2">
-            <dt className="w-16 shrink-0 text-ink3">Role</dt>
+            <dt className="w-16 shrink-0 text-ink3">{t('invite.roleLabel')}</dt>
             <dd>
               <Badge>{data.role}</Badge>
             </dd>
           </div>
           <div className="flex items-center gap-2">
-            <dt className="w-16 shrink-0 text-ink3">Email</dt>
+            <dt className="w-16 shrink-0 text-ink3">{t('invite.emailLabel')}</dt>
             <dd className="truncate text-ink">{data.email}</dd>
           </div>
         </dl>
@@ -108,15 +110,15 @@ export function InviteAcceptPage() {
 
         {!user ? (
           <>
-            <p className="text-xs text-ink3">Sign in or create an account with {data.email} to accept this invite.</p>
+            <p className="text-xs text-ink3">{t('invite.signInPrompt', { email: data.email })}</p>
             <Link to={`/login?next=${encodeURIComponent(`/invite/${token}`)}`} className="block">
-              <Button fullWidth>Sign in to accept</Button>
+              <Button fullWidth>{t('invite.signInCta')}</Button>
             </Link>
             <Link
               to={`/register?next=${encodeURIComponent(`/invite/${token}`)}`}
               className="block text-center text-xs text-ink3 hover:text-ink"
             >
-              No account yet? Create one
+              {t('invite.noAccount')}
             </Link>
           </>
         ) : emailMismatch ? (
@@ -124,11 +126,11 @@ export function InviteAcceptPage() {
             role="alert"
             className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400"
           >
-            This invite was issued to another email.
+            {t('invite.emailMismatch')}
           </p>
         ) : (
           <Button fullWidth disabled={pending} onClick={() => void accept()}>
-            Accept invite
+            {t('invite.accept')}
           </Button>
         )}
       </Card>

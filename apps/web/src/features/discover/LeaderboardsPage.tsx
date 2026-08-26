@@ -80,7 +80,11 @@ export function LeaderboardsPage() {
               {e.is_booming && <Badge tone="attention" dot>Booming</Badge>}
               {e.is_rising && <Badge tone="attention">Rising</Badge>}
               <span className="font-mono text-sm text-ink">{e.score.toFixed(1)}</span>
-              {e.velocity !== 0 && <span className="w-16 text-right font-mono text-xs text-ink3">▲{e.velocity.toFixed(1)}</span>}
+              {e.velocity !== 0 && (
+                <span className="w-16 text-right font-mono text-xs text-ink3">
+                  {e.velocity > 0 ? '▲' : '▼'}{Math.abs(e.velocity).toFixed(1)}
+                </span>
+              )}
             </Link>
           ))}
           {(entries?.length ?? 0) === 0 && <p className="px-5 py-10 text-center text-sm text-ink3">No data yet — signals build with engagement.</p>}

@@ -84,46 +84,54 @@ func (n *Notifier) Create(ctx context.Context, userID, ntype string, payload map
 }
 
 // CreateForFollowers fans a notification out to every follower of a
-// business: one bulk INSERT for the in-app rows, then email/WS dispatch in
-// bounded worker goroutines. Returns the number of recipients.
+// business: one bulk INSERT for the in-app rows, then email/WS dispatch from
+// the exact created rows. Dispatch runs in a bounded worker pool — goroutines
+// are spawned once, not per follower, so allocation stays flat.
 func (n *Notifier) CreateForFollowers(ctx context.Context, businessID, ntype string, payload map[string]any) (int64, error) {
-	nCreated, err := n.repos.Engagement.CreateNotificationsForFollowers(ctx, businessID, ntype, payload)
+	created, err := n.repos.Engagement.CreateNotificationsForFollowers(ctx, businessID, ntype, payload)
 	if err != nil {
 		return 0, err
 	}
-	if nCreated == 0 {
+	if len(created) == 0 {
 		return 0, nil
 	}
-	followers, err := n.repos.Community.FollowerIDs(ctx, businessID)
-	if err != nil {
-		return nCreated, nil // rows are in; channel dispatch is best-effort
+	queue := make(chan *domain.Notification, len(created))
+	for _, notif := range created {
+		queue <- notif
 	}
-	sem := make(chan struct{}, 8)
+	close(queue)
+	workers := len(created)
+	if workers > 8 {
+		workers = 8
+	}
 	var wg sync.WaitGroup
-	for _, fid := range followers {
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(userID string) {
+		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			notif, err := n.repos.Engagement.GetLatestUnread(ctx, userID, ntype)
-			if err == nil && notif != nil {
-				if n.emailOn(ctx, userID, ntype) {
-					go n.sendEmail(notif)
-				}
-				unread, err := n.repos.Engagement.UnreadCount(ctx, userID)
-				if err != nil {
-					unread = 0
-				}
-				n.hub.SendToUser(userID, ws.Frame{Type: "notification.new", Payload: map[string]any{
-					"notification": notif,
-					"unread":       unread,
-				}})
+			for notif := range queue {
+				n.dispatch(ctx, notif)
 			}
-		}(fid)
+		}()
 	}
 	wg.Wait()
-	return nCreated, nil
+	return int64(len(created)), nil
+}
+
+// dispatch sends email (when opted in) plus the real-time WS frame for one
+// created notification row. Best-effort, like every other channel.
+func (n *Notifier) dispatch(ctx context.Context, notif *domain.Notification) {
+	if n.emailOn(ctx, notif.UserID, notif.Type) {
+		go n.sendEmail(notif)
+	}
+	unread, err := n.repos.Engagement.UnreadCount(ctx, notif.UserID)
+	if err != nil {
+		unread = 0
+	}
+	n.hub.SendToUser(notif.UserID, ws.Frame{Type: "notification.new", Payload: map[string]any{
+		"notification": notif,
+		"unread":       unread,
+	}})
 }
 
 func (n *Notifier) emailOn(ctx context.Context, userID, ntype string) bool {
@@ -160,9 +168,11 @@ func (n *Notifier) sendEmail(notif *domain.Notification) {
 		`SELECT email FROM users WHERE id = $1`, notif.UserID).Scan(&to); err != nil || to == "" {
 		return
 	}
-	bodyHTML := fmt.Sprintf(`<p>%s</p><p style="color:#999;font-size:12px">Manage preferences: %s/me/security</p>`, body, n.cfg.PublicURL)
+	bodyHTML := fmt.Sprintf(`<p>%s</p><p style="color:#999;font-size:12px"><a href="%s/me/security" style="color:#999">Manage preferences</a></p>`, body, n.cfg.PublicURL)
 	// Detached goroutine: the originating request ctx may already be done.
-	_ = n.email.Send(context.Background(), to, title, email.WrapHTML(n.cfg.PublicURL, title, bodyHTML))
+	// Bulk headers (List-Unsubscribe) so mailbox providers classify these
+	// notification emails correctly.
+	_ = n.email.SendBulk(context.Background(), to, title, email.WrapHTML(n.cfg.PublicURL, title, bodyHTML))
 }
 
 // describe renders a human-readable title/body for email channel. The user_id
