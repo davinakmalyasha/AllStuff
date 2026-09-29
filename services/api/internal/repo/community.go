@@ -31,7 +31,7 @@ func (r *CommunityRepo) ListQuestions(ctx context.Context, businessID string, li
 		SELECT q.id, q.business_id, q.user_id, q.text, q.status, q.created_at,
 			u.name, u.username
 		FROM questions q JOIN users u ON u.id = q.user_id
-		WHERE q.business_id = $1 ORDER BY q.created_at DESC LIMIT $2 OFFSET $3`,
+		WHERE q.business_id = $1 ORDER BY q.created_at DESC, q.id DESC LIMIT $2 OFFSET $3`,
 		businessID, limit, offset)
 	if err != nil {
 		return nil, err

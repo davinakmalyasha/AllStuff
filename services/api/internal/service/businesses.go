@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -14,29 +14,99 @@ import (
 	"bizverse/api/internal/util"
 )
 
-// Businesses - wizard, submission, verification (PRD §5.4.1, §8.2).
+// Businesses — wizard, submission, verification (PRD §5.4.1, §8.2), storefront
+// publish, and the owner settings surface.
 type Businesses struct {
 	repos *repo.Repos
+	// ents resolves the business's plan so the settings surface can enforce
+	// the gallery cap. Nil means ungated, which is what the package's own tests
+	// use; main.go always passes Billing.
+	ents EntitlementSource
 }
 
-func NewBusinesses(repos *repo.Repos) *Businesses { return &Businesses{repos: repos} }
+func NewBusinesses(repos *repo.Repos, ents EntitlementSource) *Businesses {
+	return &Businesses{repos: repos, ents: ents}
+}
+
+// checkGalleryCapacity enforces the plan's gallery_limit against the array the
+// owner is about to save.
+//
+// Checked against the SUBMITTED length rather than the current count, so an
+// owner who removes and re-adds photos in one save is judged on the result and
+// not penalised for the churn. A plan with no gallery_limit is uncapped, not
+// zero — see Entitlements.Exceeds.
+func (s *Businesses) checkGalleryCapacity(ctx context.Context, businessID string, n int) error {
+	if s.ents == nil {
+		return nil
+	}
+	e, err := s.ents.Entitlements(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	if e.Exceeds("gallery_limit", n) {
+		return domain.ErrValidation.WithField("gallery",
+			"Your plan includes up to "+strconv.Itoa(e.GalleryLimit)+
+				" gallery photos. Remove some, or upgrade for more.")
+	}
+	return nil
+}
 
 const defaultHours = `{"mon":{"open":"09:00","close":"17:00","closed":false},"tue":{"open":"09:00","close":"17:00","closed":false},"wed":{"open":"09:00","close":"17:00","closed":false},"thu":{"open":"09:00","close":"17:00","closed":false},"fri":{"open":"09:00","close":"17:00","closed":false},"sat":{"closed":true},"sun":{"closed":true}}`
 
+// MaxLiveBusinessesPerOwner caps how many non-retired listings one user may
+// hold.
+//
+// It exists to bound slug squatting, not to ration a product feature. Every
+// listing reserves its slug for as long as the row lives, and 0032 made a slug
+// genuinely releasable — but only on close, which an attacker simply never
+// performs. Without a cap, any authenticated user could register unlimited
+// drafts, each permanently holding a name, and `ChangeSlugOnce` would then let
+// them rotate a junk draft onto any valuable slug before submitting for
+// review. The unique index stops honest users from colliding while handing an
+// attacker exclusive ownership of whatever they register first, which is
+// brand-name denial.
+//
+// It is a platform constant rather than an entitlement because subscriptions
+// are keyed by BUSINESS (see Billing.effectivePlan), and at creation time there
+// is no business to have a subscription yet. A per-plan cap would need a
+// user-level plan concept that does not exist yet; if paid multi-location
+// ever ships, that is where this becomes a tier.
+//
+// The same number applies to free and paid. Charging for the count would put
+// the two halves of the 0032 fix at odds: closing a listing to free a slot is
+// the honest behaviour, and it should not be something a paying owner is
+// discouraged from doing.
+const MaxLiveBusinessesPerOwner = 3
+
 // Create starts the wizard: a draft business with sane defaults (PRD §5.4.1).
+//
+// The cap is checked before any work, and it counts live listings rather than
+// total listings, so an owner who has closed three shops can still start a
+// fourth. Drafts count against the cap: that is the abuse vector, so a listing
+// that reserves a slug reserves quota whether or not it is ever published.
 func (s *Businesses) Create(ctx context.Context, ownerID string) (*domain.Business, error) {
+	live, err := s.repos.Businesses.CountLiveByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	if live >= MaxLiveBusinessesPerOwner {
+		return nil, domain.ErrValidation.WithField("_",
+			"You can have up to "+strconv.Itoa(MaxLiveBusinessesPerOwner)+
+				" active businesses. Close one to free a slot.")
+	}
+
 	var hours map[string]any
 	_ = json.Unmarshal([]byte(defaultHours), &hours)
 	b := &domain.Business{
-		ID:        util.NewUUID(),
-		OwnerID:   ownerID,
-		Name:      "Untitled business",
-		Slug:      "untitled-business",
-		Currency:  "USD",
-		Timezone:  "UTC",
-		Hours:     hours,
-		Contact:   map[string]any{},
-		Status:    domain.BusinessDraft,
+		ID:       util.NewUUID(),
+		OwnerID:  ownerID,
+		Name:     "Untitled business",
+		Slug:     "untitled-business",
+		Currency: "USD",
+		Timezone: "UTC",
+		Hours:    hours,
+		Contact:  map[string]any{},
+		Status:   domain.BusinessDraft,
 	}
 	slug, err := s.uniqueSlug(ctx, b.Name, "")
 	if err != nil {
@@ -165,6 +235,12 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 		if err != nil || len(gallery) > 10 {
 			return nil, domain.ErrValidation.WithField("gallery", "Gallery must be an array of media ids (max 10).")
 		}
+		// The plan's gallery cap is checked after the absolute ceiling so a free
+		// account gets "your plan includes up to 3 photos" rather than a
+		// message about a hard limit it cannot raise.
+		if err := s.checkGalleryCapacity(ctx, id, len(gallery)); err != nil {
+			return nil, err
+		}
 		fields["gallery"] = gallery
 	}
 	if v, ok := in["price_level"]; ok && v != nil {
@@ -194,6 +270,25 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 			return nil, domain.ErrValidation.WithField("founded_year", "Founded year is invalid.")
 		}
 		fields["founded_year"] = yr
+	}
+	// amenities + special_hours were missing from this list entirely, so the
+	// SettingsPage editors for both sent the payload, the repo whitelist
+	// accepted it, the values were silently dropped, and the next hydrate()
+	// overwrote the owner's edits. The owner saw a green "Settings saved" toast
+	// and lost the data. Two complete, polished UI editors had never worked.
+	if v, ok := in["amenities"]; ok && v != nil {
+		amenities, err := asStringSlice(v)
+		if err != nil || len(amenities) > 12 {
+			return nil, domain.ErrValidation.WithField("amenities", "Amenities must be an array (max 12).")
+		}
+		fields["amenities"] = amenities
+	}
+	if v, ok := in["special_hours"]; ok && v != nil {
+		special, err := validateSpecialHours(v)
+		if err != nil {
+			return nil, err
+		}
+		fields["special_hours"] = special
 	}
 	if len(fields) == 0 {
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
@@ -548,12 +643,27 @@ func (s *Businesses) Reopen(ctx context.Context, ownerID, id string) (*domain.Bu
 	return s.repos.Businesses.GetByID(ctx, id)
 }
 
+// Close retires a listing permanently: it leaves the public directory, and it
+// releases its slug so another business can claim the name.
+//
+// `deleted_at` is set here because this is what retirement actually is, and
+// before 0032 nothing ever set it. The consequences of that are documented in
+// infra/postgres/migrations/0032_retired_businesses_release_their_slug.sql —
+// most importantly that leaving it unset made every slug reserved for the life
+// of the row, which let any authenticated user squat a name indefinitely by
+// registering a draft and never publishing it.
+//
+// The listing stays readable to its owner (GetByID, ListByOwner and
+// CanManageBusiness all ignore `deleted_at`) so closing a shop is not a
+// one-way door into an unmanageable row. It is not reversible, though: Reopen
+// only reopens from `paused`, and a `closed` listing cannot come back.
 func (s *Businesses) Close(ctx context.Context, ownerID, id string) (*domain.Business, error) {
 	if _, err := s.owned(ctx, ownerID, id); err != nil {
 		return nil, err
 	}
 	if err := s.repos.Businesses.SetStatus(ctx, id, domain.BusinessClosed, map[string]any{
 		"published_snapshot": nil, "last_published_at": nil,
+		"deleted_at": time.Now().UTC(),
 	}); err != nil {
 		return nil, err
 	}
@@ -667,6 +777,68 @@ func validTime(s string) bool {
 	hh, ok1 := asInt(string(s[0:2]))
 	mm, ok2 := asInt(string(s[3:5]))
 	return ok1 && ok2 && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59
+}
+
+// specialHourDateRe matches the "YYYY-MM-DD" key format. A date is validated
+// for real (not just shape) because this map is consulted by the open-now
+// computation: a key that parses but is not a real date would silently never
+// match, which is exactly the bug special_hours is meant to prevent.
+var specialHourDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// maxSpecialHours caps the holiday calendar. 400 entries is roughly a year of
+// every day, comfortably above any real business's needs and small enough that
+// the open-now lookup can never become a large jsonb scan.
+const maxSpecialHours = 400
+
+// validateSpecialHours normalises the per-date override map.
+//
+// Shape: { "YYYY-MM-DD": { "closed": true } | { "open": "09:00",
+// "close": "17:00", "closed": false } }
+//
+// The previous gap: this column existed in the schema since 0012, was read
+// into the domain model, serialized to JSON and typed on the client — and was
+// then never consulted by anything, so a business marked closed on a public
+// holiday was still reported "Open now" and still matched `open_now=true`
+// search. The SettingsPage editor that writes it was itself a no-op, so this
+// validation is the first thing that ever saw one of these values.
+func validateSpecialHours(v any) (map[string]any, error) {
+	in, ok := v.(map[string]any)
+	if !ok {
+		return nil, domain.ErrValidation.WithField("special_hours", "Special hours must be an object keyed by date.")
+	}
+	if len(in) > maxSpecialHours {
+		return nil, domain.ErrValidation.WithField("special_hours",
+			"Too many special-hours entries (max 400).")
+	}
+	out := map[string]any{}
+	for date, raw := range in {
+		date = strings.TrimSpace(date)
+		if !specialHourDateRe.MatchString(date) {
+			return nil, domain.ErrValidation.WithField("special_hours", "Keys must be dates in YYYY-MM-DD form.")
+		}
+		if _, perr := time.Parse("2006-01-02", date); perr != nil {
+			// A well-shaped but non-existent date (2026-02-30) would never
+			// match a real local date, so the entry would look set but do
+			// nothing.
+			return nil, domain.ErrValidation.WithField("special_hours", "Contains an invalid date: "+date)
+		}
+		day, ok := raw.(map[string]any)
+		if !ok {
+			return nil, domain.ErrValidation.WithField("special_hours",
+				"Each date must map to an object with closed/open/close.")
+		}
+		if closed, _ := day["closed"].(bool); closed {
+			out[date] = map[string]any{"closed": true}
+			continue
+		}
+		open, _ := day["open"].(string)
+		closeT, _ := day["close"].(string)
+		if !validTime(open) || !validTime(closeT) {
+			return nil, domain.ErrValidation.WithField("special_hours", "Times must be HH:MM.")
+		}
+		out[date] = map[string]any{"open": open, "close": closeT, "closed": false}
+	}
+	return out, nil
 }
 
 func validateContact(v any) (map[string]any, error) {

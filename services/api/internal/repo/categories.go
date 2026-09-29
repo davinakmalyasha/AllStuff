@@ -81,10 +81,24 @@ func (r *CategoryRepo) HasChildren(ctx context.Context, id string) (bool, error)
 	return exists, err
 }
 
+// BusinessCount counts every business attached to a category, retired ones
+// included. It is the guard behind "this category has businesses, pass move_to",
+// so it answers a REFERENTIAL question — does any row still point here — not a
+// visibility one.
+//
+// The `deleted_at` filter that used to be here is what migration 0032 turned
+// into a bug. It was inert while nothing wrote the column, so the guard worked
+// by accident. Once Close started setting `deleted_at`, a category whose only
+// listings were closed read as empty: the guard passed, MoveBusinesses was never
+// called, and the subsequent DELETE hit businesses_category_id_fkey — which is
+// NO ACTION — raising a 23503 where the user should have seen the validation
+// message telling them to reassign the listings.
+//
+// A retired row still holds category_id, so it still blocks the delete.
 func (r *CategoryRepo) BusinessCount(ctx context.Context, id string) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM businesses WHERE category_id = $1 AND deleted_at IS NULL`, id).Scan(&n)
+		`SELECT count(*) FROM businesses WHERE category_id = $1`, id).Scan(&n)
 	return n, err
 }
 
@@ -124,9 +138,16 @@ func (r *CategoryRepo) Delete(ctx context.Context, id string) error {
 }
 
 // MoveBusinesses reassigns businesses to another category (PRD §5.8.3: no orphans).
+//
+// Retired listings are moved too, and deliberately. They are exactly the rows
+// that would otherwise be orphaned: a closed listing keeps its category_id, so
+// leaving it behind means the category still has a referrer and the DELETE that
+// follows this call fails with 23503. Reassigning everything is also the only
+// way "no orphans" can be true, so the filter is gone for the same reason
+// BusinessCount lost it.
 func (r *CategoryRepo) MoveBusinesses(ctx context.Context, fromID, toID string) (int64, error) {
 	tag, err := r.pool.Exec(ctx,
-		`UPDATE businesses SET category_id = $2, updated_at = now() WHERE category_id = $1 AND deleted_at IS NULL`,
+		`UPDATE businesses SET category_id = $2, updated_at = now() WHERE category_id = $1`,
 		fromID, toID)
 	return tag.RowsAffected(), err
 }

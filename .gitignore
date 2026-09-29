@@ -6,35 +6,82 @@ vendor/
 dist/
 build/
 bin/
+out/
 
 # Env & secrets
+# `.env.*` rather than the two names below: a `.env.staging` or `.env.production`
+# paste is the common leak, and enumerating names never covers them all.
 .env
-.env.local
+.env.*
+!.env.example
 *.pem
+*.key
+*.p12
+*.pfx
 
 # Go
 *.exe
 *.test
+*.out
+coverage.out
+*.coverprofile
 .gocache/
-apps/web/tsconfig.tsbuildinfo
+
+# TypeScript build info
+# Generic, not the one hardcoded path: `tsc -b` writes a .tsbuildinfo per
+# project reference, so a new one would otherwise be committed by accident.
+# This pattern was previously ignored AND tracked, which is why it kept
+# appearing in diffs — .gitignore has no effect on an already-tracked file.
+*.tsbuildinfo
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+.nyc_output/
+
+# Vercel
+# `vercel pull` writes project.json containing VERCEL_ORG_ID and
+# VERCEL_PROJECT_ID. Not secrets, but local config that does not belong here.
+.vercel/
 
 # Logs & OS
 *.log
+npm-debug.log*
+yarn-error.log*
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 *.suo
+*.user
+*.swp
 
 # Playwright MCP artifacts
 .playwright-mcp/
 
-# Playwright test output
-test-results/
-playwright-report/
-
 # Runtime data (uploads, verification documents - never commit PII)
 data/
 services/api/data/
+
+# Local scratch
+tmp/
+.temp/
+*.bak
+*.orig
+*.rej
+
+# Local PostgreSQL cluster for integration tests
+# The repo's own instance, not a shared one. A cluster under %TEMP% gets its
+# postmaster.pid swept by temp cleanup, and Postgres then refuses to run
+# ("data directory lock file is invalid") — so the cluster must live in a
+# stable directory. A dedicated cluster also stops the integration suite from
+# running against whatever server happens to own a shared port.
+.pgdata/

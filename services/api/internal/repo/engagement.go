@@ -295,7 +295,7 @@ func (r *EngagementRepo) MyReviews(ctx context.Context, userID string, limit, of
 		FROM reviews r JOIN users u ON u.id = r.user_id
 		JOIN businesses b ON b.id = r.business_id
 		WHERE r.user_id = $1 AND r.deleted_at IS NULL
-		ORDER BY r.created_at DESC
+		ORDER BY r.created_at DESC, r.id DESC
 		LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -321,7 +321,7 @@ func (r *EngagementRepo) ListComments(ctx context.Context, businessID string, li
 			(SELECT count(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count
 		FROM comments c JOIN users u ON u.id = c.user_id
 		WHERE c.business_id = $1 AND c.status = 'visible'
-		ORDER BY c.created_at ASC
+		ORDER BY c.created_at ASC, c.id ASC
 		LIMIT $2 OFFSET $3`, businessID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -388,10 +388,24 @@ func (r *EngagementRepo) SetCommentLike(ctx context.Context, commentID, userID s
 
 // ---- reviews (business + product, PRD §5.6.2) ----
 
+// CreateReview inserts a review.
+//
+// The `coalesce` is not defensive noise: it fixes a 500. `reviews.image_ids` is
+// `NOT NULL DEFAULT '{}'`, but an explicit bind of a Go nil slice is sent as SQL
+// NULL, which does NOT fall back to the column default. A client posting
+// `{"rating":4,"text":"..."}` with no `image_ids` key leaves the Go slice nil —
+// encoding/json does not populate an absent field — so every review submitted
+// without a photo raised 23502 and surfaced as an internal error. The default is
+// only ever used when the column is omitted from the statement entirely.
+//
+// Coalescing in SQL rather than normalising the slice in Go, because the nil can
+// arrive from three directions (an absent JSON key, an explicit `null`, and a Go
+// caller passing a nil slice) and the repository is the one place all three are
+// the same value.
 func (r *EngagementRepo) CreateReview(ctx context.Context, businessID string, productID *string, userID string, rating int, text string, imageIDs []string) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO reviews (id, business_id, product_id, user_id, rating, text, image_ids)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+	INSERT INTO reviews (id, business_id, product_id, user_id, rating, text, image_ids)
+	VALUES ($1,$2,$3,$4,$5,$6,coalesce($7::uuid[], '{}'::uuid[]))`,
 		util.NewUUID(), businessID, productID, userID, rating, text, imageIDs)
 	return err
 }
@@ -419,12 +433,26 @@ func deref(s *string) string {
 }
 
 func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, productID *string, sort string, limit, offset int, viewerID *string) ([]*domain.Review, error) {
-	order := "r.created_at DESC"
+	// Every variant ends in r.id DESC, and that is deliberate rather than
+	// decorative.
+	//
+	// Migration 0031 built idx_reviews_business_recent as
+	// (business_id, created_at DESC, id DESC) and stated the rule in its own
+	// comment: "Every paginated list needs a total order, or a row can appear on
+	// two pages and another on none." The index was right; this query was not, and
+	// a tiebreaker the query never requests is not a tiebreaker.
+	//
+	// Without r.id, reviews sharing a created_at can swap places between pages,
+	// so one is shown twice and another never appears. The default variant now
+	// matches the index exactly, so the read stays index-ordered as well as
+	// total; the rating and helpful variants already sorted, so the extra column
+	// is free there.
+	order := "r.created_at DESC, r.id DESC"
 	switch sort {
 	case "highest":
-		order = "r.rating DESC, r.created_at DESC"
+		order = "r.rating DESC, r.created_at DESC, r.id DESC"
 	case "helpful":
-		order = "helpful_count DESC, r.created_at DESC"
+		order = "helpful_count DESC, r.created_at DESC, r.id DESC"
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT r.id, r.business_id, r.product_id, r.user_id, r.rating, r.text, r.image_ids, r.reply, r.reply_at, r.reply_edited_at,
@@ -462,10 +490,14 @@ func scanReview(row pgx.Row) (*domain.Review, error) {
 	return &rw, nil
 }
 
+// UpdateReview edits a review. The `coalesce` on image_ids is the same fix as in
+// CreateReview: a nil slice binds as SQL NULL, and stripping the photos off a
+// review is an ordinary edit that must mean "no photos", not a constraint
+// violation.
 func (r *EngagementRepo) UpdateReview(ctx context.Context, id, userID string, rating int, text string, imageIDs []string) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE reviews SET rating=$3, text=$4, image_ids=$5, edited_at=now(), updated_at=now()
-		WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, id, userID, rating, text, imageIDs)
+	UPDATE reviews SET rating=$3, text=$4, image_ids=coalesce($5::uuid[], '{}'::uuid[]), edited_at=now(), updated_at=now()
+	WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, id, userID, rating, text, imageIDs)
 	return err
 }
 
@@ -556,7 +588,7 @@ func (r *EngagementRepo) ListNotifications(ctx context.Context, userID, ntype st
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, user_id, type, payload, is_read, created_at FROM notifications
 		WHERE user_id=$1 AND ($2 = '' OR type = $2)
-		ORDER BY created_at DESC LIMIT $3 OFFSET $4`, userID, ntype, limit, offset)
+		ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4`, userID, ntype, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -619,13 +651,30 @@ func (r *EngagementRepo) PurgeExpired(ctx context.Context) (int64, error) {
 	}
 }
 
-// GetLatestUnread returns the newest unread notification of a type for a
-// user (used after bulk fan-out inserts to hydrate WS/email dispatches).
+// GetLatestUnread returns the newest unread notification of a type for a user.
+//
+// NOT CURRENTLY CALLED, and its previous doc comment was actively misleading.
+//
+// It used to be how a bulk fan-out hydrated its dispatches, and it could not
+// work: a fan-out inserts many notifications in ONE statement, so `now()` is
+// constant across the whole batch and `ORDER BY created_at DESC LIMIT 1` returns
+// an arbitrary one of them. That is why CreateNotificationsForFollowers was
+// rewritten to `INSERT … RETURNING` and now hands back the exact rows it created.
+//
+// The old comment here described this function as the way "bulk fan-out inserts
+// hydrate WS/email dispatches", which is no longer true and reads as authoritative.
+// That is how it came to be mistaken for a live bug when auditing the paginated
+// ORDER BY clauses in 0033 — a stale comment on unreachable code is still a
+// defect, because it is what a reader trusts.
+//
+// Kept rather than deleted in case a future single-notification path wants it,
+// with `id DESC` added so the "newest" contract actually holds if it is used.
+// The tiebreaker is free: idx_notifications_type was extended in 0033.
 func (r *EngagementRepo) GetLatestUnread(ctx context.Context, userID, ntype string) (*domain.Notification, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT id, user_id, type, payload, is_read, created_at FROM notifications
 		WHERE user_id=$1 AND type=$2 AND is_read=false
-		ORDER BY created_at DESC LIMIT 1`, userID, ntype)
+		ORDER BY created_at DESC, id DESC LIMIT 1`, userID, ntype)
 	var n domain.Notification
 	if err := row.Scan(&n.ID, &n.UserID, &n.Type, &n.Payload, &n.IsRead, &n.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

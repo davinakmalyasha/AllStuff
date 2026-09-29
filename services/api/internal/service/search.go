@@ -36,6 +36,20 @@ type SearchParams struct {
 	Sort              string // trending|rating|newest|nearest|relevance
 	Limit             int
 	Offset            int
+	// WithTotal requests an exact result count. OFF by default: the count
+	// re-runs the ENTIRE candidate predicate — the 5-way FTS OR, the per-row
+	// products EXISTS, a plpgsql biz_is_open_now call per row, the avg(rating)
+	// subquery and the trend join — which is more expensive than fetching the
+	// page it is counting.
+	//
+	// It previously ran on every page except the last, i.e. essentially always,
+	// and again per saved search in the nightly alert job. Callers that genuinely
+	// need a total (e.g. "results 1-24 of 1,203") pass WithTotal on the FIRST
+	// page only; pager navigation reads has_more, which is free.
+	//
+	// A negative return means "not computed" and must be rendered as such, not
+	// as zero.
+	WithTotal bool
 }
 
 func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Business, int, error) {
@@ -56,16 +70,25 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 		// ILIKE patterns get escaped so user input matches literally. Every
 		// placeholder carries an explicit type: extended-protocol Parse cannot
 		// infer bare params in ANY()/trigram contexts (PG17 42P18).
+		//
+		// The two FTS branches call the IMMUTABLE helpers from migration 0031
+		// (biz_search_tsv / product_search_tsv) rather than writing
+		// to_tsvector(...) inline. That is what makes the GIN indexes usable: an
+		// index expression must match the query expression textually or the
+		// planner ignores it, and this predicate previously existed in three
+		// hand-written variants (here, the `relevance` sort, and a shorter form
+		// in the rank pass) — none indexed, all able to drift apart silently.
+		// The helpers make that divergence unrepresentable.
 		qLike := util.EscapeLike(q)
 		where = append(where, `(
-			to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' ||
-				coalesce(b.description,'') || ' ' || coalesce(b.city,'') || ' ' ||
-				array_to_string(b.tags,' ')) @@ plainto_tsquery('simple', `+arg(q)+`::text)
+			biz_search_tsv(b.name, b.tagline, b.description, b.city, b.tags)
+				@@ plainto_tsquery('simple', `+arg(q)+`::text)
 			OR b.name ILIKE '%' || `+arg(qLike)+`::text || '%'
 			OR b.name % `+arg(q)+`::text
 			OR cat.name ILIKE '%' || `+arg(qLike)+`::text || '%'
 			OR EXISTS (SELECT 1 FROM products p WHERE p.business_id = b.id AND p.is_published = true
-				AND p.deleted_at IS NULL AND to_tsvector('simple', coalesce(p.name,'')) @@ plainto_tsquery('simple', `+arg(q)+`::text)))`)
+				AND p.deleted_at IS NULL
+				AND product_search_tsv(p.name) @@ plainto_tsquery('simple', `+arg(q)+`::text)))`)
 	}
 	if len(p.CategoryIDs) > 0 {
 		where = append(where, "b.category_id = ANY("+arg(p.CategoryIDs)+"::uuid[])")
@@ -90,7 +113,12 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	}
 	if p.OpenNow {
 		// SQL-side filter (migration 0014): keeps LIMIT/OFFSET pagination exact.
-		where = append(where, "biz_is_open_now(b.hours, b.timezone)")
+		// 3-arg form so a business marked closed for a public holiday is
+		// excluded by the filter, not just badged "Closed". Mismatched with
+		// the Go isOpenNow badge, the filter and the badge would disagree on
+		// the same row. See migration 0030_open_now.sql; the 2-arg form is
+		// kept as a back-compat wrapper for rolling deploys.
+		where = append(where, "biz_is_open_now(b.hours, b.special_hours, b.timezone)")
 	}
 	if p.VerifiedOnly {
 		where = append(where, "b.verification_level IS NOT NULL")
@@ -116,26 +144,51 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 
 	// buildOrder emits the ORDER BY expression for a given sort, minting its
 	// bind params through the supplied per-statement placeholder factory.
+	//
+	// EVERY branch ends in `b.id`. That is not decoration: it is what makes
+	// pagination correct. Postgres does not guarantee a stable order for rows
+	// that tie on the sort key, and it picks a different one per execution
+	// because the plan changes with LIMIT/OFFSET. A tie is not a rare edge case
+	// here — scripts/seed.sql inserts rows with generate_series in a single
+	// statement, so `now()` gives every row an identical created_at, and any bulk
+	// import or backfill does the same.
+	//
+	// Without the final key, paging 12 rows in pages of 4 could return a business
+	// on page 1 and again on page 2 while another never appeared at all. The user
+	// sees a duplicate and assumes something is missing, and nothing anywhere
+	// reports an error: each page was a perfectly valid result for its own query.
+	// `b.id` is unique and non-null, so it is always available as a tiebreaker
+	// and always makes the order total.
 	buildOrder := func(add func(any) string) string {
 		switch p.Sort {
 		case "rating":
 			return `(SELECT coalesce(avg(r.rating), 0) FROM reviews r
-				WHERE r.business_id = b.id AND r.deleted_at IS NULL) DESC NULLS LAST, b.created_at DESC`
+				WHERE r.business_id = b.id AND r.deleted_at IS NULL) DESC NULLS LAST,
+				b.created_at DESC, b.id ASC`
 		case "newest":
-			return "b.created_at DESC"
+			return "b.created_at DESC, b.id ASC"
 		case "nearest":
 			if p.Lat != nil && p.Lng != nil {
 				return "earth_distance(ll_to_earth(b.lat, b.lng), ll_to_earth(" +
-					add(*p.Lat) + "::float8, " + add(*p.Lng) + "::float8)) / 1000.0 ASC NULLS LAST, b.created_at DESC"
+					add(*p.Lat) + "::float8, " + add(*p.Lng) + "::float8)) / 1000.0 ASC NULLS LAST, " +
+					"b.created_at DESC, b.id ASC"
 			}
 		case "relevance":
 			if q != "" {
-				return "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + add(q) + "::text)) DESC, b.created_at DESC"
+				// Same helper as the WHERE clause, minus `tags` (a relevance
+				// expression that includes tags would rank a business on its
+				// own keywords more than on its text). It is deliberately NOT
+				// the full 5-column form: the point of the helper is that one
+				// definition is reused, not that every call site is identical.
+				// Keeping the shapes in one place is what prevents an
+				// unindexed variant reappearing here.
+				return "ts_rank(biz_search_tsv(b.name, b.tagline, b.description, b.city, NULL), plainto_tsquery('simple', " + add(q) + "::text)) DESC, b.created_at DESC, b.id ASC"
 			}
 		default: // trending: engagement velocity, then score (PRD §5.6.3)
-			return "coalesce(ts.velocity, 0) DESC, coalesce(ts.score, 0) DESC, b.verified_at DESC NULLS LAST, b.created_at DESC"
+			return "coalesce(ts.velocity, 0) DESC, coalesce(ts.score, 0) DESC, " +
+				"b.verified_at DESC NULLS LAST, b.created_at DESC, b.id ASC"
 		}
-		return "b.created_at DESC"
+		return "b.created_at DESC, b.id ASC"
 	}
 
 	// Trend join: latest 24h snapshot for the default (trending) sort (PRD §5.1.2).
@@ -194,7 +247,10 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	}
 	rank := "0 AS ts_rank"
 	if q != "" {
-		rank = "ts_rank(to_tsvector('simple', coalesce(b.name,'') || ' ' || coalesce(b.tagline,'') || ' ' || coalesce(b.description,'') || ' ' || coalesce(b.city,'')), plainto_tsquery('simple', " + add2(q) + "::text)) AS ts_rank"
+		// Same 4-column shape as the `relevance` ORDER BY, via the same helper.
+		// This is the third of the three hand-written copies of this expression
+		// that existed; all three are now one definition.
+		rank = "ts_rank(biz_search_tsv(b.name, b.tagline, b.description, b.city, NULL), plainto_tsquery('simple', " + add2(q) + "::text)) AS ts_rank"
 	}
 	sql := `
 		SELECT ` + repo.BusinessCols + repo.BusinessCounts + `, ` + dist + `, ` + rank + `
@@ -210,22 +266,29 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	now := time.Now()
 	out := make([]*domain.Business, 0, len(rows))
 	for _, b := range rows {
-		open := isOpenNow(b.Hours, now, b.Timezone)
+		open := isOpenNow(b.Hours, b.SpecialHours, now, b.Timezone)
 		b.IsOpenNow = &open
 		out = append(out, b)
 	}
 	if !hasMore {
-		// Last page: total is offset + actual rows returned.
+		// Last page: the total is exactly offset + rows returned, so no extra
+		// query is needed regardless of WithTotal.
 		return out, p.Offset + len(out), nil
 	}
-	// True total (the row limit above is a page cap; PRD §5.1.2 result counts).
+	if !p.WithTotal {
+		// Negative means "not computed" — the caller renders a pager from the
+		// page rather than claiming a total it does not have.
+		return out, -1, nil
+	}
+	// Exact total for callers that asked for one (first page of a paged view).
+	// Deliberately first-page-only in practice: see SearchParams.WithTotal.
 	var total int
 	countSQL := `
 		SELECT count(*) FROM businesses b
 		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
 		WHERE ` + strings.Join(where, " AND ")
 	if err := s.repos.QueryRow(ctx, countSQL, whereArgs...).Scan(&total); err != nil {
-		// Best-effort: fall back to page size, but leave a trace — silent
+		// Best-effort: fall back to the page size, but leave a trace — silent
 		// wrong counts are indistinguishable from real ones.
 		slog.Warn("search count fallback", "err", err)
 		return out, len(out), nil
@@ -279,7 +342,18 @@ func (s *Search) Suggestions(ctx context.Context, q string, limit int) (map[stri
 // Computed in the business's own timezone (PRD §5.3.4). An overnight window
 // (e.g. Mon 18:00–02:00) covers the early hours of the NEXT day, so we also
 // check the previous day's entry when the current day looks closed.
-func isOpenNow(hours map[string]any, at time.Time, timezone string) bool {
+//
+// specialHours JSONB {"YYYY-MM-DD":{open,close,closed}} overrides the weekly
+// schedule for specific dates — public holidays, a private event, a one-off
+// late opening. It takes precedence over the weekly entry for that date, and an
+// override that marks the day closed is final.
+//
+// This function previously took only `hours`, so a business marked closed on
+// Christmas was still reported "Open now" and still matched the `open_now=true`
+// search filter — the platform's most-used filter returning a business that is
+// definitionally shut. The column had existed since migration 0012, been read
+// into the domain model and typed on the client, and been consulted by nothing.
+func isOpenNow(hours, specialHours map[string]any, at time.Time, timezone string) bool {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
 		loc = time.UTC
@@ -287,23 +361,17 @@ func isOpenNow(hours map[string]any, at time.Time, timezone string) bool {
 	local := at.In(loc)
 	days := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 	cur := local.Hour()*60 + local.Minute()
+	today := local.Format("2006-01-02")
+	prevDate := local.AddDate(0, 0, -1).Format("2006-01-02")
 
-	check := func(day string) (bool, bool) {
-		raw, ok := hours[day]
-		if !ok {
-			return false, false
-		}
-		entry, ok := raw.(map[string]any)
-		if !ok {
-			return false, false
-		}
+	// openWindow returns (isOpen, isDefined) for a single {open,close,closed}
+	// entry evaluated at `cur` minutes.
+	openWindow := func(entry map[string]any) (bool, bool) {
 		if closed, _ := entry["closed"].(bool); closed {
-			return false, false
+			return false, true
 		}
-		open, _ := entry["open"].(string)
-		closeT, _ := entry["close"].(string)
-		oh, ok1 := parseHHMM(open)
-		ch, ok2 := parseHHMM(closeT)
+		oh, ok1 := parseHHMM(asString(entry["open"]))
+		ch, ok2 := parseHHMM(asString(entry["close"]))
 		if !ok1 || !ok2 {
 			return false, false
 		}
@@ -313,7 +381,34 @@ func isOpenNow(hours map[string]any, at time.Time, timezone string) bool {
 		return cur >= oh && cur < ch, true
 	}
 
-	if open, defined := check(days[int(local.Weekday())]); defined {
+	// check evaluates a day key against the weekly schedule, or against the
+	// special-hours override for `date` when a USABLE one exists.
+	//
+	// An override that is present but unusable (bad times, missing close) falls
+	// back to the weekly entry rather than reporting the day closed. The
+	// validator rejects those at write time, but rows written before it existed
+	// (or by a seed script) would otherwise make a business invisible for a
+	// whole day: search's open_now filter would drop it and its badge would read
+	// "Closed" while the owner is trading.
+	check := func(day, date string) (bool, bool) {
+		if override, ok := lookupSpecial(specialHours, date); ok {
+			if open, defined := openWindow(override); defined {
+				return open, true
+			}
+			// Unusable override: fall through to the weekly schedule.
+		}
+		raw, ok := hours[day]
+		if !ok {
+			return false, false
+		}
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			return false, false
+		}
+		return openWindow(entry)
+	}
+
+	if open, defined := check(days[int(local.Weekday())], today); defined {
 		if open {
 			return true
 		}
@@ -322,15 +417,69 @@ func isOpenNow(hours map[string]any, at time.Time, timezone string) bool {
 	// guard (close <= open) mirrors the SQL twin biz_is_open_now (migration
 	// 0014): without it, yesterday's 09:00–17:00 window would wrongly match
 	// today's daytime minutes.
+	//
+	// An overnight window that started on a day with its own special-hours
+	// override must be evaluated against that override, not the weekly entry.
 	prev := local.AddDate(0, 0, -1)
-	if open, defined := check(days[int(prev.Weekday())]); defined && open {
-		oh := parseOpenOf(prev, hours, days)
-		ch := parseCloseOf(prev, hours, days)
-		if ch <= oh && cur < ch {
-			return true
+	prevDay := days[int(prev.Weekday())]
+	if open, defined := check(prevDay, prevDate); defined && open {
+		// Evaluate the overnight guard against whichever entry `check` used:
+		// the override when one applies to the origin day, else the weekly row.
+		entry, ok := lookupSpecial(specialHours, prevDate)
+		if !ok || !openWindowDefined(entry) {
+			entry = nil
+			if raw, found := hours[prevDay]; found {
+				if m, isMap := raw.(map[string]any); isMap {
+					entry = m
+				}
+			}
+		}
+		if entry != nil {
+			oh, ok1 := parseHHMM(asString(entry["open"]))
+			ch, ok2 := parseHHMM(asString(entry["close"]))
+			if ok1 && ok2 && ch <= oh && cur < ch {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// openWindowDefined reports whether an entry carries usable open/close times
+// (a `closed` entry is "defined" but has no window, so it returns false here
+// and the caller correctly falls back to the weekly row only when there is no
+// override at all).
+func openWindowDefined(entry map[string]any) bool {
+	if entry == nil {
+		return false
+	}
+	if closed, _ := entry["closed"].(bool); closed {
+		return true
+	}
+	_, ok1 := parseHHMM(asString(entry["open"]))
+	_, ok2 := parseHHMM(asString(entry["close"]))
+	return ok1 && ok2
+}
+
+// lookupSpecial resolves a special-hours override for a date.
+//
+// Two representations are accepted because the two writers disagree: the Go
+// validator produces a bool `closed`, while scripts/seed.sql has historically
+// written a string. Supporting both means a seeded business is not silently
+// treated as having no override.
+func lookupSpecial(specialHours map[string]any, date string) (map[string]any, bool) {
+	if len(specialHours) == 0 || date == "" {
+		return nil, false
+	}
+	raw, ok := specialHours[date]
+	if !ok || raw == nil {
+		return nil, false
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	return entry, true
 }
 
 // parseOpenOf returns the open time (minutes) of the given day's entry.

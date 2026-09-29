@@ -15,7 +15,22 @@ import (
 
 type BusinessRepo struct{ pool pooler }
 
-const BusinessCols = `b.id, b.owner_id, b.name, b.slug, b.tagline, b.description, COALESCE(b.category_id::text, '') AS category_id,
+// BusinessCols is the shared column list for every business read.
+//
+// owner_id is COALESCEd to an empty string, for the same reason category_id
+// is: the column is nullable (migration 0029 made it so, so an UNOWNED listing is
+// representable) and pgx cannot scan SQL NULL into a Go `string`. Without the
+// COALESCE, reading an unowned business fails with
+// "can't scan NULL into *string" — so making the column nullable was necessary
+// but not sufficient, and claim-an-existing-listing was still broken on the READ
+// side even after the write side was fixed.
+//
+// Empty string is the right sentinel rather than a pointer because that is the
+// contract the service layer already codes against: service/claims.go detects an
+// unowned listing with `if b.OwnerID != ""`, and CanManageBusiness is a
+// positive check so "" simply means nobody manages it.
+const BusinessCols = `b.id, COALESCE(b.owner_id::text, '') AS owner_id,
+	b.name, b.slug, b.tagline, b.description, COALESCE(b.category_id::text, '') AS category_id,
 	b.status, b.rejection_reason, b.logo_url, b.cover_url, b.gallery, b.price_level, b.currency,
 	b.address, b.lat, b.lng, b.city, b.country, b.timezone, b.hours, b.special_hours, b.theme, b.layout, b.contact, b.amenities, b.tags, b.founded_year,
 	b.is_featured, b.last_published_at, b.published_snapshot, b.verification_level, b.verified_at, b.slug_changed_at, b.created_at, b.updated_at`
@@ -39,12 +54,34 @@ func scanBusiness(row pgx.Row) (*domain.Business, error) {
 	return &b, nil
 }
 
+// Create inserts a business.
+//
+// An empty OwnerID is written as SQL NULL, not as the empty string. This is not
+// cosmetic: `owner_id` is `uuid`, so binding `""` asks Postgres to cast the
+// empty string to a uuid and it raises `22P02 invalid input syntax for type
+// uuid: ""`. Migration 0029 made the column nullable specifically so that an
+// UNOWNED listing is representable — which is what claim-an-existing-listing
+// depends on, and what any imported directory contains — but the write path
+// could not produce the state the schema was changed to permit.
+//
+// So the nullable column was necessary and not sufficient. The symptom was
+// masked because every current caller passes a real owner, and unowned listings
+// would arrive through a raw import rather than through this function, so the
+// failure would have appeared at integration time rather than in development.
 func (r *BusinessRepo) Create(ctx context.Context, b *domain.Business, categoryID *string) error {
+	// domain.Business.OwnerID is a plain string so that a zero value is
+	// representable and CanManageBusiness can use "" to mean "nobody manages
+	// this". Translate that at the boundary rather than making every caller
+	// remember to pass a pointer.
+	var ownerID *string
+	if b.OwnerID != "" {
+		ownerID = &b.OwnerID
+	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO businesses (id, owner_id, name, slug, description, category_id, currency,
 			address, lat, lng, city, country, timezone, hours, contact, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-		b.ID, b.OwnerID, b.Name, b.Slug, b.Description, categoryID, b.Currency,
+		b.ID, ownerID, b.Name, b.Slug, b.Description, categoryID, b.Currency,
 		b.Address, b.Lat, b.Lng, b.City, b.Country, b.Timezone, b.Hours, b.Contact, b.Status)
 	if err != nil {
 		return fmt.Errorf("create business (id=%s owner=%s): %w", b.ID, b.OwnerID, err)
@@ -82,10 +119,14 @@ func (r *BusinessRepo) Update(ctx context.Context, id string, fields map[string]
 
 // setStatusExtraFields whitelists the extra columns SetStatus may write.
 // Without a guard this interpolates map keys straight into SQL.
+//
+// `deleted_at` was added in 0032, when retirement started actually setting it.
+// See that migration for why the column existed but was never written.
 var setStatusExtraFields = map[string]bool{
 	"rejection_reason": true, "published_snapshot": true,
 	"verification_level": true, "verified_at": true,
 	"last_published_at": true,
+	"deleted_at":        true,
 }
 
 func (r *BusinessRepo) SetStatus(ctx context.Context, id string, status domain.BusinessStatus, extra map[string]any) error {
@@ -119,11 +160,23 @@ func (r *BusinessRepo) SetRejected(ctx context.Context, id, reason string) error
 	return err
 }
 
+// GetByID resolves a listing by id regardless of whether it has been retired.
+//
+// It stopped filtering `deleted_at IS NULL` in 0032. Before that, a retired
+// listing became invisible to the owner who closed it: they could neither see
+// it in ListByOwner, resolve it here, nor pass CanManageBusiness, so it was an
+// unmanageable black hole that still consumed a slug and a quota slot.
+//
+// Dropping the filter is safe for public exposure because no public path trusts
+// this method on its own. GetPublic goes through GetBySlug, which still filters
+// retired rows, and the compare endpoint re-checks the status itself
+// (httpapi/handlers_directory.go). Retired rows carry status = 'closed', which
+// is on no public whitelist.
 func (r *BusinessRepo) GetByID(ctx context.Context, id string) (*domain.Business, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT `+BusinessCols+BusinessCounts+`
 		FROM businesses b LEFT JOIN categories cat ON cat.id = b.category_id
-		WHERE b.id = $1 AND b.deleted_at IS NULL`, id)
+		WHERE b.id = $1`, id)
 	b, err := scanBusinessWithCounts(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -131,6 +184,15 @@ func (r *BusinessRepo) GetByID(ctx context.Context, id string) (*domain.Business
 	return b, err
 }
 
+// GetBySlug resolves a LIVE listing by slug, and deliberately still filters
+// `deleted_at IS NULL` even though GetByID no longer does.
+//
+// This is the asymmetry that makes releasing a slug work. A retired listing
+// keeps its old slug string on the row for the historical record, so once a new
+// business claims that slug, two rows carry it. Only the live one may resolve.
+// If this stopped filtering, a retired listing would shadow whichever business
+// currently owns its former URL, and the old shop's page would sit in front of
+// the new shop's.
 func (r *BusinessRepo) GetBySlug(ctx context.Context, slug string) (*domain.Business, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT `+BusinessCols+BusinessCounts+`
@@ -156,12 +218,19 @@ func scanBusinessWithCounts(row pgx.Row) (*domain.Business, error) {
 	return &b, nil
 }
 
+// ListByOwner returns every listing an owner holds, including retired ones.
+//
+// It stopped filtering `deleted_at IS NULL` in 0032, for the same reason
+// GetByID did: filtering here made a closed listing disappear from its owner's
+// own dashboard with no indication it existed. Retired rows sort last rather
+// than being dropped, so an owner can see the full history of what they have
+// operated and distinguish a live listing from a closed one.
 func (r *BusinessRepo) ListByOwner(ctx context.Context, ownerID string) ([]*domain.Business, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+BusinessCols+`
 		FROM businesses b LEFT JOIN categories cat ON cat.id = b.category_id
-		WHERE b.owner_id = $1 AND b.deleted_at IS NULL
-		ORDER BY b.updated_at DESC`, ownerID)
+		WHERE b.owner_id = $1
+		ORDER BY b.deleted_at IS NULL DESC, b.updated_at DESC`, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,12 +322,23 @@ func (r *BusinessRepo) PublicSlugs(ctx context.Context, status string, limit int
 }
 
 // ByStatus returns the queue for admin verification (PRD §5.8.1).
+//
+// `b.id ASC` completes the order so paging the queue cannot show one listing
+// twice while skipping another: admins work this queue by status and they change
+// rows out from under each other, so equal updated_at is the normal case rather
+// than an edge case.
+//
+// No supporting index was added for it in 0033, on purpose. `status = ANY($1)` is
+// a multi-value comparison, so an index on (status, updated_at, id) still could
+// not yield one total order across the array — Postgres would merge and sort. The
+// query already sorts today, so the tiebreaker is free, and the index would be
+// storage never used for ordering. This is an admin-volume query.
 func (r *BusinessRepo) ByStatus(ctx context.Context, statuses []string, limit, offset int) ([]*domain.Business, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+BusinessCols+`
 		FROM businesses b LEFT JOIN categories cat ON cat.id = b.category_id
 		WHERE b.status = ANY($1) AND b.deleted_at IS NULL
-		ORDER BY b.updated_at ASC
+		ORDER BY b.updated_at ASC, b.id ASC
 		LIMIT $2 OFFSET $3`, statuses, limit, offset)
 	if err != nil {
 		return nil, err
@@ -341,11 +421,21 @@ func (r *BusinessRepo) ListDocuments(ctx context.Context, businessID string) ([]
 // CanManageBusiness: owner OR accepted co-owner invite (PRD §5.9.3).
 // The role matters: "viewer" invites are read-only and must never gain
 // management rights over the listing.
+//
+// The owner branch stopped filtering `deleted_at IS NULL` in 0032. A retired
+// listing has no owner-side escape hatch: `Reopen` only reopens from `paused`,
+// so `closed` is terminal, and denying management would leave the row
+// permanently unadministrable — no edits, no collaborator changes, and no way
+// for the owner to see the state they put it in.
+//
+// Management rights are not publication rights. Every state transition that
+// would make a listing visible re-checks status first, so granting management
+// of a closed listing cannot republish it.
 func (r *BusinessRepo) CanManageBusiness(ctx context.Context, userID, businessID string) (bool, error) {
 	var can bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM businesses b WHERE b.id = $2 AND b.owner_id = $1 AND b.deleted_at IS NULL
+			SELECT 1 FROM businesses b WHERE b.id = $2 AND b.owner_id = $1
 			UNION ALL
 			SELECT 1 FROM business_invites i
 			JOIN users u ON u.email = i.email
@@ -411,6 +501,47 @@ func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*B
 		out = append(out, &i)
 	}
 	return out, rows.Err()
+}
+
+// CountActiveSeats counts the people who can currently manage or view the
+// business, for the plan's team_seats cap.
+//
+// The owner counts as one seat. An invite counts once it is ACCEPTED and counts
+// as nothing while it is pending, revoked, or expired — a pending invitation is
+// an intention, not a seat, and blocking on it would let a business fill its
+// allowance with invitations nobody has accepted and then be unable to invite
+// anyone who actually turns up.
+//
+// The accepted-invite arm matches CanManageBusiness and IsBusinessViewer
+// exactly, including their citext email comparison. A seat that the permission
+// check does not grant would be a cap the user pays for and cannot use.
+// CountLiveByOwner counts an owner's non-retired listings, for the per-user cap
+// in service.Businesses.Create.
+//
+// "Live" is `deleted_at IS NULL` rather than a status test, deliberately: it is
+// the same predicate the slug partial index uses. One definition of "live",
+// applied by both, means the cap and the slug namespace can never disagree
+// about whether a closed shop still occupies a resource. Retiring a listing is
+// what frees the slot, which is the whole point of closing it.
+func (r *BusinessRepo) CountLiveByOwner(ctx context.Context, ownerID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM businesses WHERE owner_id = $1 AND deleted_at IS NULL`, ownerID).Scan(&n)
+	return n, err
+}
+
+func (r *BusinessRepo) CountActiveSeats(ctx context.Context, businessID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+		    (SELECT count(*) FROM businesses b
+		      WHERE b.id = $1 AND b.owner_id IS NOT NULL)
+		  + (SELECT count(*) FROM business_invites i
+		      WHERE i.business_id = $1
+		        AND i.accepted_at IS NOT NULL
+		        AND i.revoked_at IS NULL
+		        AND i.expires_at > now())`, businessID).Scan(&n)
+	return n, err
 }
 
 func (r *BusinessRepo) RevokeInvite(ctx context.Context, businessID, inviteID string) error {

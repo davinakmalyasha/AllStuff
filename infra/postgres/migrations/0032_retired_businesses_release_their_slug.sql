@@ -1,0 +1,100 @@
+-- 0032_retired_businesses_release_their_slug.sql — makes retirement release a
+-- slug, which 0029 assumed but never implemented.
+--
+-- migrate:idempotent  yes
+-- migrate:concurrent  true
+-- migrate:seed        none
+-- migrate:risk        DML
+-- migrate:note        The backfill is guarded by `deleted_at IS NULL`, so a replay after a crash cannot clobber a real retirement timestamp. The index is rebuilt with a preceding DROP INDEX CONCURRENTLY IF EXISTS, so an interrupted build is discarded and rebuilt rather than skipped.
+--
+-- WHY THIS MIGRATION EXISTS
+-- ------------------------
+-- 0029 replaced the `businesses_slug_key` UNIQUE constraint with a partial index
+--
+--     CREATE UNIQUE INDEX businesses_slug_live ON businesses (slug)
+--       WHERE deleted_at IS NULL
+--
+-- on the assumption that retirement would set `deleted_at`. That assumption was
+-- never implemented. `businesses` was the only soft-deletable-looking table in
+-- the schema that nothing ever soft-deleted: products, media, users and reviews
+-- all have a real `deleted_at = now()` path, businesses had none. Retirement is
+-- modelled as `status = 'closed'` (see service.Businesses.Close).
+--
+-- Because `deleted_at` was always NULL, the partial predicate was always true
+-- and `businesses_slug_live` was a plain unique index on slug wearing a
+-- predicate that protected nothing. 0029 was inert for its stated purpose.
+--
+-- The consequence was that a slug was reserved for the lifetime of the row.
+-- A shop that closed through the product kept its URL forever and no other
+-- business could ever claim it. Worse, `POST /api/v1/businesses` had no
+-- per-user cap, so any authenticated user could register unlimited drafts —
+-- each draft permanently holding its slug — and `ChangeSlugOnce` then let a
+-- creator rotate that junk draft onto a valuable slug. The unique index
+-- prevented honest users from colliding while handing an attacker permanent
+-- exclusive ownership of any name they registered first. That is brand-name
+-- denial, and it is the exact attack a unique index is supposed to prevent.
+--
+-- WHAT THIS DOES
+-- --------------
+-- 1. Backfills `deleted_at` for every row that is already closed. Without this
+--    step the fix would only apply to listings closed AFTER deploy, and every
+--    pre-existing closed listing would keep its slug indefinitely — the bug
+--    would look fixed and still be live.
+--
+-- 2. Re-establishes `businesses_slug_live` as a genuine partial index, now over
+--    a column that is actually written.
+--
+-- WHAT THIS DOES NOT DO, DELIBERATELY
+-- ----------------------------------
+-- * It does not rewrite the slug of a retired listing. The old string stays on
+--   the row as a historical record. Consequence: if a new business later claims
+--   that slug, the retired row's stored slug now names a different business,
+--   and an operator looking at the retired row could be misled. The retired row
+--   is not publicly resolvable (GetBySlug filters `deleted_at IS NULL`), so
+--   this is an admin-visibility wart rather than a correctness bug. Rewriting
+--   to `closed-<id>` would destroy the record to fix cosmetics.
+--
+-- * It does not make `closed` reversible. `Reopen` only reopens from `paused`,
+--   so closing a listing by mistake is unrecoverable today and stays that way.
+--   An un-close would need to re-acquire a slug that may since have been
+--   claimed, which is a recoverable-but-lossy state transition and deserves its
+--   own migration and its own test rather than being folded in here.
+--
+-- The owner-facing code changes that accompany this migration are in
+-- service/businesses.go (Close sets deleted_at; Create caps live businesses per
+-- user) and repo/businesses.go (GetByID, ListByOwner and CanManageBusiness stop
+-- filtering deleted_at, so a retired listing is not an invisible black hole).
+
+-- ---------------------------------------------------------------------------
+-- 1. Backfill: every already-closed listing becomes retired.
+--
+-- The `deleted_at IS NULL` guard makes this idempotent, so a replay after a
+-- crash between this statement and the version marker does not clobber a real
+-- retirement timestamp. `updated_at` is deliberately NOT touched: the row's
+-- last-modified time is a fact about the listing, and this migration is not a
+-- user action on it.
+-- ---------------------------------------------------------------------------
+UPDATE businesses
+   SET deleted_at = now()
+ WHERE status = 'closed'
+   AND deleted_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- 2. Rebuild the slug index.
+--
+-- The index is dropped and recreated rather than altered: the predicate's
+-- meaning changed from "always true" to "actually selective", and a fresh
+-- build reclaims the space taken by entries for closed rows.
+--
+-- CONCURRENTLY, and paired with the DROP, because this runs against a live
+-- database: it must not take a write lock that blocks inserts for the duration
+-- of the build. `/* autocommit */` routes the DROP outside the transaction
+-- that CONCURRENTLY cannot run inside.
+--
+-- Safe to run against a database where the index does not exist yet (a fresh
+-- 0001→0031 chain never creates it, since 0029 already replaced the
+-- constraint), which is why the DROP is IF EXISTS.
+-- ---------------------------------------------------------------------------
+/* autocommit */ DROP INDEX CONCURRENTLY IF EXISTS businesses_slug_live;
+CREATE UNIQUE INDEX CONCURRENTLY businesses_slug_live
+    ON businesses (slug) WHERE deleted_at IS NULL;
