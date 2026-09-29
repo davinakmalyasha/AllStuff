@@ -292,7 +292,7 @@ function DashboardIndex() {
       </div>
       {businesses.length === 0 ? (
         <Card className="py-12 text-center">
-          <p className="text-sm text-ink2">No businesses yet. Register your first storefront â€” it takes about 10 minutes and it's free forever.</p>
+          <p className="text-sm text-ink2">No businesses yet. Register your first storefront — it takes about 10 minutes and it's free forever.</p>
           <Link to="/dashboard/register" className="mt-4 inline-block">
             <Button>Start registration</Button>
           </Link>
@@ -343,7 +343,7 @@ function Bootstrap() {
             if (!installing) return
             installing.addEventListener('statechange', () => {
               if (installing.state === 'activated' && navigator.serviceWorker.controller) {
-                toast.info('A new version is available â€” refresh to update.')
+                toast.info('A new version is available — refresh to update.')
               }
             })
           })
@@ -372,7 +372,7 @@ function Bootstrap() {
       window.onerror = orig
     }
   }, [fetchMe])
-  // Compare tray follows the account across devices (PRD Â§5.1.5).
+  // Compare tray follows the account across devices (PRD §5.1.5).
   useEffect(() => {
     if (user) void hydrateCompare()
   }, [user])
@@ -390,7 +390,7 @@ function Bootstrap() {
 }
 
 /** Keeps one WS connection open for authed users: chat + notification.new.
- * Disconnects on logout â€” previously a zombie socket stayed connected (and
+ * Disconnects on logout — previously a zombie socket stayed connected (and
  * reconnecting forever) after the session ended. */
 function LiveEvents() {
   const { user } = useAuthState((s) => ({ user: s.user }))

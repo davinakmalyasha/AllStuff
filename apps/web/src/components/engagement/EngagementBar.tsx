@@ -8,7 +8,7 @@ import { toast } from '@/components/ui/Toast'
 import { useAuthState } from '@/stores/auth'
 
 /**
- * Like / Recommend / Save action bar (PRD Â§5.6.1). Optimistic toggles,
+ * Like / Recommend / Save action bar (PRD §5.6.1). Optimistic toggles,
  * server reconciliation, collection picker on save.
  */
 export function EngagementBar({
@@ -75,7 +75,7 @@ export function EngagementBar({
       setLiked(on)
       setLikeDelta((d) => d + (on ? 1 : -1))
     },
-    // Roll back optimistic state â€” a failed request previously left the
+    // Roll back optimistic state — a failed request previously left the
     // heart filled and the count inflated forever.
     onError: (_e, on) => {
       setLiked(!on)
@@ -105,7 +105,7 @@ export function EngagementBar({
     mutationFn: (collectionId: string) =>
       api(`/me/collections/items`, { method: 'POST', body: { target_type: 'business', target_id: businessId, collection_id: collectionId } }),
     onSuccess: (_r, collectionId) => {
-      // Track REAL collection ids â€” pushing the literal 'saved' string into
+      // Track REAL collection ids — pushing the literal 'saved' string into
       // an id list made the Save state lie after the picker closed.
       setSavedIn((prev) => [...prev.filter((x) => x !== 'saved'), collectionId])
       setPickerOpen(false)
@@ -188,7 +188,7 @@ export function EngagementBar({
             <input
               value={creatingName}
               onChange={(e) => setCreatingName(e.target.value)}
-              placeholder="New collectionâ€¦"
+              placeholder="New collection…"
               className="h-8 flex-1 rounded border border-border bg-surface px-2 text-sm text-ink"
             />
             <Button size="sm" onClick={() => void createMut.mutateAsync()} disabled={!creatingName.trim() || createMut.isPending}>

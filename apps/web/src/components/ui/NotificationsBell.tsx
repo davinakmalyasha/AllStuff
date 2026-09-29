@@ -9,7 +9,7 @@ import { formatDateTime } from '@/lib/format'
 import { ws } from '@/lib/ws'
 import { useDialogA11y } from '@/components/ui/Modal'
 
-/** Notification bell with unread badge + dropdown (PRD Â§5.7). Deep-links to targets. */
+/** Notification bell with unread badge + dropdown (PRD §5.7). Deep-links to targets. */
 export function NotificationsBell() {
   const qc = useQueryClient()
   const { user } = useAuthState((s) => ({ user: s.user }))
@@ -93,8 +93,8 @@ export function NotificationsBell() {
                   <>
                     <p className="font-medium text-ink">{NOTIF_LABELS[n.type] ?? n.type}</p>
                     <p className="mt-0.5 text-xs text-ink3">
-                      {typeof n.payload.title === 'string' ? `${n.payload.title} Â· ` : ''}
-                      {typeof n.payload.body === 'string' ? `${n.payload.body} Â· ` : ''}
+                      {typeof n.payload.title === 'string' ? `${n.payload.title} · ` : ''}
+                      {typeof n.payload.body === 'string' ? `${n.payload.body} · ` : ''}
                       {formatDateTime(n.created_at)}
                     </p>
                   </>

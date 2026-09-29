@@ -50,7 +50,7 @@ export function LoginPage() {
         await login(values.email, values.password)
       }
       // Do NOT navigate yet. `login` resolves normally when the account has 2FA
-      // enrolled â€” it stores a challenge and returns â€” so navigating here fired
+      // enrolled — it stores a challenge and returns — so navigating here fired
       // a redirect while still unauthenticated: RequireAuth bounced to
       // /login?next=/me, OVERWRITING the original ?next. A 2FA user deep-linking
       // to /dashboard/billing was therefore sent to /me and lost their

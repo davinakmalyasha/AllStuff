@@ -126,7 +126,7 @@ export function VerificationSettingsPage() {
         )}
         {business.status === 'pending_review' && (
           <p className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink2">
-            <XCircle className="h-4 w-4 text-ink3" /> In review â€” edits are locked until the admin decides.
+            <XCircle className="h-4 w-4 text-ink3" /> In review — edits are locked until the admin decides.
           </p>
         )}
       </Card>

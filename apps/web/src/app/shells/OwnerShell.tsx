@@ -20,7 +20,7 @@ const links = [
   { to: '/dashboard/settings', label: 'Settings' },
 ]
 
-/** Owner dashboard shell (PRD Â§6.4) with the universal business switcher. */
+/** Owner dashboard shell (PRD §6.4) with the universal business switcher. */
 export function OwnerShell() {
   const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
   const navigate = useNavigate()
@@ -34,8 +34,8 @@ export function OwnerShell() {
   const businesses = data?.businesses ?? []
   const active = businesses.find((b) => b.id === selectedId) ?? businesses[0]
 
-  if (loading) return <PageSpinner label="Loading dashboardâ€¦" />
-  if (!user) return <PageSpinner label="Signing you inâ€¦" />
+  if (loading) return <PageSpinner label="Loading dashboard…" />
+  if (!user) return <PageSpinner label="Signing you in…" />
 
   return (
     <div className="flex min-h-screen">

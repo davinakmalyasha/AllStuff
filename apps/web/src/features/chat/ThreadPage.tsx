@@ -176,7 +176,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }, [hasMore, loadOlder])
 
   // Header label: the detail payload carries ids only, so resolve the display
-  // name from the thread list â€” business name for business threads, the other
+  // name from the thread list — business name for business threads, the other
   // participant for direct ones.
   const { data: labeled } = useQuery({
     queryKey: ['thread-labels'],
@@ -236,7 +236,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       }),
     ]
     // Reconnect backfill: frames published while the socket was down are
-    // gone forever (server keeps no replay), so refetch the tail on reopen â€”
+    // gone forever (server keeps no replay), so refetch the tail on reopen —
     // previously messages sent during a blip never appeared.
     const offStatus = ws.onStatusChange((connected) => {
       if (connected) void qc.invalidateQueries({ queryKey: ['thread', id] })
@@ -267,13 +267,13 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       toBottom(false)
       return
     }
-    // Otherwise follow only while the reader is already near the bottom â€”
+    // Otherwise follow only while the reader is already near the bottom —
     // scrolling up to read history must not be yanked back on every frame.
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
     if (distance < 120) toBottom(true)
   }, [messages.length])
 
-  // Typing signal: throttled to one POST per 2.5s while actively typing â€”
+  // Typing signal: throttled to one POST per 2.5s while actively typing —
   // the old per-keystroke send fired ~40 requests for a single message.
   const lastTypingSent = useRef(0)
   const sendTyping = () => {
@@ -353,7 +353,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }
   const [pendingKind, setPendingKind] = useState<'image' | 'file' | 'video' | 'audio'>('image')
 
-  // Voice notes (PRD Â§5.5.2): MediaRecorder â†’ webm â†’ chat_audio upload.
+  // Voice notes (PRD §5.5.2): MediaRecorder → webm → chat_audio upload.
   // Capped at 5 minutes; oversized recordings surface an error toast instead
   // of being silently dropped.
   const [recording, setRecording] = useState(false)
@@ -361,7 +361,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const recTimerRef = useRef<number | null>(null)
 
   // Unmount cleanup: stop a live recording, release every mic track and the
-  // hard-stop timer â€” navigating away mid-recording used to hold the mic.
+  // hard-stop timer — navigating away mid-recording used to hold the mic.
   useEffect(() => {
     return () => {
       const rec = recorderRef.current
@@ -487,9 +487,9 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     enabled: searching && debouncedSearchQ.trim().length >= 2,
   })
 
-  // Thread mute (PRD Â§5.5.1): optimistic toggle only. Neither the thread
+  // Thread mute (PRD §5.5.1): optimistic toggle only. Neither the thread
   // detail nor list payloads carry muted state client-side, so there is no
-  // server value to seed from â€” the bell starts unmuted on each visit.
+  // server value to seed from — the bell starts unmuted on each visit.
   const [muted, setMuted] = useState(false)
   const toggleMute = async () => {
     const next = !muted
@@ -503,7 +503,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     }
   }
 
-  // Pinned conversation (PRD Â§5.5.1, max 5): header toggle.
+  // Pinned conversation (PRD §5.5.1, max 5): header toggle.
   const [pinnedThread, setPinnedThread] = useState(false)
   const [pinnedTick, setPinnedTick] = useState(0)
   useEffect(() => {
@@ -537,7 +537,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     [older, messages, user?.id],
   )
 
-  // ---- power features (PRD Â§5.5.2/Â§5.5.4) ----
+  // ---- power features (PRD §5.5.2/§5.5.4) ----
 
   const thread = data?.thread
   const closed = thread?.status === 'closed'
@@ -563,7 +563,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     [galleryData],
   )
 
-  // Block list â€” only consulted for direct threads.
+  // Block list — only consulted for direct threads.
   const otherUserId = listItem?.type === 'direct' ? listItem.other_id : null
   const { data: blocksData } = useQuery({
     queryKey: ['blocks'],
@@ -762,7 +762,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
               disabled={loadingOlder}
               className="rounded-full border border-border px-3 py-1.5 text-xs text-ink2 hover:bg-surface2 disabled:opacity-50"
             >
-              {loadingOlder ? 'Loading earlier messagesâ€¦' : 'Load earlier messages'}
+              {loadingOlder ? 'Loading earlier messages…' : 'Load earlier messages'}
             </button>
           </div>
         )}
@@ -846,7 +846,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void edit()}
                 className="h-10 flex-1 rounded-lg border border-ink bg-surface px-3 text-sm text-ink"
-                placeholder="Editingâ€¦"
+                placeholder="Editing…"
                 autoFocus
               />
               <Button size="sm" onClick={() => void edit()} disabled={!text.trim()}>Save</Button>
@@ -875,7 +875,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         <input
           value={forwardQ}
           onChange={(e) => setForwardQ(e.target.value)}
-          placeholder="Search conversationsâ€¦"
+          placeholder="Search conversations…"
           className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
           autoFocus
         />
@@ -1053,7 +1053,7 @@ function MessageRow({
           </p>
         </div>
         {showActions && (
-          // Visible on keyboard focus and coarse pointers too â€” hover-only
+          // Visible on keyboard focus and coarse pointers too — hover-only
           // actions were unreachable without a mouse.
           <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
             <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actCopy')}</button>
@@ -1082,7 +1082,7 @@ function MessageRow({
       )}
       {pickerOpen && (
         <>
-          {/* Backdrop only dismisses the picker â€” reacting never happens via it. */}
+          {/* Backdrop only dismisses the picker — reacting never happens via it. */}
           <div className="fixed inset-0 z-40" onClick={closePicker} />
           <div
             ref={pickerRef}

@@ -17,11 +17,11 @@ const links = [
   { to: '/admin/analytics', label: 'Analytics' },
 ]
 
-/** Admin shell (PRD Â§6.5). Landed for real in M6. */
+/** Admin shell (PRD §6.5). Landed for real in M6. */
 export function AdminShell() {
   const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
-  if (loading) return <PageSpinner label="Loading adminâ€¦" />
-  if (!user) return <PageSpinner label="Signing you inâ€¦" />
+  if (loading) return <PageSpinner label="Loading admin…" />
+  if (!user) return <PageSpinner label="Signing you in…" />
 
   return (
     <div className="flex min-h-screen">

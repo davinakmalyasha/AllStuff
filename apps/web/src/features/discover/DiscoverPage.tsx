@@ -18,7 +18,7 @@ type SortKey = 'trending' | 'rating' | 'newest' | 'nearest' | 'relevance'
 /**
  * Result-count line.
  *
- * `count` is null whenever the server did not compute an exact total â€” which is
+ * `count` is null whenever the server did not compute an exact total — which is
  * every page after the first, because the count query re-evaluates the entire
  * search predicate and is opt-in. Rendering `?? 0` in that case would tell the
  * user "0 results" on a page visibly showing 24 of them, so a null is reported
@@ -119,7 +119,7 @@ export function DiscoverPage() {
     )
   }
 
-  // Load-more: both queries derive from ONE filter object â€” the old page-2
+  // Load-more: both queries derive from ONE filter object — the old page-2
   // query silently dropped coords/radius/fully_verified and used a different
   // sort, so "Near me" became worldwide after the first 24 results.
   const [page, setPage] = useState(1)
@@ -211,7 +211,7 @@ export function DiscoverPage() {
   type SuggestOpt = { key: string; href: string; name: string; meta: string }
   const suggestOpts: SuggestOpt[] = suggest
     ? [
-        ...suggest.businesses.map((s): SuggestOpt => ({ key: `b-${s.slug}`, href: `/b/${s.slug}`, name: s.name, meta: [s.category, s.city].filter(Boolean).join(' Â· ') })),
+        ...suggest.businesses.map((s): SuggestOpt => ({ key: `b-${s.slug}`, href: `/b/${s.slug}`, name: s.name, meta: [s.category, s.city].filter(Boolean).join(' · ') })),
         ...suggest.categories.map((c): SuggestOpt => ({ key: `c-${c.slug}`, href: `/c/${c.slug}`, name: c.name, meta: `${c.count} businesses` })),
       ]
     : []
@@ -270,7 +270,7 @@ export function DiscoverPage() {
               aria-controls="suggest-list"
               aria-activedescendant={hl >= 0 ? `suggest-opt-${hl}` : undefined}
               aria-autocomplete="list"
-              placeholder="Search businesses, categories, citiesâ€¦"
+              placeholder="Search businesses, categories, cities…"
               className="h-9 w-full bg-transparent text-sm text-ink placeholder:text-ink3 focus:outline-none"
             />
             {query && (
@@ -391,7 +391,7 @@ export function DiscoverPage() {
 
       <p className="mb-4 flex items-center gap-3 text-sm text-ink3">
         {isLoading ? (
-          'Searchingâ€¦'
+          'Searching…'
         ) : (
           resultSummary(data?.count, data?.businesses.length ?? 0, submitted, hasFilters)
         )}
@@ -439,7 +439,7 @@ export function DiscoverPage() {
                 ))}
               </div>
               <Link to="/dashboard/register" className="mt-2 text-sm font-medium text-ink underline underline-offset-4 hover:text-ink2">
-                Add your business â†’
+                Add your business →
               </Link>
             </>
           )}
@@ -450,8 +450,8 @@ export function DiscoverPage() {
       {/* Save search */}
       <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title="Save this search">
         <div className="space-y-3">
-          <p className="text-sm text-ink2">We'll keep this search handy in your profile â€” and it powers future alerts.</p>
-          <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. CafÃ©s near me" className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
+          <p className="text-sm text-ink2">We'll keep this search handy in your profile — and it powers future alerts.</p>
+          <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. Cafés near me" className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
           <label className="flex items-center gap-2 text-sm text-ink2">
             <input type="checkbox" checked={saveAlert} onChange={(e) => setSaveAlert(e.target.checked)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
             Email me daily when new businesses match

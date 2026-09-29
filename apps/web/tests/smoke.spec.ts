@@ -22,7 +22,7 @@ import { register, seededBusinessBySlug, twoSeededBusinesses, uniqueSuffix } fro
  *    RegisterPage would silently kill the suite.
  *
  * This file was also, until it was run for the first time, storing its own
- * accented characters double-encoded: `Café` was on disk as `CafÃ©`, because
+ * accented characters double-encoded: `Café` was on disk as `Café`, because
  * UTF-8 bytes had been decoded as Windows-1252 and re-encoded. Typecheck, lint
  * and build all pass on a file like that, because the corruption is still valid
  * TypeScript and still valid UTF-8 — it just no longer matches the rendered page.

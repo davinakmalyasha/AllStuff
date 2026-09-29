@@ -92,7 +92,7 @@ export function BusinessPage() {
   })
 
   const b = data?.business
-  usePageMeta(b ? `${b.name} â€” ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
+  usePageMeta(b ? `${b.name} — ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
     image: b ? `/og/b/${b.slug}` : undefined,
     url: b ? `${window.location.origin}/b/${b.slug}` : undefined,
   })
@@ -136,7 +136,7 @@ export function BusinessPage() {
     </div>
   )
 
-  // Storefront theming from the published snapshot (PRD Â§10.5): drafts never public.
+  // Storefront theming from the published snapshot (PRD §10.5): drafts never public.
   // With ?draft=1 the owner sees their draft via the `preview` payload.
   const preview = data?.preview as { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } | undefined
   const snapshot = preview ?? (b as unknown as { published_snapshot?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }).published_snapshot
@@ -186,7 +186,7 @@ export function BusinessPage() {
               )}
               {b.founded_year != null && <span className="font-mono text-xs">Est. {b.founded_year}</span>}
               <span>{b.city}, {b.country}</span>
-              <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || 'â€”'}</span>
+              <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || '—'}</span>
               <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open now' : 'Closed now'}</Badge>
             </div>
           </div>
@@ -255,8 +255,8 @@ export function BusinessPage() {
           )}
 
           {/*
-            Section hidden entirely when the catalog is empty (PRD Â§5.3.3).
-            It previously rendered "Catalog coming soon." â€” which reads as an
+            Section hidden entirely when the catalog is empty (PRD §5.3.3).
+            It previously rendered "Catalog coming soon." — which reads as an
             unfinished product on the single most SEO-sensitive page in the
             product, where a directory's value is the listing looking complete.
             An owner who has not added products yet should simply not show the
@@ -334,7 +334,7 @@ export function BusinessPage() {
                 {openDays.map(([d, h]) => (
                   <li key={d} className="flex items-center justify-between">
                     <span className="text-ink2">{cap(d)}</span>
-                    <span className="font-mono text-ink">{h?.open}â€“{h?.close}</span>
+                    <span className="font-mono text-ink">{h?.open}–{h?.close}</span>
                   </li>
                 ))}
               </ul>
@@ -375,7 +375,7 @@ export function BusinessPage() {
                   <ContactRow
                     key={k}
                     icon={<span className="text-ink3">â†—</span>}
-                    label={`${label} Â· @${handle}`}
+                    label={`${label} · @${handle}`}
                     href={SOCIAL_URLS[k]?.(handle) ?? handle}
                   />
                 )
@@ -463,7 +463,7 @@ function MessageButton({ businessId, loggedIn, slug }: { businessId: string; log
 
 function ContactRow({ icon, label, href }: { icon: React.ReactNode; label: string; href: string }) {
   // Owner-controlled values (website field, social handles) pass through a
-  // scheme allowlist â€” a `javascript:` website previously executed on click.
+  // scheme allowlist — a `javascript:` website previously executed on click.
   const safe = safeExternalUrl(href)
   if (!safe) return null
   return (

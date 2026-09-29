@@ -33,7 +33,7 @@ export function CategoryPage() {
       api(`/categories/${cat!.id}/follow`, { method: on ? 'PUT' : 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cat-follow', cat?.id] }),
   })
-  usePageMeta(cat ? `${cat.name} â€” Businesses` : 'Category', cat?.description ?? undefined, {
+  usePageMeta(cat ? `${cat.name} — Businesses` : 'Category', cat?.description ?? undefined, {
     url: cat ? `${window.location.origin}/c/${cat.slug}` : undefined,
   })
   useJsonLd(

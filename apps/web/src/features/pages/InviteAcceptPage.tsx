@@ -46,7 +46,7 @@ export function InviteAcceptPage() {
     try {
       await api(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' })
       toast.success(t('invite.acceptedToast', { business: data?.business_name ?? t('invite.businessLabel') }))
-      // The dashboard reads the membership list â€” refresh it before landing.
+      // The dashboard reads the membership list — refresh it before landing.
       void qc.invalidateQueries({ queryKey: ['my-businesses'] })
       navigate('/dashboard')
     } catch (err) {

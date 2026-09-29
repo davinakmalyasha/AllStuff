@@ -17,7 +17,7 @@ interface MentionUser {
   username: string
 }
 
-/** Threaded comments with likes, @mentions, edit/delete, reports (PRD Â§5.6.2). */
+/** Threaded comments with likes, @mentions, edit/delete, reports (PRD §5.6.2). */
 export function CommentsSection({ businessId }: { businessId: string }) {
   const qc = useQueryClient()
   const { user } = useAuthState((s) => ({ user: s.user }))
@@ -196,7 +196,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
               aria-expanded={mentionQuery !== null && (mentionResults?.users?.length ?? 0) > 0}
               aria-controls="mention-list"
               aria-activedescendant={mentionQuery !== null ? `mention-opt-${mentionIdx}` : undefined}
-              placeholder={replyTo ? `Replying to @${replyTo.name}â€¦` : 'Join the conversationâ€¦ (@username to mention)'}
+              placeholder={replyTo ? `Replying to @${replyTo.name}…` : 'Join the conversation… (@username to mention)'}
               className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
             />
             <Button onClick={() => void createMut.mutateAsync({ text: activeText, parent_id: replyTo?.id })} disabled={activeText.trim().length === 0 || createMut.isPending}>

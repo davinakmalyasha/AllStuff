@@ -29,7 +29,7 @@ interface PublicProfileDTO {
   businesses: Array<{ id: string; name: string; slug: string; logo_url: string | null; city: string; category_id: string }>
 }
 
-/** Public user profile (PRD Â§6.1 /u/:username). */
+/** Public user profile (PRD §6.1 /u/:username). */
 export function UserProfilePage() {
   const { username = '' } = useParams()
   const { user } = useAuthState((s) => ({ user: s.user }))
@@ -67,8 +67,8 @@ export function UserProfilePage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{data.name}</h1>
           <p className="text-sm text-ink3">
-            @{data.username} Â· joined {formatDate(data.joined_at)}
-            {data.timezone && <span title="Timezone"> Â· {data.timezone}</span>}
+            @{data.username} · joined {formatDate(data.joined_at)}
+            {data.timezone && <span title="Timezone"> · {data.timezone}</span>}
           </p>
           {data.bio && <p className="mt-1 text-sm text-ink2">{data.bio}</p>}
           {publicLinks.length > 0 && (
@@ -157,7 +157,7 @@ export function UserProfilePage() {
   )
 }
 
-/** Message + block actions for other users (PRD Â§5.5.2). */
+/** Message + block actions for other users (PRD §5.5.2). */
 function ProfileActions({ userId, profileUsername }: { userId: string; profileUsername: string }) {
   const { user } = useAuthState((s) => ({ user: s.user }))
   const navigate = useNavigate()

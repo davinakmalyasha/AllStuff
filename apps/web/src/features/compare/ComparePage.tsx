@@ -10,7 +10,7 @@ import { useCompare } from '@/stores/compare'
 import { useAuthState } from '@/stores/auth'
 import { formatMoney, useCurrency } from '@/stores/currency'
 
-/** Side-by-side comparison (PRD Â§5.1.5, Â§6.1 /compare?b=â€¦). URL is shareable. */
+/** Side-by-side comparison (PRD §5.1.5, §6.1 /compare?b=…). URL is shareable. */
 export function ComparePage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
@@ -77,7 +77,7 @@ export function ComparePage() {
   }
 
   const clearAll = () => {
-    // Compute the empty state EXPLICITLY â€” the old `setIds([]); updateUrl()`
+    // Compute the empty state EXPLICITLY — the old `setIds([]); updateUrl()`
     // read the pre-clear closure and wrote the old ids back into the URL, so
     // reloading resurrected the comparison.
     setIds([])
@@ -114,7 +114,7 @@ export function ComparePage() {
       <div className="container-page py-16 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Compare</h1>
         <p className="mt-2 text-sm text-ink2">
-          Pick 2â€“4 businesses from search results using the compare toggle.
+          Pick 2–4 businesses from search results using the compare toggle.
         </p>
       </div>
     )
@@ -175,12 +175,12 @@ export function ComparePage() {
             ))}
           </div>
 
-          {row('Category', (b) => b.category_name ?? 'â€”')}
-          {row('Rating', (b) => b.review_count > 0 ? `â˜… ${b.rating_avg?.toFixed(1)} (${b.review_count})` : 'â€”')}
-          {row('Price level', (b) => "$".repeat(b.price_level ?? 0) || 'â€”')}
+          {row('Category', (b) => b.category_name ?? '—')}
+          {row('Rating', (b) => b.review_count > 0 ? `â˜… ${b.rating_avg?.toFixed(1)} (${b.review_count})` : '—')}
+          {row('Price level', (b) => "$".repeat(b.price_level ?? 0) || '—')}
           {row('Top products', (b) => {
             const list = topProducts[b.id] ?? []
-            if (!list.length) return 'â€”'
+            if (!list.length) return '—'
             return (
               <ul className="space-y-1">
                 {list.map((p) => (
@@ -196,7 +196,7 @@ export function ComparePage() {
           })}
           {row('Amenities', (b) => {
             const chips = [...(b.amenities ?? []), ...(b.tags ?? [])].slice(0, 6)
-            if (!chips.length) return 'â€”'
+            if (!chips.length) return '—'
             return (
               <div className="flex flex-wrap gap-1">
                 {chips.map((a) => <Badge key={a}>{a}</Badge>)}
@@ -204,18 +204,18 @@ export function ComparePage() {
             )
           })}
           {row('Location', (b) => `${b.city}, ${b.country}`)}
-          {row('Distance', (b) => (b.distance_km ? `${b.distance_km.toFixed(1)} km` : 'â€”'))}
+          {row('Distance', (b) => (b.distance_km ? `${b.distance_km.toFixed(1)} km` : '—'))}
           {row('Open now', (b) => (b.is_open_now ? 'Yes' : 'No'))}
           {row('Hours', (b) => {
             const days = Object.entries(b.hours ?? {}).filter(([, h]) => h && !h.closed).length
             return `${days}/7 days`
           })}
-          {row('Contact', (b) => b.contact?.phone ?? b.contact?.email ?? b.contact?.website ?? 'â€”')}
+          {row('Contact', (b) => b.contact?.phone ?? b.contact?.email ?? b.contact?.website ?? '—')}
           {row('Socials', (b) => {
             const count = ['instagram', 'tiktok', 'facebook', 'x', 'youtube', 'line', 'telegram'].filter((k) => b.contact?.[k]).length
-            return count > 0 ? `${count} linked` : 'â€”'
+            return count > 0 ? `${count} linked` : '—'
           })}
-          {row('Engagement', (b) => `${b.like_count} likes Â· ${b.recommend_count} recs Â· ${b.save_count} saved`)}
+          {row('Engagement', (b) => `${b.like_count} likes · ${b.recommend_count} recs · ${b.save_count} saved`)}
           {row('Actions', (b) => (
             <div className="flex flex-wrap gap-2">
               {user ? (

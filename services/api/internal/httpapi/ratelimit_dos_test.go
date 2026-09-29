@@ -14,7 +14,7 @@ import (
 
 // The account throttle used to run BEFORE the credential check, on every
 // attempt, keyed only on the target email. Ten requests with a guessed address
-// therefore locked a real user out for 15 minutes, repeatably â€” an
+// therefore locked a real user out for 15 minutes, repeatably — an
 // unauthenticated denial of service for 10 requests of work, with no
 // notification to the victim and nothing in the logs to distinguish it from a
 // mistyped password.
@@ -36,7 +36,7 @@ func TestAccountThrottle_IsPerAccountAndIP(t *testing.T) {
 	// ...but the VICTIM, from their own address, must not be affected. This is
 	// the entire point: the attacker's budget is not the victim's budget.
 	if s.accountThrottle("loginfail", victim, "203.0.113.9") {
-		t.Error("an attacker locked a victim out of their own account â€” the DoS is not fixed")
+		t.Error("an attacker locked a victim out of their own account — the DoS is not fixed")
 	}
 }
 
@@ -45,8 +45,8 @@ func TestAccountThrottle_IsPerAccountAndIP(t *testing.T) {
 //
 // Two limits, deliberately ordered:
 //
-//	per (account, IP)  10 / 15 min  â€” stops one attacker locking out a victim
-//	per account         40 / 15 min  â€” stops a rotating pool
+//	per (account, IP)  10 / 15 min  — stops one attacker locking out a victim
+//	per account         40 / 15 min  — stops a rotating pool
 //
 // The per-account figure is the looser of the two, so a single address is
 // absorbed by the tighter limit and the account ceiling is only reached by
@@ -57,7 +57,7 @@ func TestAccountThrottle_DistributedPoolIsStillBounded(t *testing.T) {
 	const victim = "victim@corp.com"
 
 	// 30 distinct addresses, one attempt each. Each (account, IP) pair is
-	// within its own limit, so nothing is blocked yet â€” but 30 account-level
+	// within its own limit, so nothing is blocked yet — but 30 account-level
 	// failures have now accumulated, against a ceiling of 40.
 	blockedEarly := 0
 	for i := 0; i < 30; i++ {
@@ -109,7 +109,7 @@ func TestAccountThrottle_PerIPEngagesFirst(t *testing.T) {
 func TestAccountThrottle_SuccessConsumesNoBudget(t *testing.T) {
 	rl := ratelimit.NewInMemory()
 	s := &Server{deps: Deps{Config: config.Config{}, RateLimiter: rl}}
-	// Nothing to do to "succeed" in a unit test â€” the point is that the handler
+	// Nothing to do to "succeed" in a unit test — the point is that the handler
 	// only calls the throttle on the failure branch. Assert the buckets start
 	// empty so a passing suite means failures are the only thing counted.
 	if s.accountThrottle("loginfail", "a@b.c", "1.2.3.4") != true {
@@ -131,7 +131,7 @@ func TestAccountThrottle_EmptyEmailIsNeverThrottled(t *testing.T) {
 
 // The restore path shares the budget with login by design, but must be a
 // DISTINCT kind so a run of restore failures cannot consume a user's login
-// budget (and vice versa) â€” the two are separate credential checks on the same
+// budget (and vice versa) — the two are separate credential checks on the same
 // row.
 func TestAccountThrottle_KindsAreIsolated(t *testing.T) {
 	rl := ratelimit.NewInMemory()

@@ -19,7 +19,7 @@ interface SavedSearchDTO {
   created_at: string
 }
 
-/** Rebuild the FULL /discover query string a saved search stores â€” mirrors
+/** Rebuild the FULL /discover query string a saved search stores — mirrors
  *  what DiscoverPage reads back from the URL on load. */
 function savedSearchHref(query: Record<string, unknown>): string {
   const p = new URLSearchParams()
