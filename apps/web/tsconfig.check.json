@@ -1,0 +1,14 @@
+{
+  // CI typecheck target. Extends the app config to cover the E2E suite and the
+  // Playwright config, which `tsconfig.json` deliberately excludes so that
+  // `tsc -b` does not typecheck specs as part of the production build.
+  //
+  // Before this existed, a type error in a Playwright spec or in
+  // playwright.config.ts was invisible to CI: `npm run lint` ran
+  // `tsc --noEmit` against a config whose `include` is `["src"]`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "playwright.config.ts", "vite.config.ts", "eslint.config.js"]
+}
