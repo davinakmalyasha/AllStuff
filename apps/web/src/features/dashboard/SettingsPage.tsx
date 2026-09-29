@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Loader2, Pause, Play, XCircle } from 'lucide-react'
 import { api, uploadMedia, type BusinessDTO, type CategoryDTO, type MediaDTO } from '@/lib/api'

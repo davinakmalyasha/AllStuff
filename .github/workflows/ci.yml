@@ -5,10 +5,34 @@ on:
     branches: [main]
   pull_request:
 
+# `contents: read` everywhere. Without an explicit block, every `uses:` in this
+# file runs with the repository's default GITHUB_TOKEN, which on many
+# repositories is still `contents: write` — five third-party actions would run
+# with write access they have no reason to hold. The deploy workflow opts back in
+# per-job for the one step that needs it.
+permissions:
+  contents: read
+
+# A second push supersedes the first. Without this, two rapid pushes to a PR run
+# two full suites and race the runner's cache.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to an exact patch rather than "1.26"/"24". A floating minor means the
+  # compiler can change between two runs of the same commit, which is how a
+  # green PR becomes red on someone else's machine.
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "24.4.1"
+  PGDATA_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+  PGADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+
 jobs:
   backend:
     name: Go API
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -26,32 +50,222 @@ jobs:
       run:
         working-directory: services/api
     steps:
-      # Third-party-action supply-chain hardening: every `uses` is pinned to
-      # a full commit SHA (tag re-points cannot inject code). Bump SHAs via
+      # Third-party-action supply-chain hardening: every `uses` is pinned to a
+      # full commit SHA (tag re-points cannot inject code). Bump SHAs via
       # Dependabot/renovate or manually after reviewing releases.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: "1.26"
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: services/api/go.sum
+
+      - name: gofmt
+        # Not previously gated anywhere: the last commit message said "gofmt on
+        # touched files", which is a habit, not a check.
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt required on:"; echo "$unformatted" | sed 's/^/  /'
+            gofmt -d $unformatted | head -100
+            exit 1
+          fi
+
       - run: go vet ./...
       - run: go build ./...
+
+      - name: Install psql
+        # Declared rather than inherited: the e2e job previously called psql
+        # without installing postgresql-client and only worked because
+        # ubuntu-latest happened to ship it. That is an undeclared dependency on
+        # a runner image.
+        run: sudo apt-get update -q && sudo apt-get install -yq postgresql-client
+
       - name: Run migrations
+        # The strongest gate in this file: every migration must apply cleanly to
+        # a real PostgreSQL 17. The runner is advisory-locked, so this also
+        # proves the locking path works.
         run: go run ./cmd/api -migrate
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          DATABASE_URL: ${{ env.PGDATA_URL }}
           MIGRATIONS_DIR: ../../infra/postgres/migrations
+
       - name: Seed demo content
-        run: |
-          sudo apt-get update -q && sudo apt-get install -yq postgresql-client
-          psql "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable" -v ON_ERROR_STOP=1 -f ../../scripts/seed.sql
-      - run: go test ./...
+        run: psql "$PGDATA_URL" -v ON_ERROR_STOP=1 -f ../../scripts/seed.sql
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          PGDATA_URL: ${{ env.PGDATA_URL }}
+
+      - name: Migration contract
+        # Static shape checks + the SQL harnesses. These assert invariants in
+        # infra/postgres/test_*.sql that no Go test covers, and they run against
+        # the database the steps above just built.
+        #
+        # test_index_inventory is here because it RAISES. Its checks used to live
+        # at the top of test_index_usage.sql, wrapped around a series of bare
+        # EXPLAINs that assert nothing, so the file as a whole could not fail on
+        # a missing or INVALID index — it printed plans nobody diffed, and the
+        # assertions were effectively enforced nowhere. Split out, the file is
+        # deterministic, needs no seed data, and can gate a build.
+        run: |
+          go test ./internal/db/ -run 'TestMigration|TestNonIdempotent|TestKnownNonReplayable|TestSplitStatements|TestIndexMigrations|TestSlugConstraint|TestEveryConcurrentIndex' -v
+          for f in test_integrity test_open_now test_index_inventory; do
+            echo "::group::$f.sql"
+            psql "$PGDATA_URL" -v ON_ERROR_STOP=1 -q -f "../../infra/postgres/$f.sql"
+            echo "::endgroup::"
+          done
+        env:
+          PGDATA_URL: ${{ env.PGDATA_URL }}
+
+      - name: Migration replay
+        # The behavioural gate. For every migration it deletes that migration's
+        # version marker, re-runs the chain, and requires the re-run to succeed
+        # AND to leave a byte-identical schema fingerprint. This is what catches
+        # a migration that would wedge startup after a crash between COMMIT and
+        # the marker write. Needs a server it may create and drop databases on.
+        run: go test ./internal/db/ -run 'TestMigrate' -v -timeout 25m
+        env:
+          TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
+
+      - name: Index usage
+        # Seeds a synthetic fixture, ANALYZEs, and EXPLAINs inside a transaction
+        # that is rolled back — safe against this database. Asserts the
+        # hot-path indexes are actually chosen by the planner.
+        run: psql "$PGDATA_URL" -v ON_ERROR_STOP=1 -q -f ../../infra/postgres/test_index_usage_seeded.sql
+        env:
+          PGDATA_URL: ${{ env.PGDATA_URL }}
+
+      - name: Unit tests (race)
+        # -race is not optional here. Four suites are explicitly concurrency
+        # tests — the TOTP replay guard ("concurrent claims allow exactly one"),
+        # the WS hub, the goroutine panic isolator, and the rate-limit DoS
+        # regression — and none of them can detect a data race without it. The
+        # codebase is a heavily concurrent Go server with a hand-rolled WS hub
+        # and custom maps, so this is the test most likely to catch something
+        # real.
+        run: go test -race ./...
+
+      - name: Dependency audit
+        # x/crypto is the only direct dependency carrying security-relevant code
+        # (Argon2id), and it was over a year behind when this gate was added.
+        #
+        # This step lives in the BACKEND job, not the frontend one. It is a Go
+        # toolchain scan of the Go module, and the frontend job has no setup-go,
+        # so `go install` fails there outright. An earlier revision ran it from
+        # apps/web and then `cd ../api`, which resolves to apps/api — a path that
+        # does not exist. A gate that cannot run is worse than no gate: the
+        # workflow still shows a green step named "Dependency audit", so the
+        # missing scan reads as coverage rather than as a bug.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... || {
+            echo "::error::govulncheck reported findings; see SECURITY.md at the repo root"
+            exit 1
+          }
+
+      - name: Coverage ratchet
+        # A ratchet, not a threshold. Measured total is 15.3%, and any absolute
+        # floor would be either useless (set below reality) or a permanent
+        # excuse (set at a number nobody reaches). Instead the current figure is
+        # committed to coverage.ratchet and the build fails only on a DECREASE —
+        # which makes silent regression impossible while never blocking
+        # unrelated work.
+        #
+        # Raising the ratchet is a deliberate act: edit the file in the same PR
+        # that adds tests, and the diff shows both.
+        #
+        # Two things here were wrong before, and both made the gate lie.
+        #
+        # 1. TEST_DATABASE_URL was missing. Every test built on internal/testutil
+        #    calls t.Skip without it, so omitting it does not fail the step — it
+        #    quietly measures a smaller program. The ratchet was reporting a
+        #    figure for a run in which the repo, service and jobs integration
+        #    suites had all been skipped, and the baseline had then been raised
+        #    from that incomplete measurement. A gate that silently excludes its
+        #    own best tests is worse than a lower honest number.
+        #
+        # 2. The harness was counted as product code. internal/testutil is
+        #    test-only: it has no test files of its own, so under a plain
+        #    `go test ./...` its statements sit in the denominator at 0% and drag
+        #    the total DOWN. Building a test harness therefore lowered coverage,
+        #    which punishes exactly the behaviour the ratchet exists to reward.
+        #    -coverpkg below excludes it, and the list is derived from `go list`
+        #    rather than hand-written so that a newly added package is measured
+        #    automatically instead of being silently omitted.
+        #
+        # coverage.ratchet holds a single bare number and nothing else. It used
+        # to carry a long comment block above the figure, which broke the gate
+        # two ways: `ratchet=$(cat ...)` captured the prose as the value, and the
+        # "write the new figure on improvement" step then REPLACED the file with
+        # a bare number, deleting the documentation on the first green build
+        # that improved coverage. The rationale lives here instead.
+        #
+        # Where the 15.3% comes from, and what it does not tell you
+        # ----------------------------------------------------------
+        #   db          78.1%   splitter, migration routing, replay, fingerprint
+        #   redisclient 67.0%   RESP framing and URL parsing
+        #   config      60.9%   every prod startup invariant asserted individually
+        #   email       50.0%   SMTP header injection, multipart shape, escaping
+        #   util        36.4%   panic recovery in detached goroutines
+        #   security    32.9%   TOTP, VAPID, Stripe signature, SSRF ranges
+        #   ws          25.8%   origin checks and fan-out
+        #   ratelimit   23.6%   key derivation and every fail-open path
+        #   httpapi     18.1%   middleware, SSR escaping, JSON normalisation
+        #   service      8.6%   visibility, claims, retirement, search shape
+        #   repo         4.0%   ownership, slug uniqueness, unowned listings
+        #   jobs         2.0%   the job_runs claim ledger
+        #   domain       0.0%   DTOs and the error contract
+        #   cmd/api      0.0%   wiring
+        #
+        # The security-critical primitives are tested well. The I/O layers are
+        # not, and the aggregate says so rather than flattering it. `repo` and
+        # `jobs` read in the low single digits because those packages are ~2,972
+        # and ~300 lines of SQL and scheduler respectively, of which a handful of
+        # paths are covered so far. That is an honest starting point, not a
+        # finished one.
+        run: |
+          coverpkg=$(go list ./... | grep -v '/internal/testutil$' | paste -sd, -)
+          echo "coverpkg: $coverpkg"
+          go test -coverpkg="$coverpkg" -coverprofile=coverage.out ./... 2>&1 | tail -20
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "coverage: ${total}%"
+          ratchet=$(cat ../../coverage.ratchet)
+          echo "ratchet:  ${ratchet}%"
+          awk -v t="$total" -v r="$ratchet" 'BEGIN {
+            if (t + 0 < r + 0) {
+              printf "::error::coverage fell from %s%% to %s%%\n", r, t
+              exit 1
+            }
+          }'
+          # Write the new figure only when it improved, so a green build does not
+          # leave a modified file behind.
+          awk -v t="$total" -v r="$ratchet" 'BEGIN { exit !(t + 0 > r + 0) }' \
+            && echo "$total" > ../../coverage.ratchet \
+            || true
+        env:
+          TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
+
+      - name: Integration tests
+        # The repository/service/jobs suites, run WITHOUT -race so the build tag
+        # on them admits them. They are not covered by the -race step above
+        # (the tag excludes them) and they must not depend on the coverage step
+        # being configured correctly to have run.
+        run: go test -count=1 -timeout 30m ./internal/repo/ ./internal/service/ ./internal/jobs/ -v
+        env:
+          TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: go-coverage
+          path: services/api/coverage.out
+          retention-days: 7
 
   frontend:
     name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/web
@@ -59,16 +273,32 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
-      - run: npm run lint
+
+      - name: Typecheck
+        # `npm run lint` bundles tsc, but the tests/ directory and
+        # playwright.config.ts are outside tsconfig's include, so a type error in
+        # an E2E spec is invisible to the current gate.
+        run: npx tsc --noEmit -p tsconfig.check.json
+
+      - name: Lint
+        run: npx eslint src tests playwright.config.ts --max-warnings 0
+
       - run: npm run build
 
+      - name: npm audit (production deps)
+        run: npm audit --audit-level=high --omit=dev || true
+        # Non-blocking on purpose: npm audit reports on transitive dev-only
+        # advisories that are not reachable from shipped code, and a blocking
+        # gate on those trains people to ignore the gate. Prod-only and visible.
+
   e2e:
-    name: E2E smoke
+    name: E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17
@@ -89,42 +319,98 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: "1.26"
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: services/api/go.sum
+
+      - name: Cache Playwright browsers
+        # Without this, `playwright install --with-deps` re-downloads ~170MB of
+        # Chromium and its OS dependencies on every single run.
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # Prerender needs the API running with seeded data; do it in one job.
+
+      - name: Install psql
+        run: sudo apt-get update -q && sudo apt-get install -yq postgresql-client
+
       - name: Migrate + seed
         run: |
           cd ../../services/api
           go run ./cmd/api -migrate
-          psql "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable" -v ON_ERROR_STOP=1 -f ../../scripts/seed.sql
+          cd ../..
+          psql "$PGDATA_URL" -v ON_ERROR_STOP=1 -f scripts/seed.sql
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
-          MIGRATIONS_DIR: ../../infra/postgres/migrations
-      - run: npx playwright test
+          DATABASE_URL: ${{ env.PGDATA_URL }}
+          MIGRATIONS_DIR: infra/postgres/migrations
+          PGDATA_URL: ${{ env.PGDATA_URL }}
+
+      - name: Playwright
+        # `reuseExistingServer` is disabled in CI (see playwright.config.ts) so
+        # a stale dev server on a reused runner image cannot be silently adopted.
+        run: npx playwright test
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+          DATABASE_URL: ${{ env.PGDATA_URL }}
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
-          path: apps/web/playwright-report/
+          # The HTML reporter must be enabled in playwright.config.ts for this
+          # directory to exist. With reporter: [['list']] the list reporter writes
+          # no report directory at all, so this step uploaded nothing on every
+          # failure while appearing to succeed.
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
           retention-days: 7
-      # Prerender public routes for SEO; failures must not pass silently.
-      - name: Prerender
-        run: |
-          npm run build
-          (cd ../../services/api && go run ./cmd/api > /dev/null 2>&1 &)
-          (npx vite preview --port 5173 > /dev/null 2>&1 &)
-          sleep 8
-          node scripts/prerender.mjs
+
+      # No prerender step: the previous `node scripts/prerender.mjs` was a no-op
+      # that wrote 0 files and still exited 0. SEO is now served by the API's
+      # /ssr/* handlers, which need no build artifact and work for new rows
+      # immediately.
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Secret scan
+        # The repository is clean today — every secret-shaped string in it is
+        # either a self-identifying placeholder that config.Validate() rejects in
+        # prod, a test fixture, or a loopback-bound dev default. Nothing was
+        # enforcing that, so one pasted JWT_SECRET would have shipped silently.
+        uses: gitleaks/gitleaks-action@cb7149cb3c58a4d15dcd7f6d2bd8b6b9c9c0bf7 # v2.3.6
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
-          MIGRATIONS_DIR: ../../infra/postgres/migrations
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The shipped dev placeholders and E2E fixture passwords are
+          # intentionally literal; document them rather than allowing blanket
+          # ignores, so a real secret still trips the gate.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: github/codeql-action/init@6aaf88b0d6f8b49c50292ad8c0150c31d7fd2d5b # v3.28.9
+        with:
+          languages: go, javascript-typescript
+      - uses: github/codeql-action/analyze@6aaf88b0d6f8b49c50292ad8c0150c31d7fd2d5b # v3.28.9

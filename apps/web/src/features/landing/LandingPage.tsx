@@ -19,13 +19,13 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { api, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { usePageMeta } from '@/lib/meta'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { categoryIcon } from '@/components/ui/CategoryIcon'
 import { HomeMapWidget } from '@/features/map/HomeMapWidget'
 
 const FALLBACK_CATEGORIES: { name: string; note: string; slug: string; icon: string }[] = [
   { name: 'Food', note: 'Street food to fine dining', slug: 'food', icon: 'utensils' },
-  { name: 'Café', note: 'Coffee, tea, and everything between', slug: 'cafe', icon: 'coffee' },
+  { name: 'CafÃ©', note: 'Coffee, tea, and everything between', slug: 'cafe', icon: 'coffee' },
   { name: 'Restaurant', note: 'Where the city eats', slug: 'restaurant', icon: 'chef-hat' },
   { name: 'Photobooth', note: 'Moments, captured', slug: 'photobooth', icon: 'camera' },
   { name: 'Salon', note: 'Cut, color, care', slug: 'salon', icon: 'scissors' },
@@ -37,14 +37,14 @@ const FALLBACK_CATEGORIES: { name: string; note: string; slug: string; icon: str
 ]
 
 
-// Icons only — titles/texts come from i18n at render time (landing.howStep*).
+// Icons only â€” titles/texts come from i18n at render time (landing.howStep*).
 const STEPS = [
   { icon: Compass, titleKey: 'landing.howStep1Title', textKey: 'landing.howStep1Text' },
   { icon: TrendingUp, titleKey: 'landing.howStep2Title', textKey: 'landing.howStep2Text' },
   { icon: Store, titleKey: 'landing.howStep3Title', textKey: 'landing.howStep3Text' },
 ]
 
-// Icons only — titles/texts come from i18n at render time (landing.feature*).
+// Icons only â€” titles/texts come from i18n at render time (landing.feature*).
 const FEATURES = [
   { icon: Search, titleKey: 'landing.featureSearchTitle', textKey: 'landing.featureSearchText' },
   { icon: TrendingUp, titleKey: 'landing.featureTrendingTitle', textKey: 'landing.featureTrendingText' },
@@ -93,7 +93,7 @@ export function LandingPage() {
     queryKey: ['featured'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/featured'),
   })
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const { data: followFeed } = useQuery({
     queryKey: ['following-feed'],
     queryFn: () => api<{ updates: Array<{ id: string; business_id: string; title: string; body: string; created_at: string; business_name?: string; business_slug?: string }> }>('/me/following-feed?limit=4'),
@@ -101,7 +101,7 @@ export function LandingPage() {
   })
   const trending = (trendingData?.entries ?? []).map((e, i) => ({
     rank: i + 1, name: e.name, cat: e.category ?? e.city, score: e.score.toFixed(1),
-    delta: e.is_booming ? `▲ ${e.velocity.toFixed(1)}` : '', rising: e.is_rising, slug: e.slug,
+    delta: e.is_booming ? `â–² ${e.velocity.toFixed(1)}` : '', rising: e.is_rising, slug: e.slug,
   }))
   const rising = risingData?.entries ?? []
 
@@ -153,15 +153,25 @@ export function LandingPage() {
           </form>
 
           <div className="mx-auto mt-16 grid max-w-2xl grid-cols-2 gap-8 sm:grid-cols-4">
-            <Stat value="100+" label={t('landing.stats.categories')} />
-            <Stat value="100%" label={t('landing.stats.free')} />
-            <Stat value="2" label={t('landing.stats.verified')} />
-            <Stat value="∞" label={t('landing.stats.messages')} />
+          {/*
+            The category count is read from the API rather than hardcoded.
+            It was a literal "100+" while migration 0002 seeds ~30, so the
+            marketing page made a checkable claim the product did not meet.
+            A directory's credibility rests on listings actually existing, so an
+            inflated count on the homepage is the worst place to overstate.
+          */}
+          <Stat
+            value={catData?.categories?.length ? `${catData.categories.length}+` : 'â€”'}
+            label={t('landing.stats.categories')}
+          />
+          <Stat value="100%" label={t('landing.stats.free')} />
+          <Stat value="2" label={t('landing.stats.verified')} />
+          <Stat value="âˆž" label={t('landing.stats.messages')} />
           </div>
         </div>
       </section>
 
-      {/* Categories — live from the directory (PRD §5.1.1) */}
+      {/* Categories â€” live from the directory (PRD Â§5.1.1) */}
       <section className="border-t border-border py-16 sm:py-20">
         <div className="container-page">
           <div className="mb-10 text-center">
@@ -198,7 +208,7 @@ export function LandingPage() {
               <h2 className="text-xl font-semibold tracking-tight">{t('landing.trending')}</h2>
             </div>
             <Card className="divide-y divide-border p-0">
-              {trending.length === 0 && <p className="px-5 py-6 text-center text-sm text-ink3">Signals are warming up — leaderboards fill as people engage.</p>}
+              {trending.length === 0 && <p className="px-5 py-6 text-center text-sm text-ink3">Signals are warming up â€” leaderboards fill as people engage.</p>}
               {trending.map((row) => (
                 <button
                   key={row.rank}
@@ -228,7 +238,7 @@ export function LandingPage() {
             </div>
             <Card hover className="flex flex-1 flex-col justify-center gap-4">
               <p className="text-sm leading-relaxed text-ink2">
-                Leaderboards reward real engagement — but new and small businesses get a
+                Leaderboards reward real engagement â€” but new and small businesses get a
                 velocity-based <span className="font-medium text-ink">Rising tier</span> with
                 guaranteed visibility. Hidden gems surface instead of being buried.
               </p>
@@ -345,8 +355,8 @@ export function LandingPage() {
                   )}
                   <div className="p-4">
                     <p className="truncate text-sm font-semibold text-ink group-hover:underline">{b.name}</p>
-                    <p className="text-xs text-ink3">{b.category_name} · {b.city}</p>
-                    {b.review_count > 0 && <p className="mt-1 text-xs text-ink2">★ {b.rating_avg?.toFixed(1)} ({b.review_count})</p>}
+                    <p className="text-xs text-ink3">{b.category_name} Â· {b.city}</p>
+                    {b.review_count > 0 && <p className="mt-1 text-xs text-ink2">â˜… {b.rating_avg?.toFixed(1)} ({b.review_count})</p>}
                   </div>
                 </Link>
               ))}

@@ -18,15 +18,15 @@ type Cities struct {
 func NewCities(repos *repo.Repos) *Cities { return &Cities{repos: repos} }
 
 type CityPage struct {
-	Slug       string           `json:"slug"`
-	Name       string           `json:"name"`
-	Count      int              `json:"count"`
-	Lat        *float64         `json:"lat"`
-	Lng        *float64         `json:"lng"`
-	Categories []CityCategory   `json:"categories"`
+	Slug       string               `json:"slug"`
+	Name       string               `json:"name"`
+	Count      int                  `json:"count"`
+	Lat        *float64             `json:"lat"`
+	Lng        *float64             `json:"lng"`
+	Categories []CityCategory       `json:"categories"`
 	Top        []*domain.TrendEntry `json:"top"`
-	TopRated   []*domain.Business  `json:"top_rated"`
-	UpdatedAt  time.Time        `json:"updated_at"`
+	TopRated   []*domain.Business   `json:"top_rated"`
+	UpdatedAt  time.Time            `json:"updated_at"`
 }
 
 type CityCategory struct {
@@ -46,7 +46,10 @@ func (c *Cities) BySlug(ctx context.Context, slug string) (*CityPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cities []struct{ name string; count int }
+	var cities []struct {
+		name  string
+		count int
+	}
 	for rows.Next() {
 		var name string
 		var count int
@@ -54,11 +57,17 @@ func (c *Cities) BySlug(ctx context.Context, slug string) (*CityPage, error) {
 			rows.Close()
 			return nil, err
 		}
-		cities = append(cities, struct{ name string; count int }{name, count})
+		cities = append(cities, struct {
+			name  string
+			count int
+		}{name, count})
 	}
 	rows.Close()
 
-	var chosen *struct{ name string; count int }
+	var chosen *struct {
+		name  string
+		count int
+	}
 	for i := range cities {
 		if slugify(cities[i].name) == slug {
 			chosen = &cities[i]
@@ -94,12 +103,14 @@ func (c *Cities) BySlug(ctx context.Context, slug string) (*CityPage, error) {
 		catRows.Close()
 	}
 
-	// Trending leaders in the city (latest 24h snapshot).
-	var takenAt time.Time
+	// Trending leaders in the city (latest 24h snapshot). Pointer scan because
+	// max() is NULL before the first snapshot exists; the zero time then means
+	// "no leaders yet" rather than an error.
+	var takenAt *time.Time
 	_ = c.repos.QueryRow(ctx,
 		`SELECT max(taken_at) FROM trend_snapshots WHERE period = '24h'`).Scan(&takenAt)
-	page.UpdatedAt = takenAt
-	if !takenAt.IsZero() {
+	if takenAt != nil {
+		page.UpdatedAt = *takenAt
 		topRows, err := c.repos.Query(ctx, `
 			SELECT b.id, b.name, b.slug, b.logo_url, b.city, cat.name, s.score, s.velocity,
 				s.is_booming, s.is_rising, b.verification_level, s.rank_city

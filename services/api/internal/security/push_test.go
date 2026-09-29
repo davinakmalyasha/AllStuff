@@ -17,7 +17,7 @@ func TestIsPublicIP(t *testing.T) {
 	private := []string{
 		"127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.9",
 		"100.64.0.1", "100.127.255.254", // CGNAT
-		"169.254.1.1",            // link-local
+		"169.254.1.1",              // link-local
 		"198.18.0.5", "192.0.2.99", // benchmark / documentation
 		"224.0.0.5", "240.0.0.1",
 	}

@@ -21,9 +21,9 @@ func NewAdmin(repos *repo.Repos, notifier *Notifier) *Admin {
 }
 
 type DecideInput struct {
-	Decision string              `json:"decision"` // approve | reject
+	Decision string                    `json:"decision"` // approve | reject
 	Level    *domain.VerificationLevel `json:"level"`
-	Reason   string              `json:"reason"`
+	Reason   string                    `json:"reason"`
 }
 
 // Decide approves (with level) or rejects a pending business. Every decision
@@ -162,15 +162,15 @@ func (a *Admin) LogDocumentView(ctx context.Context, adminID, documentID string)
 // ---- moderation (PRD §5.8.2) ----
 
 type ReportItem struct {
-	ID          string         `json:"id"`
-	ReporterID  string         `json:"reporter_id"`
-	TargetType  string         `json:"target_type"`
-	TargetID    string         `json:"target_id"`
-	Reason      string         `json:"reason"`
-	Status      string         `json:"status"`
-	CreatedAt   time.Time      `json:"created_at"`
-	Evidence    map[string]any `json:"evidence"`
-	TargetSnippet string       `json:"target_snippet,omitempty"`
+	ID            string         `json:"id"`
+	ReporterID    string         `json:"reporter_id"`
+	TargetType    string         `json:"target_type"`
+	TargetID      string         `json:"target_id"`
+	Reason        string         `json:"reason"`
+	Status        string         `json:"status"`
+	CreatedAt     time.Time      `json:"created_at"`
+	Evidence      map[string]any `json:"evidence"`
+	TargetSnippet string         `json:"target_snippet,omitempty"`
 }
 
 func (a *Admin) Reports(ctx context.Context, status string, limit, offset int) ([]*ReportItem, error) {
@@ -330,7 +330,30 @@ func (a *Admin) contentAuthorID(ctx context.Context, targetType, targetID string
 	return uid, nil
 }
 
-// HideContent hides a review/comment/product (author sees "removed by moderator").
+// hideableMediaKinds are the media kinds a moderator may remove through the
+// generic "hide" action on an `attachment` report. `document_verification` is
+// excluded on purpose: those files are PII submitted for a compliance review,
+// and a moderator "hiding" one would destroy evidence an admin still needs
+// (and the owner's only copy of their submission).
+var hideableMediaKinds = []string{
+	string(domain.MediaChatImage), string(domain.MediaChatFile),
+	string(domain.MediaChatAudio), string(domain.MediaChatVideo),
+	string(domain.MediaAvatar), string(domain.MediaProduct), string(domain.MediaGallery),
+}
+
+// HideContent hides a reported item (the author sees "removed by moderator").
+//
+// COVERAGE. This previously accepted only review/comment/product/message, while
+// `contentAuthorID` already resolved `business`, `attachment` and `reaction` and
+// the reports_target_type_check permits all nine (0025). The practical effect: a
+// report on a chat attachment or a message reaction could be dismissed or
+// warned but NEVER removed, and a report on a business could only be dismissed
+// or warned with no in-place action — the admin had to find a different tool.
+// PRD §5.8.2 lists reactions and chat attachments as first-class queues.
+//
+// The cases are exhaustive over the nine permitted types. `error` and `support`
+// are inbound operator tickets rather than user content, so they are
+// non-actionable here by design and return a specific message.
 func (a *Admin) HideContent(ctx context.Context, adminID, targetType, targetID, reason string) error {
 	switch targetType {
 	case "review":
@@ -350,8 +373,43 @@ func (a *Admin) HideContent(ctx context.Context, adminID, targetType, targetID, 
 		_, err := a.repos.Exec(ctx, `
 			UPDATE chat_messages SET deleted_for='everyone' WHERE id=$1::bigint`, targetID)
 		return err
+	case "attachment":
+		// A media row is shared by reference, so hiding the file is not a
+		// column write: the row is marked deleted and the underlying file is
+		// swept by the orphan-media job. `kind = ANY(...)` keeps
+		// document_verification out of reach.
+		_, err := a.repos.Exec(ctx, `
+			UPDATE media SET deleted_at=now() WHERE id=$1 AND kind = ANY($2)`,
+			targetID, hideableMediaKinds)
+		return err
+	case "reaction":
+		// A reaction is a row, not content: removing it is the hide.
+		_, err := a.repos.Exec(ctx, `DELETE FROM message_reactions WHERE id=$1`, targetID)
+		return err
+	case "business":
+		// Suspending is the in-place hide for a listing. Going to `suspended`
+		// rather than `paused` makes it disappear from search and the public
+		// page (both filter on `verified`), matching what "hidden" means for
+		// every other type. The original status is preserved in
+		// pre_suspend_status by the existing suspend path, so this stays
+		// reversible through the business moderation screen.
+		_, err := a.repos.Exec(ctx, `
+			UPDATE businesses
+			SET status = 'suspended',
+			    pre_suspend_status = COALESCE(pre_suspend_status, status::text),
+			    updated_at = now()
+			WHERE id = $1 AND deleted_at IS NULL`, targetID)
+		return err
+	case "user":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE users SET status='suspended' WHERE id=$1`, targetID)
+		return err
+	case "error", "support":
+		return domain.ErrValidation.WithField("target_type",
+			"That report is not user content — resolve it instead.")
+	default:
+		return domain.ErrValidation.WithField("target_type", "Cannot hide this type.")
 	}
-	return domain.ErrValidation.WithField("target_type", "Cannot hide this type.")
 }
 
 // RestoreContent reverses a moderation hide (PRD §5.8.2 restore action).
@@ -374,8 +432,38 @@ func (a *Admin) RestoreContent(ctx context.Context, targetType, targetID string)
 		_, err := a.repos.Exec(ctx, `
 			UPDATE chat_messages SET deleted_for='none' WHERE id=$1::bigint`, targetID)
 		return err
+	case "attachment":
+		_, err := a.repos.Exec(ctx, `
+			UPDATE media SET deleted_at=NULL WHERE id=$1`, targetID)
+		return err
+	case "reaction":
+		// A deleted reaction has no payload to restore — the row is gone.
+		// Restoring is a no-op rather than an error so a moderator clicking
+		// "restore" on an accidental hide gets a clean result instead of a 400.
+		return nil
+	case "business":
+		// Restore the status captured by HideContent, defaulting to
+		// pending_review so a previously-verified listing is re-reviewed
+		// rather than silently returning to public.
+		_, err := a.repos.Exec(ctx, `
+			UPDATE businesses
+			SET status = CASE
+			    WHEN pre_suspend_status IS NOT NULL THEN pre_suspend_status::business_status
+			    ELSE 'pending_review'::business_status
+			END,
+			pre_suspend_status = NULL,
+			updated_at = now()
+			WHERE id = $1 AND deleted_at IS NULL`, targetID)
+		return err
+	case "user":
+		_, err := a.repos.Exec(ctx, `UPDATE users SET status='active' WHERE id=$1`, targetID)
+		return err
+	case "error", "support":
+		return domain.ErrValidation.WithField("target_type",
+			"That report is not user content — resolve it instead.")
+	default:
+		return domain.ErrValidation.WithField("target_type", "Cannot restore this type.")
 	}
-	return domain.ErrValidation.WithField("target_type", "Cannot restore this type.")
 }
 
 // ---- users management (PRD §5.8.4) ----
@@ -430,9 +518,9 @@ func (a *Admin) UserAction(ctx context.Context, adminID, userID, action, reason 
 // ---- curation & config (PRD §5.8.5) ----
 
 type CurationConfig struct {
-	FeaturedIDs     []string         `json:"featured_ids"`
-	Leaderboard     map[string]any   `json:"leaderboard"`
-	Announcement    *string          `json:"announcement"`
+	FeaturedIDs  []string       `json:"featured_ids"`
+	Leaderboard  map[string]any `json:"leaderboard"`
+	Announcement *string        `json:"announcement"`
 }
 
 func (a *Admin) GetCuration(ctx context.Context) (*CurationConfig, error) {
@@ -549,7 +637,8 @@ func (a *Admin) SetSiteConfig(ctx context.Context, key string, value any) error 
 
 // ---- audit trail ----
 
-func (a *Admin) AuditTrail(ctx context.Context, limit, offset int) ([]map[string]any, error) {	rows, err := a.repos.Query(ctx, `
+func (a *Admin) AuditTrail(ctx context.Context, limit, offset int) ([]map[string]any, error) {
+	rows, err := a.repos.Query(ctx, `
 		SELECT ma.id, ma.action, ma.target_type, ma.target_id, ma.reason, ma.created_at,
 			u.name AS admin_name
 		FROM moderation_actions ma JOIN users u ON u.id = ma.admin_id

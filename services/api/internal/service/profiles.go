@@ -21,16 +21,23 @@ func NewProfiles(repos *repo.Repos, notifier *Notifier) *Profiles {
 }
 
 type PublicProfile struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Username   string    `json:"username"`
-	AvatarURL  *string   `json:"avatar_url"`
-	Bio        *string   `json:"bio"`
-	JoinedAt   time.Time `json:"joined_at"`
-	Reviews    []any     `json:"reviews"`
-	Comments   []any     `json:"comments"`
-	Collections []any    `json:"collections"`
-	Businesses []any     `json:"businesses"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Username  string  `json:"username"`
+	AvatarURL *string `json:"avatar_url"`
+	Bio       *string `json:"bio"`
+	// Timezone and the public subset of profile links are part of the profile a
+	// visitor is shown, so they are read here. The API already validates the
+	// link scheme on write (validProfileLinks); the renderer additionally runs
+	// every href through its client-side allowlist, because a row written before
+	// that validation existed would otherwise reach an href attribute verbatim.
+	Timezone     string         `json:"timezone"`
+	ProfileLinks map[string]any `json:"profile_links"`
+	JoinedAt     time.Time      `json:"joined_at"`
+	Reviews      []any          `json:"reviews"`
+	Comments     []any          `json:"comments"`
+	Collections  []any          `json:"collections"`
+	Businesses   []any          `json:"businesses"`
 }
 
 func (s *Profiles) ByUsername(ctx context.Context, username string) (*PublicProfile, error) {
@@ -119,8 +126,9 @@ func (s *Profiles) ByUsername(ctx context.Context, username string) (*PublicProf
 
 	return &PublicProfile{
 		ID: u.ID, Name: u.Name, Username: u.Username, AvatarURL: u.AvatarURL,
-		Bio: u.Bio, JoinedAt: u.CreatedAt,
-		Reviews: reviewRows, Comments: commentRows, Collections: colRows, Businesses: bizRows,
+		Bio: u.Bio, Timezone: u.Timezone, ProfileLinks: u.ProfileLinks,
+		JoinedAt: u.CreatedAt,
+		Reviews:  reviewRows, Comments: commentRows, Collections: colRows, Businesses: bizRows,
 	}, nil
 }
 

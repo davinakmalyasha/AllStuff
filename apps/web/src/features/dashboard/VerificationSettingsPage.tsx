@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PageSpinner } from '@/components/ui/Spinner'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 const STATUS_LABEL: Record<string, { label: string; tone: 'neutral' | 'attention' | 'positive' | 'danger' }> = {
   draft: { label: 'Draft', tone: 'neutral' },
@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<string, { label: string; tone: 'neutral' | 'attention
 }
 
 export function VerificationSettingsPage() {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const location = useLocation()
   const justSubmitted = (location.state as { justSubmitted?: boolean } | null)?.justSubmitted
   const [flash, setFlash] = useState(justSubmitted)
@@ -126,7 +126,7 @@ export function VerificationSettingsPage() {
         )}
         {business.status === 'pending_review' && (
           <p className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink2">
-            <XCircle className="h-4 w-4 text-ink3" /> In review — edits are locked until the admin decides.
+            <XCircle className="h-4 w-4 text-ink3" /> In review â€” edits are locked until the admin decides.
           </p>
         )}
       </Card>

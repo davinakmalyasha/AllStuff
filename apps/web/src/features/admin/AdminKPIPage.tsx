@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 
 interface KPIDTO {
@@ -19,13 +19,31 @@ interface KPIDTO {
 /** Admin KPI dashboard (PRD §5.8.6). */
 export function AdminKPIPage() {
   usePageMeta('Admin · Analytics')
-  const { data, isLoading } = useQuery({
+  // isError is checked before `data` is touched. It used to be destructured
+  // away, so after the global `retry: 1` was exhausted `data` was undefined and
+  // `const d = data as KPIDTO` followed by `d.users` threw. With no error
+  // boundary that unmounted the whole app to a blank page — so a failed KPI
+  // fetch on the admin dashboard removed the only UI for signing out.
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-kpis'],
     queryFn: () => api<KPIDTO>(`/admin/kpis`),
   })
 
   if (isLoading) return <PageSpinner />
-  const d = data as KPIDTO
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-4xl py-10">
+        <ErrorNote
+          message="Platform analytics are unavailable right now."
+          onRetry={() => void refetch()}
+        />
+      </div>
+    )
+  }
+  // Undefined is impossible past the guards above; the fallback keeps a
+  // transient shape change from turning into a crash.
+  const d = data
+  if (!d) return <PageSpinner />
 
   const stats: [string, number][] = [
     ['Users', d.users],

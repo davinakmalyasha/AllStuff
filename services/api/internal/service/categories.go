@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -40,6 +40,14 @@ func (s *Categories) GetBySlug(ctx context.Context, slug string) (*domain.Catego
 	cat, err := s.repos.Categories.GetBySlug(ctx, slug)
 	if err != nil || cat == nil {
 		return nil, nil, domain.ErrNotFound
+	}
+	// The breadcrumb is built from ListWithCounts, so every ancestor already
+	// carries its verified-business count. GetBySlug does NOT select `count`, so
+	// the page was rendering this node's count as 0 while the category tree
+	// reported 1 for the same category — the "0 verified businesses" line below
+	// the heading contradicted the sidebar. Prefer the counted copy.
+	if counted, ok := byID[cat.ID]; ok {
+		cat = counted
 	}
 	var path []*domain.Category
 	cur := cat
@@ -110,13 +118,13 @@ func (s *Categories) Create(ctx context.Context, in CategoryInput) (*domain.Cate
 		icon = strings.TrimSpace(*in.Icon)
 	}
 	cat := &domain.Category{
-		ID:        util.NewUUID(),
-		ParentID:  in.ParentID,
-		Name:      name,
-		Slug:      unique,
-		Icon:      icon,
+		ID:          util.NewUUID(),
+		ParentID:    in.ParentID,
+		Name:        name,
+		Slug:        unique,
+		Icon:        icon,
 		Description: in.Description,
-		SortOrder: 0,
+		SortOrder:   0,
 	}
 	if in.SortOrder != nil {
 		cat.SortOrder = *in.SortOrder
@@ -191,7 +199,8 @@ func (s *Categories) Update(ctx context.Context, id string, in CategoryInput) (*
 }
 
 // Delete removes a category; businesses must be moved first (PRD §5.8.3: no orphans).
-func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string) error {	cat, err := s.repos.Categories.GetByID(ctx, id)
+func (s *Categories) Delete(ctx context.Context, id string, forceMoveTo *string) error {
+	cat, err := s.repos.Categories.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}

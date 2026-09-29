@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit && eslint src --max-warnings 100",
     "typecheck": "tsc --noEmit",
+    "typecheck:all": "tsc --noEmit -p tsconfig.check.json",
+    "lint": "npm run typecheck:all && eslint src tests playwright.config.ts --max-warnings 0",
     "test": "playwright test",
-    "prerender": "node scripts/prerender.mjs"
+    "test:e2e": "playwright test",
+    "verify": "npm run lint && npm run build"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@types/node": "^24.19.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@typescript-eslint/parser": "^8.67.0",

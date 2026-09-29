@@ -6,7 +6,21 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
-import { useDialogA11y } from '@/components/ui/Modal'
+import { Modal } from '@/components/ui/Modal'
+
+/**
+ * Target types the moderation service can actually hide/restore.
+ *
+ * Kept in step with the `HideContent` / `RestoreContent` switches in
+ * services/api/internal/service/admin.go, which cover review, comment, product,
+ * message, attachment, reaction, business and user. `error` and `support` are
+ * inbound operator tickets rather than user content, so they are excluded —
+ * offering a hide button for them produced a 400 that read as a broken control.
+ */
+const HIDEABLE = new Set([
+  'review', 'comment', 'product', 'message',
+  'attachment', 'reaction', 'business', 'user',
+])
 
 interface ReportDTO {
   id: string
@@ -57,7 +71,7 @@ export function AdminModerationPage() {
   const [tab, setTab] = useState<'open' | 'resolved'>('open')
   const [note, setNote] = useState('')
   const [active, setActive] = useState<ReportDTO | null>(null)
-  const dialogRef = useDialogA11y(!!active, () => setActive(null))
+  // Dialog focus behaviour now comes from the shared Modal below.
 
   const { data, isLoading } = useQuery({
     queryKey: ['reports', tab],
@@ -119,19 +133,18 @@ export function AdminModerationPage() {
       </div>
 
       {active && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={() => setActive(null)}>
-          <Card className="my-8 w-full max-w-lg">
-            <div
-              ref={dialogRef}
-              tabIndex={-1}
-              role="dialog"
-              aria-modal="true"
-              aria-label={`Report · ${active.target_type}`}
-              onClick={(e) => e.stopPropagation()}
-              className="outline-none"
-            >
-              <p className="mono-label mb-2">Report · {active.target_type} · {active.target_id}</p>
-              <p className="text-sm text-ink2">{active.reason}</p>
+        // Shared Modal rather than a hand-rolled overlay: this dialog contains
+        // destructive actions (hide, warn, suspend), and the previous version
+        // had no focus trap, so Tab walked out into the moderation queue behind
+        // it and a keyboard user could hit "Suspend" on the wrong report.
+        <Modal
+          open={!!active}
+          onClose={() => setActive(null)}
+          title={`Report · ${active.target_type}`}
+          maxWidth="max-w-lg"
+        >
+          <p className="mono-label mb-2">{active.target_type} · {active.target_id}</p>
+          <p className="text-sm text-ink2">{active.reason}</p>
               {active.target_snippet && <p className="mt-2 rounded-lg bg-surface2 p-3 text-sm text-ink2">{active.target_snippet}</p>}
               <input
                 value={note}
@@ -142,13 +155,23 @@ export function AdminModerationPage() {
               {decide.error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{(decide.error as Error).message}</p>}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button variant="secondary" size="sm" onClick={() => void decide.mutateAsync('dismiss')} disabled={decide.isPending}>Dismiss</Button>
-                <Button variant="secondary" size="sm" onClick={() => void decide.mutateAsync('hide')} disabled={decide.isPending}>Hide content</Button>
+                {/* These are only offered for the target types the service can
+                    actually action. HideContent/RestoreContent now cover
+                    review, comment, product, message, attachment, reaction,
+                    business and user; `error` and `support` are inbound
+                    operator tickets, not user content, so they get a resolve
+                    only. Sending a hide for an unsupported type returned a 400
+                    that looked like a broken button. */}
+                {HIDEABLE.has(active.target_type) && (
+                  <>
+                    <Button variant="secondary" size="sm" onClick={() => void decide.mutateAsync('hide')} disabled={decide.isPending}>Hide content</Button>
+                    <Button variant="secondary" size="sm" onClick={() => void decide.mutateAsync('restore')} disabled={decide.isPending}>Restore</Button>
+                  </>
+                )}
                 <Button variant="secondary" size="sm" onClick={() => void decide.mutateAsync('warn')} disabled={decide.isPending}>Warn author</Button>
                 <Button variant="danger" size="sm" onClick={() => void decide.mutateAsync('suspend')} disabled={decide.isPending}>Suspend (7d)</Button>
               </div>
-            </div>
-          </Card>
-        </div>
+        </Modal>
       )}
     </div>
   )

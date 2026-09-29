@@ -25,11 +25,11 @@ func NewEngagement(repos *repo.Repos, notifier *Notifier) *Engagement {
 
 // Weights from §3 (view=1, save=3, like=5, comment=8, recommend=10, review=12, chat=8).
 const (
-	wSave     = 3
-	wLike     = 5
-	wComment  = 8
+	wSave      = 3
+	wLike      = 5
+	wComment   = 8
 	wRecommend = 10
-	wReview   = 12
+	wReview    = 12
 )
 
 var mentionRe = regexp.MustCompile(`@([a-z0-9_]{3,30})`)

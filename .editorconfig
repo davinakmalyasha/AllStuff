@@ -1,0 +1,41 @@
+# BizVerse
+
+Business directory and storefront platform. Self-hostable: PostgreSQL, Redis,
+and one Go binary. No proprietary APIs, no vendor lock-in, no per-seat pricing.
+
+This file is a development convenience. Line endings are pinned in
+.gitattributes — the repository stores LF, the working tree gets native
+endings — so a Windows and a Linux contributor can both commit without
+producing a whole-file diff.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{md,mdx}]
+# Two trailing spaces are a hard line break in Markdown, and the JSON/YAML/Go
+# error strings in docs rely on them. Trimming them silently changes rendering.
+trim_trailing_whitespace = false
+
+[*.{json,yml,yaml,ts,tsx,js,mjs,cjs,css,html}]
+indent_size = 2
+
+[*.go]
+indent_style = tab
+indent_size = 4
+
+[*.sql]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+
+[*.{ps1,cmd,bat}]
+end_of_line = crlf
+indent_size = 4

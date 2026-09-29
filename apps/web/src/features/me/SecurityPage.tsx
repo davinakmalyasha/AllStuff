@@ -314,8 +314,21 @@ export function SecurityPage() {
         </div>
         {sessions?.sessions.map((s) => (
           <div key={s.id} className="flex items-center gap-3 text-sm">
-            <span className={`h-2 w-2 rounded-full ${s.revoked_at ? 'bg-ink3' : 'bg-ink'}`} />
-            <span className="min-w-0 flex-1 truncate text-ink2">{s.user_agent ?? 'Unknown device'} · {s.ip ?? '—'}</span>
+            {/*
+              The dot is decorative; the STATE is carried by text. A 2px colour
+              dot is invisible to a screen reader and near-invisible at low
+              vision, so an active and a revoked session were indistinguishable
+              for anyone not relying on a subtle background-colour difference.
+            */}
+            <span
+              aria-hidden
+              className={`h-2 w-2 shrink-0 rounded-full ${s.revoked_at ? 'bg-ink3' : 'bg-ink'}`}
+            />
+            <span className="min-w-0 flex-1 truncate text-ink2">
+              <span className="sr-only">{s.revoked_at ? 'Revoked: ' : 'Active: '}</span>
+              {s.user_agent ?? 'Unknown device'} · {s.ip ?? '—'}
+              {s.revoked_at && <span className="ml-1 text-ink3">(revoked)</span>}
+            </span>
             <span className="text-xs text-ink3">{formatDateTime(s.last_seen_at)}</span>
             {!s.revoked_at && (
               <button onClick={() => setRevokeTarget({ kind: 'session', id: s.id })} className="text-xs text-ink3 hover:text-ink">Revoke</button>

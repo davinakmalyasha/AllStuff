@@ -6,10 +6,10 @@ import { Star } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/components/ui/Toast'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 function useMyBusinesses(): BusinessDTO[] {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const { data } = useQuery({
     queryKey: ['my-businesses'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
@@ -28,7 +28,7 @@ function BusinessPicker({ businesses, value, onChange }: { businesses: BusinessD
   )
 }
 
-/** Owner inbox: reviews left on your businesses (PRD §5.4.5). */
+/** Owner inbox: reviews left on your businesses (PRD Â§5.4.5). */
 export function DashboardReviewsPage() {
   const businesses = useMyBusinesses()
   const [bizId, setBizId] = useState('')
@@ -92,7 +92,7 @@ export function DashboardReviewsPage() {
                 <input
                   value={replyDraft[r.id] ?? ''}
                   onChange={(e) => setReplyDraft((d) => ({ ...d, [r.id]: e.target.value }))}
-                  placeholder="Reply publicly…"
+                  placeholder="Reply publiclyâ€¦"
                   className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink"
                 />
                 <Button size="sm" onClick={() => void reply.mutateAsync({ reviewId: r.id, reply: replyDraft[r.id] ?? '' })} disabled={!replyDraft[r.id]?.trim() || reply.isPending}>
@@ -108,7 +108,7 @@ export function DashboardReviewsPage() {
   )
 }
 
-/** Owner inbox: comments on your businesses (PRD §5.4.5). */
+/** Owner inbox: comments on your businesses (PRD Â§5.4.5). */
 export function DashboardCommentsPage() {
   const businesses = useMyBusinesses()
   const [bizId, setBizId] = useState('')

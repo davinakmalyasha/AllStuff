@@ -99,14 +99,20 @@ func (s *Server) handle2FAVerify(w http.ResponseWriter, r *http.Request) {
 	if claims, cerr := security.ParseToken(s.deps.Config.JWTSecret, in.Challenge, security.Token2FAChallenge); cerr == nil {
 		throttleKey = claims.UserID
 	}
-	if s.accountThrottle("2fa", throttleKey) {
-		s.metrics.RateLimited()
-		w.Header().Set("Retry-After", "900")
-		fail(w, domain.ErrRateLimited)
-		return
-	}
-	user, tokens, err := s.deps.Auth.Verify2FA(r.Context(), in.Challenge, in.Code, clientIPValue(s.clientIP(r)), r.UserAgent())
+	ip := s.clientIP(r)
+	user, tokens, err := s.deps.Auth.Verify2FA(r.Context(), in.Challenge, in.Code, clientIPValue(ip), r.UserAgent())
 	if err != nil {
+		// Failure-only, as with login. The first factor already succeeded to
+		// obtain the challenge, so charging every verification attempt would
+		// lock a legitimate owner out of their own account after a few typos —
+		// and, since the key is the user id, an attacker who knows a victim's
+		// email could deny them 2FA access with six requests.
+		if s.accountThrottle("2fafail", throttleKey, ip) {
+			s.metrics.RateLimited()
+			w.Header().Set("Retry-After", "900")
+			fail(w, domain.ErrRateLimited)
+			return
+		}
 		fail(w, err)
 		return
 	}

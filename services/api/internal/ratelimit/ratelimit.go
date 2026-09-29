@@ -31,6 +31,13 @@ func NewInMemory() RateLimiter {
 }
 
 func (m *inMemory) Allow(key string, limit int, window time.Duration) (int, time.Duration, bool) {
+	// A zero/negative limit or window is a misconfiguration, not a request to
+	// enforce. Denying here would turn one bad config value into a 429 wall, and
+	// it would also make the in-memory and Redis limiters disagree on the same
+	// key — see the matching guard in redis.go.
+	if limit <= 0 || window <= 0 {
+		return 0, 0, true
+	}
 	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()

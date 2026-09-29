@@ -124,15 +124,15 @@ func (s *Community) PostUpdate(ctx context.Context, ownerID, businessID, title, 
 	// Notify followers (in-app): bulk INSERT off the request path. The
 	// previous loop ran 4 queries per follower synchronously — a 5k-follower
 	// announcement serialized ~15k queries and starved the pool.
-	go func(updateID string) {
+	util.GoNamed("announcement-fanout", func() {
 		fctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if _, err := s.notifier.CreateForFollowers(fctx, businessID, "business_update", map[string]any{
-			"update_id": updateID, "business_id": businessID, "title": title,
+			"update_id": u.ID, "business_id": businessID, "title": title,
 		}); err != nil {
 			slog.Warn("announcement fan-out", "err", err, "business", businessID)
 		}
-	}(u.ID)
+	})
 	return u, nil
 }
 

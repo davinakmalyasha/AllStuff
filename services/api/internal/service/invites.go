@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,10 +20,14 @@ type Invites struct {
 	repos *repo.Repos
 	cfg   config.Config
 	email mail.Sender
+	// ents resolves the business's plan so Create can enforce team_seats. Nil
+	// means ungated, which is what the package's own tests use; main.go always
+	// passes Billing.
+	ents EntitlementSource
 }
 
-func NewInvites(repos *repo.Repos, cfg config.Config, sender mail.Sender) *Invites {
-	return &Invites{repos: repos, cfg: cfg, email: sender}
+func NewInvites(repos *repo.Repos, cfg config.Config, sender mail.Sender, ents EntitlementSource) *Invites {
+	return &Invites{repos: repos, cfg: cfg, email: sender, ents: ents}
 }
 
 var inviteEmailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -42,6 +47,9 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 	if role != "co_owner" && role != "viewer" {
 		role = "co_owner"
 	}
+	if err := s.checkSeatCapacity(ctx, businessID); err != nil {
+		return err
+	}
 	token := util.NewUUID() + "-" + util.NewUUID()
 	if err := s.repos.Businesses.CreateInvite(ctx, ownerID, businessID, email, role, token); err != nil {
 		return err
@@ -49,6 +57,36 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 	// Best-effort delivery: the invite row exists regardless, and the token
 	// remains retrievable from the dashboard invite list (PRD §5.9.3).
 	_ = s.sendInviteEmail(ctx, ownerID, businessID, email, role, token)
+	return nil
+}
+
+// checkSeatCapacity enforces the plan's team_seats cap before a row is written.
+//
+// Gated on Create rather than on Accept deliberately. Enforcing at accept time
+// would let a business send ten invitations on the free plan, have three
+// accepted, and then have the fourth acceptance fail with an error the invitee
+// cannot act on. Refusing at send time gives the owner the upgrade prompt while
+// they are still looking at their own team page.
+//
+// The count itself is of ACCEPTED seats, so an outstanding invitation does not
+// consume the allowance — see repo.CountActiveSeats for why.
+func (s *Invites) checkSeatCapacity(ctx context.Context, businessID string) error {
+	if s.ents == nil {
+		return nil
+	}
+	e, err := s.ents.Entitlements(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	n, err := s.repos.Businesses.CountActiveSeats(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	if e.Exceeds("team_seats", n+1) {
+		return domain.ErrValidation.WithField("_",
+			"Your plan includes "+strconv.Itoa(e.TeamSeats)+" team seat(s). "+
+				"Revoke an existing invitation, or upgrade to invite more people.")
+	}
 	return nil
 }
 

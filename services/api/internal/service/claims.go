@@ -204,10 +204,10 @@ func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note st
 				return nil, domain.ErrInternal
 			}
 			if _, err := c.repos.Exec(ctx, `
-				INSERT INTO businesses (id, owner_id, name, slug, category_id, address, city, country, lat, lng, status)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 'draft')`,
-				draftID, it.UserID, it.Name, slug, nullableString(it.CategoryID),
-				it.Address, it.City, it.Country); err != nil {
+			INSERT INTO businesses (id, owner_id, name, slug, description, category_id, address, city, country, lat, lng, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, 'draft')`,
+				draftID, it.UserID, it.Name, slug, draftDescription(it.Evidence),
+				nullableString(it.CategoryID), it.Address, it.City, it.Country); err != nil {
 				return nil, err
 			}
 			res, err := c.repos.Exec(ctx, `
@@ -258,4 +258,25 @@ func nullableString(s string) any {
 		return nil
 	}
 	return s
+}
+
+// draftDescription seeds a new draft's description.
+//
+// `businesses.description` is NOT NULL. Migration 0004 dropped the
+// `char_length >= 50` CHECK but left the NOT NULL, so an INSERT that omits the
+// column fails with 23502 — which is why EVERY approval of a newly-listed claim
+// returned 500 while the (separate) existing-listing branch looked fine.
+//
+// The evidence text is the natural seed: the claimer wrote it to justify the
+// business. It is truncated so a long submission cannot be pushed into the row
+// wholesale, and absent evidence still yields something the wizard replaces.
+func draftDescription(evidence string) string {
+	d := strings.TrimSpace(evidence)
+	if d == "" {
+		d = "Draft created from a business claim. Complete the profile before submitting for verification."
+	}
+	if r := []rune(d); len(r) > 2000 {
+		d = string(r[:2000])
+	}
+	return d
 }

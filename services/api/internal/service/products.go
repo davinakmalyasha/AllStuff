@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"bizverse/api/internal/domain"
@@ -13,27 +14,67 @@ import (
 type Products struct {
 	repos    *repo.Repos
 	notifier *Notifier
+	// ents resolves the business's plan so Create can enforce the catalogue
+	// cap. Nil means ungated, which is what the package's own tests use.
+	ents EntitlementSource
 }
 
-func NewProducts(repos *repo.Repos, notifier *Notifier) *Products {
-	return &Products{repos: repos, notifier: notifier}
+func NewProducts(repos *repo.Repos, notifier *Notifier, ents EntitlementSource) *Products {
+	return &Products{repos: repos, notifier: notifier, ents: ents}
 }
 
 type ProductInput struct {
-	Type          *string   `json:"type"`
-	Name          *string   `json:"name"`
-	Description   *string   `json:"description"`
-	Currency      *string   `json:"currency"`
-	BasePrice     *float64  `json:"base_price"`
-	CallForPrice  *bool     `json:"call_for_price"`
-	CoverImageID  *string   `json:"cover_image_id"`
-	ImageIDs      *[]string `json:"image_ids"`
-	Tags          *[]string `json:"tags"`
-	IsAvailable   *bool     `json:"is_available"`
-	IsFeatured    *bool     `json:"is_featured"`
-	Badge         *string   `json:"badge"`
-	SeoTitle      *string   `json:"seo_title"`
-	SortOrder     *int      `json:"sort_order"`
+	Type         *string   `json:"type"`
+	Name         *string   `json:"name"`
+	Description  *string   `json:"description"`
+	Currency     *string   `json:"currency"`
+	BasePrice    *float64  `json:"base_price"`
+	CallForPrice *bool     `json:"call_for_price"`
+	CoverImageID *string   `json:"cover_image_id"`
+	ImageIDs     *[]string `json:"image_ids"`
+	Tags         *[]string `json:"tags"`
+	IsAvailable  *bool     `json:"is_available"`
+	IsFeatured   *bool     `json:"is_featured"`
+	Badge        *string   `json:"badge"`
+	SeoTitle     *string   `json:"seo_title"`
+	SortOrder    *int      `json:"sort_order"`
+}
+
+// checkCatalogCapacity enforces the plan's product_limit.
+//
+// A nil ents means ungated. That is not a production path — main.go always
+// passes Billing — it exists so the package's own tests can construct Products
+// without a subscription lookup, and so a future caller cannot accidentally
+// build an ungated service by omitting an argument.
+//
+// A plan that omits product_limit is treated as uncapped rather than as zero.
+// A cap nobody agreed to is worse than no cap: an owner who upgraded for a
+// larger catalogue would be locked out of their own storefront.
+func (s *Products) checkCatalogCapacity(ctx context.Context, businessID string, ptype domain.ProductType) error {
+	if s.ents == nil {
+		return nil
+	}
+	e, err := s.ents.Entitlements(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	n, err := s.repos.Products.CountByBusinessAndType(ctx, businessID, ptype, "")
+	if err != nil {
+		return err
+	}
+	if e.Exceeds("product_limit", n+1) {
+		return domain.ErrValidation.WithField("_",
+			"Your plan includes up to "+strconv.Itoa(e.ProductLimit)+" "+
+				catalogNoun(ptype)+". Remove one, or upgrade to add more.")
+	}
+	return nil
+}
+
+func catalogNoun(ptype domain.ProductType) string {
+	if ptype == domain.ProductTypeService {
+		return "services"
+	}
+	return "products"
 }
 
 // Create starts a product in draft state.
@@ -51,6 +92,9 @@ func (s *Products) Create(ctx context.Context, ownerID, businessID string, in Pr
 	ptype := domain.ProductTypeProduct
 	if in.Type != nil && *in.Type == "service" {
 		ptype = domain.ProductTypeService
+	}
+	if err := s.checkCatalogCapacity(ctx, businessID, ptype); err != nil {
+		return nil, err
 	}
 	currency := "USD"
 	if in.Currency != nil && len(*in.Currency) == 3 {
@@ -388,6 +432,46 @@ func (s *Products) Duplicate(ctx context.Context, ownerID, productID string) (*d
 }
 
 // List returns all products (with options/variants) for the owner dashboard.
+// attachChildren loads options and variants for a product list in two queries
+// total instead of two per product.
+//
+// ListPublished runs on every public business page view AND once per column of
+// /compare, so at 50 products this was 105 sequential round trips per page view;
+// 105 round trips became 2.
+func (s *Products) attachChildren(ctx context.Context, list []*domain.Product) error {
+	if len(list) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(list))
+	for _, p := range list {
+		ids = append(ids, p.ID)
+	}
+	opts, err := s.repos.Products.OptionsForProducts(ctx, ids)
+	if err != nil {
+		return err
+	}
+	vars, err := s.repos.Products.VariantsForProducts(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, p := range list {
+		// A product with no options/variants must get an EMPTY slice, not nil:
+		// the client distinguishes "no options" from "not loaded", and
+		// `p.variants && p.variants.length > 0` renders differently.
+		o, okv := opts[p.ID]
+		if !okv {
+			o = []*domain.ProductOption{}
+		}
+		v, okv := vars[p.ID]
+		if !okv {
+			v = []*domain.ProductVariant{}
+		}
+		p.Options = o
+		p.Variants = v
+	}
+	return nil
+}
+
 func (s *Products) List(ctx context.Context, ownerID, businessID string) ([]*domain.Product, error) {
 	if err := s.own(ctx, ownerID, businessID); err != nil {
 		return nil, err
@@ -396,17 +480,8 @@ func (s *Products) List(ctx context.Context, ownerID, businessID string) ([]*dom
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range list {
-		options, err := s.repos.Products.ListOptions(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		variants, err := s.repos.Products.ListVariants(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		p.Options = options
-		p.Variants = variants
+	if err := s.attachChildren(ctx, list); err != nil {
+		return nil, err
 	}
 	return list, nil
 }
@@ -417,17 +492,8 @@ func (s *Products) ListPublished(ctx context.Context, businessID string) ([]*dom
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range list {
-		variants, err := s.repos.Products.ListVariants(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		p.Variants = variants
-		opts, err := s.repos.Products.ListOptions(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		p.Options = opts
+	if err := s.attachChildren(ctx, list); err != nil {
+		return nil, err
 	}
 	return list, nil
 }
@@ -456,15 +522,21 @@ func (s *Products) ownedProduct(ctx context.Context, ownerID, productID string) 
 	return p, nil
 }
 
+// own authorizes a product/catalog write.
+//
+// CO-OWNER PARITY (audit finding). This compared `b.OwnerID != ownerID`, i.e.
+// owner-only, while every other business-scoped path — businesses.owned,
+// analytics, chat quick replies, community — uses CanManageBusiness. The
+// observable effect: a co-owner could view analytics, edit the storefront, post
+// announcements and reply to quick replies, and then got a 403 the moment they
+// touched the product catalog. It contradicted API.md and ARCHITECTURE.md §7.2,
+// and it made the co-owner invite feature half-real.
 func (s *Products) own(ctx context.Context, ownerID, businessID string) error {
-	b, err := s.repos.Businesses.GetByID(ctx, businessID)
+	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
 	if err != nil {
 		return err
 	}
-	if b == nil {
-		return domain.ErrNotFound
-	}
-	if b.OwnerID != ownerID {
+	if !can {
 		return domain.ErrForbidden
 	}
 	return nil

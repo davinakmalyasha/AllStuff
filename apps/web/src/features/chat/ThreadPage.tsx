@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -37,12 +37,12 @@ import { Button } from '@/components/ui/Button'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { ws } from '@/lib/ws'
 import { safeExternalUrl } from '@/lib/url'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { copyText, resetFileInput } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
 import { Confirm, Modal, useDialogA11y } from '@/components/ui/Modal'
 
-const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '❌', '🤔', '👏', '😍', '😎', '💯', '🥳', '🤝', '👌', '😅', '🙌']
+const EMOJIS = ['ðŸ‘', 'â¤ï¸', 'ðŸ˜‚', 'ðŸ˜®', 'ðŸ˜¢', 'ðŸ™', 'ðŸ”¥', 'ðŸŽ‰', 'âœ…', 'âŒ', 'ðŸ¤”', 'ðŸ‘', 'ðŸ˜', 'ðŸ˜Ž', 'ðŸ’¯', 'ðŸ¥³', 'ðŸ¤', 'ðŸ‘Œ', 'ðŸ˜…', 'ðŸ™Œ']
 
 // Monotonic temp ids: `-Date.now()` collided when two messages were sent in
 // the same millisecond (duplicate React keys broke reconciliation).
@@ -70,7 +70,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [messages, setMessages] = useState<ChatMessageDTO[]>([])
   const [text, setText] = useState('')
   const [replyTo, setReplyTo] = useState<ChatMessageDTO | null>(null)
@@ -87,14 +87,96 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const didInitialScroll = useRef(false)
   const typingTimer = useRef<ReturnType<typeof setTimeout>>()
 
+  // ---- history pagination -------------------------------------------------
+  // The API pages by `before` (an exclusive message-id upper bound) and reports
+  // has_more. Older history used to be unreachable: the handler hard-limited to
+  // 50 messages with no cursor, so in any longer thread the earlier half could
+  // not be loaded by any control. The initial page is the newest 50; scrolling
+  // to the top walks backwards with the oldest id received so far.
+  const [older, setOlder] = useState<ChatMessageDTO[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const loadingOlderRef = useRef(false)
+
   const { data, isLoading } = useQuery({
     queryKey: ['thread', id],
-    queryFn: () => api<{ thread: ThreadDTO; messages: ChatMessageDTO[] }>(`/threads/${id}`),
+    queryFn: () => api<{ thread: ThreadDTO; messages: ChatMessageDTO[]; has_more: boolean }>(`/threads/${id}`),
     enabled: !!id,
   })
 
+  // Reset the backward cursor when the thread changes, or a previous thread's
+  // older pages would leak into this one.
+  useEffect(() => {
+    setOlder([])
+    setHasMore(false)
+  }, [id])
+
+  useEffect(() => {
+    if (data) {
+      setMessages(data.messages)
+      setHasMore(data.has_more ?? false)
+    }
+  }, [data])
+
+  const oldestLoadedId = useMemo(() => {
+    const ids = [...older, ...messages].map((m) => m.id)
+    return ids.length ? Math.min(...ids) : 0
+  }, [older, messages])
+
+  // Prepending older pages grows the scrollport ABOVE the viewport, so the
+  // browser would jump the reader upward by the height of the inserted
+  // content. Recording scrollHeight before the request and restoring the
+  // delta afterwards keeps the message the reader was looking at in place.
+  const preLoadHeightRef = useRef(0)
+
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMore || !oldestLoadedId) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    preLoadHeightRef.current = scrollBodyRef.current?.scrollHeight ?? 0
+    try {
+      const res = await api<{ messages: ChatMessageDTO[]; has_more: boolean }>(
+        `/threads/${id}?before=${oldestLoadedId}&limit=50`,
+      )
+      setOlder((prev) => {
+        const seen = new Set([...prev, ...messages].map((m) => m.id))
+        const fresh = res.messages.filter((m) => !seen.has(m.id))
+        return fresh.length ? [...fresh, ...prev] : prev
+      })
+      setHasMore(res.has_more ?? false)
+    } catch {
+      // Leave has_more set so the control stays available for a retry.
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }, [hasMore, oldestLoadedId, id, messages])
+
+  // Restore the reading position after older messages are prepended. Runs on
+  // every commit so the adjustment lands in the same frame as the new nodes.
+  useEffect(() => {
+    const el = scrollBodyRef.current
+    if (!el || !preLoadHeightRef.current) return
+    const delta = el.scrollHeight - preLoadHeightRef.current
+    preLoadHeightRef.current = 0
+    if (delta > 0) el.scrollTop += delta
+  })
+
+  // Trigger the next page when the scroll container reaches the top. The
+  // container is observed rather than a window scroll listener, because the
+  // thread body is its own scrollport.
+  useEffect(() => {
+    const el = scrollBodyRef.current
+    if (!el || !hasMore) return
+    const onScroll = () => {
+      if (el.scrollTop <= 48) void loadOlder()
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [hasMore, loadOlder])
+
   // Header label: the detail payload carries ids only, so resolve the display
-  // name from the thread list — business name for business threads, the other
+  // name from the thread list â€” business name for business threads, the other
   // participant for direct ones.
   const { data: labeled } = useQuery({
     queryKey: ['thread-labels'],
@@ -107,10 +189,6 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       ? listItem.business_name ?? 'Chat'
       : listItem.other_name ?? 'Chat'
     : 'Chat'
-
-  useEffect(() => {
-    if (data) setMessages(data.messages)
-  }, [data])
 
   // Live events.
   useEffect(() => {
@@ -158,7 +236,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       }),
     ]
     // Reconnect backfill: frames published while the socket was down are
-    // gone forever (server keeps no replay), so refetch the tail on reopen —
+    // gone forever (server keeps no replay), so refetch the tail on reopen â€”
     // previously messages sent during a blip never appeared.
     const offStatus = ws.onStatusChange((connected) => {
       if (connected) void qc.invalidateQueries({ queryKey: ['thread', id] })
@@ -173,19 +251,29 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   useEffect(() => {
     const el = scrollBodyRef.current
     if (!el) return
+    // Assign scrollTop on the CONTAINER rather than calling scrollIntoView().
+    //
+    // `Element.scrollIntoView()` with no argument scrolls every scrollable
+    // ancestor including the document, so the first message after a route
+    // change yanks the whole page. Scoping the assignment to the thread's own
+    // scrollport cannot affect the document.
+    const toBottom = (smooth: boolean) => {
+      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      else el.scrollTop = el.scrollHeight
+    }
     if (!didInitialScroll.current) {
       // Initial load lands on the newest message instantly (no animation).
       didInitialScroll.current = true
-      bottomRef.current?.scrollIntoView()
+      toBottom(false)
       return
     }
-    // Otherwise follow only while the reader is already near the bottom —
+    // Otherwise follow only while the reader is already near the bottom â€”
     // scrolling up to read history must not be yanked back on every frame.
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distance < 120) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (distance < 120) toBottom(true)
   }, [messages.length])
 
-  // Typing signal: throttled to one POST per 2.5s while actively typing —
+  // Typing signal: throttled to one POST per 2.5s while actively typing â€”
   // the old per-keystroke send fired ~40 requests for a single message.
   const lastTypingSent = useRef(0)
   const sendTyping = () => {
@@ -265,7 +353,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }
   const [pendingKind, setPendingKind] = useState<'image' | 'file' | 'video' | 'audio'>('image')
 
-  // Voice notes (PRD §5.5.2): MediaRecorder → webm → chat_audio upload.
+  // Voice notes (PRD Â§5.5.2): MediaRecorder â†’ webm â†’ chat_audio upload.
   // Capped at 5 minutes; oversized recordings surface an error toast instead
   // of being silently dropped.
   const [recording, setRecording] = useState(false)
@@ -273,7 +361,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const recTimerRef = useRef<number | null>(null)
 
   // Unmount cleanup: stop a live recording, release every mic track and the
-  // hard-stop timer — navigating away mid-recording used to hold the mic.
+  // hard-stop timer â€” navigating away mid-recording used to hold the mic.
   useEffect(() => {
     return () => {
       const rec = recorderRef.current
@@ -399,9 +487,9 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     enabled: searching && debouncedSearchQ.trim().length >= 2,
   })
 
-  // Thread mute (PRD §5.5.1): optimistic toggle only. Neither the thread
+  // Thread mute (PRD Â§5.5.1): optimistic toggle only. Neither the thread
   // detail nor list payloads carry muted state client-side, so there is no
-  // server value to seed from — the bell starts unmuted on each visit.
+  // server value to seed from â€” the bell starts unmuted on each visit.
   const [muted, setMuted] = useState(false)
   const toggleMute = async () => {
     const next = !muted
@@ -415,7 +503,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     }
   }
 
-  // Pinned conversation (PRD §5.5.1, max 5): header toggle.
+  // Pinned conversation (PRD Â§5.5.1, max 5): header toggle.
   const [pinnedThread, setPinnedThread] = useState(false)
   const [pinnedTick, setPinnedTick] = useState(0)
   useEffect(() => {
@@ -438,9 +526,18 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }
 
   const own = (m: ChatMessageDTO) => m.sender_id === user?.id
-  const display = useMemo(() => messages.filter((m) => !(m.deleted_for === 'me' && m.sender_id === user?.id)), [messages, user?.id])
+  // `older` holds pages fetched before the initial (newest) page, so the full
+  // transcript is older-first followed by messages. Soft-deleted-for-me rows are
+  // filtered out of the render but still count toward the pagination cursor.
+  const display = useMemo(
+    () =>
+      [...older, ...messages].filter(
+        (m) => !(m.deleted_for === 'me' && m.sender_id === user?.id),
+      ),
+    [older, messages, user?.id],
+  )
 
-  // ---- power features (PRD §5.5.2/§5.5.4) ----
+  // ---- power features (PRD Â§5.5.2/Â§5.5.4) ----
 
   const thread = data?.thread
   const closed = thread?.status === 'closed'
@@ -466,7 +563,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
     [galleryData],
   )
 
-  // Block list — only consulted for direct threads.
+  // Block list â€” only consulted for direct threads.
   const otherUserId = listItem?.type === 'direct' ? listItem.other_id : null
   const { data: blocksData } = useQuery({
     queryKey: ['blocks'],
@@ -651,6 +748,24 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
 
       {/* Messages */}
       <div ref={scrollBodyRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {/*
+          Older-history control. Scrolling to the top also triggers loadOlder,
+          but this button is the keyboard/touch-reachable equivalent: a
+          scroll-position listener alone is unreachable without a pointer and
+          invisible to screen readers.
+        */}
+        {hasMore && (
+          <div className="flex justify-center pb-2">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-ink2 hover:bg-surface2 disabled:opacity-50"
+            >
+              {loadingOlder ? 'Loading earlier messagesâ€¦' : 'Load earlier messages'}
+            </button>
+          </div>
+        )}
         {display.map((m) => (
           <MessageRow
             key={m.id}
@@ -683,7 +798,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       {replyTo && (
         <div className="flex items-center gap-2 border-t border-border bg-surface2 px-4 py-2">
           <p className="flex-1 truncate text-xs text-ink2">{t('chat.replyingTo')} {replyTo.body ?? 'media'}</p>
-          <button onClick={() => setReplyTo(null)} className="text-ink3 hover:text-ink">✕</button>
+          <button onClick={() => setReplyTo(null)} className="text-ink3 hover:text-ink">âœ•</button>
         </div>
       )}
 
@@ -703,7 +818,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             ))}
           </div>
         )}
-        {pendingFile && <p className="mb-2 text-xs text-ink2">{uploadingMedia ? '⏳' : '📎'} {pendingKind} ready to send</p>}
+        {pendingFile && <p className="mb-2 text-xs text-ink2">{uploadingMedia ? 'â³' : 'ðŸ“Ž'} {pendingKind} ready to send</p>}
         <div className="flex items-end gap-2">
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send image">
             <ImageIcon className="h-5 w-5" />
@@ -731,11 +846,11 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void edit()}
                 className="h-10 flex-1 rounded-lg border border-ink bg-surface px-3 text-sm text-ink"
-                placeholder="Editing…"
+                placeholder="Editingâ€¦"
                 autoFocus
               />
               <Button size="sm" onClick={() => void edit()} disabled={!text.trim()}>Save</Button>
-              <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setText('') }}>✕</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setText('') }}>âœ•</Button>
             </>
           ) : (
             <>
@@ -760,7 +875,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
         <input
           value={forwardQ}
           onChange={(e) => setForwardQ(e.target.value)}
-          placeholder="Search conversations…"
+          placeholder="Search conversationsâ€¦"
           className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
           autoFocus
         />
@@ -909,7 +1024,7 @@ function MessageRow({
       <div className={`max-w-[75%] ${own ? 'order-1' : ''}`}>
         {replyTarget && (
           <button onClick={() => onJump(m.reply_to_id ?? 0)} className="mb-0.5 block max-w-full truncate rounded-t-lg bg-surface2 px-3 py-1 text-[10px] text-ink3 hover:text-ink" title="Jump to original">
-            ↳ {replyTarget.body ?? 'media'}
+            â†³ {replyTarget.body ?? 'media'}
           </button>
         )}
         <div className={`rounded-2xl px-3.5 py-2 text-sm ${own ? 'bg-accent text-accent-ink' : 'border border-border bg-surface text-ink'}`}>
@@ -921,7 +1036,7 @@ function MessageRow({
           )}
           {m.type === 'file' && m.media_id && (
             <a href={`/api/v1/media/${m.media_id}/file`} target="_blank" rel="noreferrer" className="mb-1.5 flex items-center gap-2 rounded-lg bg-surface2 px-3 py-2 text-xs underline-offset-2 hover:underline">
-              📎 {m.body ?? 'Download file'}
+              ðŸ“Ž {m.body ?? 'Download file'}
             </a>
           )}
           {m.type === 'audio' && m.media_id && (
@@ -938,7 +1053,7 @@ function MessageRow({
           </p>
         </div>
         {showActions && (
-          // Visible on keyboard focus and coarse pointers too — hover-only
+          // Visible on keyboard focus and coarse pointers too â€” hover-only
           // actions were unreachable without a mouse.
           <div className={`mt-0.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 ${own ? 'justify-end' : ''}`}>
             <button onClick={() => { void copyText(m.body ?? '').then((ok) => toast.success(ok ? 'Copied' : 'Copy failed')) }} className="text-[10px] text-ink3 hover:text-ink">{t('chat.actCopy')}</button>
@@ -967,7 +1082,7 @@ function MessageRow({
       )}
       {pickerOpen && (
         <>
-          {/* Backdrop only dismisses the picker — reacting never happens via it. */}
+          {/* Backdrop only dismisses the picker â€” reacting never happens via it. */}
           <div className="fixed inset-0 z-40" onClick={closePicker} />
           <div
             ref={pickerRef}

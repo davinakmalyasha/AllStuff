@@ -1,53 +1,104 @@
 name: Deploy
 
-# Template deploy pipeline (README advertises it). Activates once the repo
+# Deploy pipeline for Vercel (web) + Railway (API). Activates once the repo
 # variable DEPLOY_ENABLED=true and the matching secrets exist:
 #   API   → Railway   (secrets: RAILWAY_TOKEN, var RAILWAY_SERVICE)
 #   WEB   → Vercel    (secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID)
-# Migrations run as part of the API container start (`-migrate` on boot per
-# docs/DEPLOYMENT.md), so no separate migrate step is needed here.
+#
+# Migrations run as part of the API container start (the runner applies them at
+# boot under an advisory lock, before the listener opens — see
+# services/api/internal/db/migrate.go). There is deliberately no separate
+# migrate step here: adding one is redundant and races the boot-time one.
+#
+# GATED ON CI. This workflow used to trigger on `push: main` independently of
+# ci.yml, which meant a red main deployed to production. `workflow_run` waits for
+# the CI workflow to complete and only proceeds when it concluded `success`.
 #
 # Security notes:
-# - The secrets context is NOT reliably available in job-level `if:`; gates
-#   that read it live in a first step (guard) and are consumed via outputs.
+# - `contents: read` is the default for every step here. No step needs write.
+# - The secrets context is NOT reliably available in job-level `if:`; gates that
+#   read it live in a first step (guard) and are consumed via outputs.
 # - Third-party actions are pinned to full commit SHAs (supply chain).
+# - Every third-party CLI is pinned to an exact version, not a range. `npx vercel`
+#   with no version downloads whatever is newest at run time and executes it with
+#   VERCEL_TOKEN in the environment; that directly contradicted the SHA-pinning
+#   policy stated two lines above it.
+
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Never let two deploys of main overlap, and never cancel a deploy that is
+# already rolling out. cancel-in-progress: false is the whole point here — the
+# opposite of the CI workflow, where superseding is correct.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RAILWAY_CLI: "@railway/cli@4.9.4"
+  VERCEL_CLI: "vercel@41.4.1"
+  NODE_VERSION: "24.4.1"
+
 jobs:
+  gate:
+    name: Gate on CI
+    # workflow_run fires on completion regardless of conclusion, so the check has
+    # to be explicit. A skipped or cancelled CI run must not deploy either.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm CI succeeded
+        run: |
+          echo "CI conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "commit: ${{ github.event.workflow_run.head_sha }}"
+
   api:
     name: API → Railway
+    needs: gate
     runs-on: ubuntu-latest
-    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    timeout-minutes: 15
+    if: vars.DEPLOY_ENABLED == 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Guard (secret present?)
         id: guard
         env:
           HAS_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
         run: echo "ok=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
-      - name: Install Railway CLI (pinned npm package — no curl|sh)
+      - name: Install Railway CLI (exact version — no curl|sh, no floating tag)
         if: steps.guard.outputs.ok == 'true'
-        run: npm install -g @railway/cli@4
+        run: npm install -g "$RAILWAY_CLI"
       - name: Deploy
         if: steps.guard.outputs.ok == 'true'
-        run: railway up --service "${RAILWAY_SERVICE:-api}" --ci
+        run: railway up --service "${RAILWAY_SERVICE:-api}" --ci --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+          RAILWAY_CLI: ${{ env.RAILWAY_CLI }}
 
   web:
     name: Web → Vercel
+    needs: [gate, api]
     runs-on: ubuntu-latest
-    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-    needs: api
+    timeout-minutes: 15
+    if: vars.DEPLOY_ENABLED == 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - name: Guard (secret present?)
@@ -58,11 +109,42 @@ jobs:
       - name: Deploy production
         if: steps.guard.outputs.ok == 'true'
         working-directory: apps/web
+        # Exact version: an unpinned `npx vercel` fetches the newest CLI at run
+        # time and runs it with the deploy token in scope.
         run: |
-          npx vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
-          npx vercel build --prod --token "$VERCEL_TOKEN"
-          npx vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+          npx --yes "$VERCEL_CLI" pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx --yes "$VERCEL_CLI" build --prod --token "$VERCEL_TOKEN"
+          npx --yes "$VERCEL_CLI" deploy --prebuilt --prod --token "$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_CLI: ${{ env.VERCEL_CLI }}
+
+  verify:
+    name: Post-deploy smoke
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: vars.DEPLOY_ENABLED == 'true' && vars.PUBLIC_URL != ''
+    steps:
+      # A deploy that reports success but serves a 500 is the failure mode worth
+      # catching automatically. The API refuses to boot on several config
+      # invariants, so a container that starts at all is meaningful; this checks
+      # the thing that actually reaches a user.
+      - name: Smoke
+        run: |
+          base="${{ vars.PUBLIC_URL }}"
+          for path in /api/v1/health /api/v1/ready /robots.txt; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$base$path" || echo 000)
+            echo "$path -> $code"
+            case "$code" in
+              2*|3*) ;;
+              *) echo "::error::$path returned $code"; exit 1 ;;
+            esac
+          done
+          # /api/v1/search is the heaviest read path and the one a
+          # misconfigured tsvector index or an invalid GIN index would break.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/api/v1/search?limit=1" || echo 000)
+          echo "/api/v1/search -> $code"
+          [ "$code" = "200" ] || { echo "::error::search returned $code"; exit 1; }

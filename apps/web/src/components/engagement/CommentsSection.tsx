@@ -9,7 +9,7 @@ import { Confirm } from '@/components/ui/Modal'
 import { ReportButton } from '@/components/engagement/ReportShare'
 import { toast } from '@/components/ui/Toast'
 import { formatDateTime } from '@/lib/format'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 interface MentionUser {
   id: string
@@ -17,10 +17,10 @@ interface MentionUser {
   username: string
 }
 
-/** Threaded comments with likes, @mentions, edit/delete, reports (PRD §5.6.2). */
+/** Threaded comments with likes, @mentions, edit/delete, reports (PRD Â§5.6.2). */
 export function CommentsSection({ businessId }: { businessId: string }) {
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [text, setText] = useState('')
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null)
   const [replyText, setReplyText] = useState('')
@@ -136,7 +136,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
           <div className="mt-1.5 flex gap-2">
             <input value={editText} onChange={(e) => setEditText(e.target.value)} className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
             <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: c.id, text: editText })} disabled={!editText.trim()}>Save</Button>
-            <Button variant="secondary" size="sm" onClick={() => setEditId(null)}>✕</Button>
+            <Button variant="secondary" size="sm" onClick={() => setEditId(null)}>âœ•</Button>
           </div>
         ) : (
           <p className="mt-1.5 text-sm text-ink2">{renderMentions(c.text)}</p>
@@ -196,7 +196,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
               aria-expanded={mentionQuery !== null && (mentionResults?.users?.length ?? 0) > 0}
               aria-controls="mention-list"
               aria-activedescendant={mentionQuery !== null ? `mention-opt-${mentionIdx}` : undefined}
-              placeholder={replyTo ? `Replying to @${replyTo.name}…` : 'Join the conversation… (@username to mention)'}
+              placeholder={replyTo ? `Replying to @${replyTo.name}â€¦` : 'Join the conversationâ€¦ (@username to mention)'}
               className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
             />
             <Button onClick={() => void createMut.mutateAsync({ text: activeText, parent_id: replyTo?.id })} disabled={activeText.trim().length === 0 || createMut.isPending}>

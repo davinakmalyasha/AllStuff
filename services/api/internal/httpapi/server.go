@@ -38,6 +38,7 @@ type Deps struct {
 	Cities      *service.Cities
 	APIKeys     *service.APIKeys
 	Claims      *service.Claims
+	Billing     *service.Billing
 	Notifier    *service.Notifier
 	RateLimiter ratelimit.RateLimiter
 	Hub         *ws.Hub
@@ -47,10 +48,19 @@ type Server struct {
 	deps    Deps
 	mux     *http.ServeMux
 	metrics Metrics
+	// gzipPool is shared across requests. Declared per-Server (not per-request)
+	// so gzip.Writer's ~300-400 KB internal compressor state is reused instead
+	// of reallocated on every gzip-advertising request.
+	gzipPool gzipWriterPool
+	// ssr renders the server-rendered SEO shell for /b, /c and /city. Kept on
+	// the Server (not global) so it can be Reloaded after a deploy replaces
+	// dist/ and so tests can point it at a fixture directory.
+	ssr *ssrRenderer
 }
 
 func NewServer(deps Deps) *Server {
 	s := &Server{deps: deps, mux: http.NewServeMux()}
+	s.ssr = newSSRRenderer(deps.Config.PublicURL, deps.Config.WebDistDir, deps.Logger)
 	s.routes()
 	return s
 }
@@ -88,6 +98,24 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/claims", s.handleClaims)
 	mux.HandleFunc("GET /api/v1/admin/claims", s.adminOnly(s.handleAdminClaims))
 	mux.HandleFunc("POST /api/v1/admin/claims/{claimId}/decide", s.adminOnly(s.handleAdminClaims))
+
+	// Server-rendered SEO shell (Phase 5). These live on the API origin and are
+	// the rewrite targets behind /b/:slug, /c/:slug and /city/:slug in
+	// vercel.json, so a crawler receives real HTML instead of <div id=root>.
+	// They are read-only, unauthenticated, and rate-limited by the sitemap tier.
+	mux.HandleFunc("GET /ssr/b/{slug}", s.handleSSRBusiness)
+	mux.HandleFunc("GET /ssr/c/{slug}", s.handleSSRCategory)
+	mux.HandleFunc("GET /ssr/city/{slug}", s.handleSSRCity)
+
+	// Billing (Phase 7.1 monetization). The webhook is unauthenticated by
+	// design — Stripe authenticates with a signature over the raw body, not a
+	// session — so it is deliberately listed in csrfExemptPaths.
+	mux.HandleFunc("POST /api/v1/billing/webhook", s.handleBillingWebhook)
+	mux.HandleFunc("GET /api/v1/plans", s.handlePlans)
+	mux.HandleFunc("GET /api/v1/businesses/{businessId}/billing", s.handleBillingSubscription)
+	mux.HandleFunc("GET /api/v1/businesses/{businessId}/billing/invoices", s.handleBillingInvoices)
+	mux.HandleFunc("POST /api/v1/businesses/{businessId}/billing/checkout", s.handleBillingCheckout)
+	mux.HandleFunc("POST /api/v1/businesses/{businessId}/billing/portal", s.handleBillingPortal)
 	mux.HandleFunc("POST /api/v1/me/security/2fa", s.handle2FAEnroll)
 	mux.HandleFunc("POST /api/v1/me/security/2fa/confirm", s.handle2FAConfirm)
 	mux.HandleFunc("DELETE /api/v1/me/security/2fa", s.handle2FADisable)
@@ -363,7 +391,8 @@ func (s *Server) chain(next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	// Collections are always arrays, never null — see nonNilLists.
+	_ = json.NewEncoder(w).Encode(nonNilLists(v))
 }
 
 func ok(w http.ResponseWriter, v any)      { writeJSON(w, http.StatusOK, v) }

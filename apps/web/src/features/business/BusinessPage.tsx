@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Clock,
@@ -23,9 +23,9 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { toast } from '@/components/ui/Toast'
-import { priceLabel } from '@/features/dashboard/StorefrontPreview'
+import { Price } from '@/features/dashboard/StorefrontPreview'
 import { EngagementBar } from '@/components/engagement/EngagementBar'
 import { ReviewsSection } from '@/components/engagement/ReviewsSection'
 import { CommentsSection } from '@/components/engagement/CommentsSection'
@@ -63,17 +63,36 @@ function socialLinks(contact: Record<string, string>): string[] {
 
 export function BusinessPage() {
   const { slug = '' } = useParams()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [product, setProduct] = useState<ProductDTO | null>(null)
 
+  // The query KEY must vary with everything the FETCHER depends on.
+  //
+  // This used to read `window.location.search` inside queryFn while keying only
+  // on ['business', slug]. Two concrete bugs followed:
+  //  * With a warm ['business', slug] entry, opening /b/slug?draft=1 served the
+  //    CACHED public payload, so the owner's "preview as guest" showed the
+  //    published page instead of the draft.
+  //  * Because the key was stable, changing the query string did not trigger a
+  //    refetch at all, so ?draft=1 only worked on a cold cache.
+  //
+  // The param set is derived through useSearchParams (reactive) and normalised
+  // to a sorted string so ?a=1&b=2 and ?b=2&a=1 share one cache entry.
+  const [searchParams] = useSearchParams()
+  const paramKey = useMemo(
+    () => [...searchParams.entries()].sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`).join('&'),
+    [searchParams],
+  )
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['business', slug],
+    queryKey: ['business', slug, paramKey],
     queryFn: () =>
-      api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; trend?: { is_booming: boolean; is_rising: boolean }; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${window.location.search}`),
+      api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; trend?: { is_booming: boolean; is_rising: boolean }; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${paramKey ? `?${paramKey}` : ''}`),
   })
 
   const b = data?.business
-  usePageMeta(b ? `${b.name} — ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
+  usePageMeta(b ? `${b.name} â€” ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
     image: b ? `/og/b/${b.slug}` : undefined,
     url: b ? `${window.location.origin}/b/${b.slug}` : undefined,
   })
@@ -117,7 +136,7 @@ export function BusinessPage() {
     </div>
   )
 
-  // Storefront theming from the published snapshot (PRD §10.5): drafts never public.
+  // Storefront theming from the published snapshot (PRD Â§10.5): drafts never public.
   // With ?draft=1 the owner sees their draft via the `preview` payload.
   const preview = data?.preview as { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } | undefined
   const snapshot = preview ?? (b as unknown as { published_snapshot?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }).published_snapshot
@@ -167,7 +186,7 @@ export function BusinessPage() {
               )}
               {b.founded_year != null && <span className="font-mono text-xs">Est. {b.founded_year}</span>}
               <span>{b.city}, {b.country}</span>
-              <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || '—'}</span>
+              <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || 'â€”'}</span>
               <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open now' : 'Closed now'}</Badge>
             </div>
           </div>
@@ -218,7 +237,7 @@ export function BusinessPage() {
               <h2 className="mono-label mb-3">Amenities</h2>
               <div className="flex flex-wrap gap-2">
                 {b.amenities!.map((a) => (
-                  <span key={a} className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-ink2">✓ {a}</span>
+                  <span key={a} className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-ink2">âœ“ {a}</span>
                 ))}
               </div>
             </section>
@@ -235,14 +254,19 @@ export function BusinessPage() {
             </section>
           )}
 
-          {enabled('products') && (
+          {/*
+            Section hidden entirely when the catalog is empty (PRD Â§5.3.3).
+            It previously rendered "Catalog coming soon." â€” which reads as an
+            unfinished product on the single most SEO-sensitive page in the
+            product, where a directory's value is the listing looking complete.
+            An owner who has not added products yet should simply not show the
+            section, exactly as a section toggled off in the builder would.
+          */}
+          {enabled('products') && products.length > 0 && (
             <section>
               <h2 className="mono-label mb-3">Products & services</h2>
-              {products.length === 0 ? (
-                <Card className="py-10 text-center text-sm text-ink3">Catalog coming soon.</Card>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {products.map((p) => (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {products.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => setProduct(p)}
@@ -261,16 +285,17 @@ export function BusinessPage() {
                         </div>
                         {p.description && <p className="mt-1 line-clamp-2 text-xs" style={{ color: 'var(--pv-muted)' }}>{p.description}</p>}
                         <div className="mt-2 flex items-center justify-between">
-                          <span className="font-mono text-sm">{p.call_for_price ? 'Call for price' : priceLabel(p)}</span>
+                          <span className="font-mono text-sm">
+                            {p.call_for_price ? 'Call for price' : <Price product={p} />}
+                          </span>
                           {p.variants && p.variants.length > 0 && (
                             <span className="text-xs" style={{ color: 'var(--pv-muted)' }}>{p.variants.length} options</span>
                           )}
                         </div>
                       </div>
                     </button>
-                  ))}
-                </div>
-              )}
+                ))}
+              </div>
             </section>
           )}
 
@@ -309,7 +334,7 @@ export function BusinessPage() {
                 {openDays.map(([d, h]) => (
                   <li key={d} className="flex items-center justify-between">
                     <span className="text-ink2">{cap(d)}</span>
-                    <span className="font-mono text-ink">{h?.open}–{h?.close}</span>
+                    <span className="font-mono text-ink">{h?.open}â€“{h?.close}</span>
                   </li>
                 ))}
               </ul>
@@ -349,8 +374,8 @@ export function BusinessPage() {
                 return (
                   <ContactRow
                     key={k}
-                    icon={<span className="text-ink3">↗</span>}
-                    label={`${label} · @${handle}`}
+                    icon={<span className="text-ink3">â†—</span>}
+                    label={`${label} Â· @${handle}`}
                     href={SOCIAL_URLS[k]?.(handle) ?? handle}
                   />
                 )
@@ -438,7 +463,7 @@ function MessageButton({ businessId, loggedIn, slug }: { businessId: string; log
 
 function ContactRow({ icon, label, href }: { icon: React.ReactNode; label: string; href: string }) {
   // Owner-controlled values (website field, social handles) pass through a
-  // scheme allowlist — a `javascript:` website previously executed on click.
+  // scheme allowlist â€” a `javascript:` website previously executed on click.
   const safe = safeExternalUrl(href)
   if (!safe) return null
   return (

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
-import { useDialogA11y } from '@/components/ui/Modal'
+import { Modal } from '@/components/ui/Modal'
 
 export function AdminVerifyPage() {
   const qc = useQueryClient()
@@ -14,7 +14,11 @@ export function AdminVerifyPage() {
   const [tab, setTab] = useState<'pending' | 'rejected'>('pending')
   const [suspendOpen, setSuspendOpen] = useState(false)
   const [suspendReason, setSuspendReason] = useState('')
-  const dialogRef = useDialogA11y(!!selected, () => setSelected(null))
+  // The dialog's focus trap, Escape handling and scroll lock now come from the
+  // shared Modal. This overlay previously used only useDialogA11y (Escape +
+  // focus in/out), so Tab walked straight out of the dialog and into the page
+  // behind it — which for this dialog means typing a suspension reason into an
+  // unrelated field.
 
   const { data, isLoading } = useQuery({
     queryKey: ['verify-queue', tab],
@@ -98,24 +102,17 @@ export function AdminVerifyPage() {
       )}
 
       {selected && b && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={() => setSelected(null)}>
-          <Card className="my-8 w-full max-w-2xl" >
-            <div
-              ref={dialogRef}
-              tabIndex={-1}
-              role="dialog"
-              aria-modal="true"
-              aria-label={`Verification details for ${b.name}`}
-              onClick={(e) => e.stopPropagation()}
-              className="outline-none"
-            >
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight">{b.name}</h2>
-                  <p className="text-sm text-ink3">by {detail?.owner.name} ({detail?.owner.email}) · /b/{b.slug}</p>
-                </div>
-                <button onClick={() => setSelected(null)} className="rounded-lg p-1 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Close">✕</button>
-              </div>
+        <Modal
+          open={!!selected}
+          onClose={() => setSelected(null)}
+          title={`Verification · ${b.name}`}
+          maxWidth="max-w-2xl"
+        >
+          {selected && (
+            <>
+            <div className="mb-4">
+              <p className="text-sm text-ink3">by {detail?.owner.name} ({detail?.owner.email}) · /b/{b.slug}</p>
+            </div>
 
               <dl className="grid gap-2 text-sm sm:grid-cols-2">
                 <Row label="Category" value={b.category_name ?? '—'} />
@@ -199,9 +196,9 @@ export function AdminVerifyPage() {
                   </div>
                 )}
               </div>
-            </div>
-          </Card>
-        </div>
+            </>
+          )}
+        </Modal>
       )}
     </div>
   )

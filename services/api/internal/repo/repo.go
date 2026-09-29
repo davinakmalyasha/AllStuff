@@ -22,6 +22,7 @@ type Repos struct {
 	Push       *PushRepo
 	Community  *CommunityRepo
 	TFA        *TFARepo
+	Billing    *BillingRepo
 }
 
 func New(pool *pgxpool.Pool) *Repos {
@@ -38,6 +39,7 @@ func New(pool *pgxpool.Pool) *Repos {
 		Push:       &PushRepo{pool: pool},
 		Community:  &CommunityRepo{pool: pool},
 		TFA:        &TFARepo{pool: pool},
+		Billing:    &BillingRepo{pool: pool},
 	}
 }
 
@@ -57,6 +59,7 @@ func NewForTx(tx pgx.Tx) *Repos {
 		Push:       &PushRepo{pool: tx},
 		Community:  &CommunityRepo{pool: tx},
 		TFA:        &TFARepo{pool: tx},
+		Billing:    &BillingRepo{pool: tx},
 	}
 }
 

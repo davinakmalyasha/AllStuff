@@ -118,8 +118,8 @@ func (s *Server) handleCollectionUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var in struct {
-		Name      *string `json:"name"`
-		IsPublic  *bool   `json:"is_public"`
+		Name     *string `json:"name"`
+		IsPublic *bool   `json:"is_public"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
@@ -162,10 +162,10 @@ func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TargetType string  `json:"target_type"`
-		TargetID   string  `json:"target_id"`
-		Note       *string `json:"note"`
-		CollectionID string `json:"collection_id"`
+		TargetType   string  `json:"target_type"`
+		TargetID     string  `json:"target_id"`
+		Note         *string `json:"note"`
+		CollectionID string  `json:"collection_id"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
@@ -407,7 +407,7 @@ func (s *Server) handleReviewReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		rw *domain.Review
+		rw  *domain.Review
 		err error
 	)
 	if r.Method == http.MethodPatch {

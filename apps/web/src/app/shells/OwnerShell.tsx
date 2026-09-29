@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { api, type BusinessDTO } from '@/lib/api'
 import { MobileNav } from '@/components/ui/MobileNav'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { useBusiness } from '@/stores/business'
 
 const links = [
@@ -16,12 +16,13 @@ const links = [
   { to: '/dashboard/analytics', label: 'Analytics' },
   { to: '/dashboard/reviews', label: 'Reviews' },
   { to: '/dashboard/comments', label: 'Comments' },
+  { to: '/dashboard/billing', label: 'Billing' },
   { to: '/dashboard/settings', label: 'Settings' },
 ]
 
-/** Owner dashboard shell (PRD §6.4) with the universal business switcher. */
+/** Owner dashboard shell (PRD Â§6.4) with the universal business switcher. */
 export function OwnerShell() {
-  const { user, loading } = useAuth()
+  const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
   const navigate = useNavigate()
   const { selectedId, setSelected } = useBusiness()
 
@@ -33,8 +34,8 @@ export function OwnerShell() {
   const businesses = data?.businesses ?? []
   const active = businesses.find((b) => b.id === selectedId) ?? businesses[0]
 
-  if (loading) return <PageSpinner label="Loading dashboard…" />
-  if (!user) return <PageSpinner label="Signing you in…" />
+  if (loading) return <PageSpinner label="Loading dashboardâ€¦" />
+  if (!user) return <PageSpinner label="Signing you inâ€¦" />
 
   return (
     <div className="flex min-h-screen">
@@ -95,7 +96,7 @@ export function OwnerShell() {
 
 export function useActiveBusiness() {
   const { selectedId } = useBusiness()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const { data } = useQuery({
     queryKey: ['my-businesses'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),

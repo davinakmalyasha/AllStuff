@@ -17,13 +17,13 @@ import (
 // Access tokens: 15 min. verify_email: 24h. reset_password: 15 min (PRD §5.9.1).
 
 type jwtClaims struct {
-	Sub   string `json:"sub"`
-	Role  string `json:"role"`
-	User  string `json:"user,omitempty"`
-	Typ   string `json:"typ"`
-	Jti   string `json:"jti"`
-	Iat   int64  `json:"iat"`
-	Exp   int64  `json:"exp"`
+	Sub  string `json:"sub"`
+	Role string `json:"role"`
+	User string `json:"user,omitempty"`
+	Typ  string `json:"typ"`
+	Jti  string `json:"jti"`
+	Iat  int64  `json:"iat"`
+	Exp  int64  `json:"exp"`
 }
 
 func signJWT(secret string, c jwtClaims) (string, error) {

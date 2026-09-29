@@ -60,3 +60,102 @@
     @apply font-mono text-[11px] uppercase tracking-[0.18em] text-ink3;
   }
 }
+
+/* ------------------------------------------------------------------
+   Server-rendered SEO shell (Phase 5).
+-------------------------------------------------------------------
+   #seo is written by the API (services/api/internal/httpapi/handlers_ssr.go)
+   for /b, /c and /city so a crawler that does not execute JS still reads the
+   page. main.tsx removes it before the SPA's first render, so these rules only
+   ever apply to the no-JS view — but they are plain CSS on semantic elements so
+   the markup renders as a clean, readable document if the script never loads.
+------------------------------------------------------------------- */
+.bv-seo {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+  line-height: 1.6;
+}
+.bv-seo h1 {
+  font-size: 1.9rem;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+.bv-seo h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 2rem 0 0.5rem;
+}
+.bv-seo p {
+  margin: 0 0 0.75rem;
+  color: var(--color-ink-2);
+}
+.bv-seo .bv-tagline {
+  font-size: 1.05rem;
+  color: var(--color-ink);
+}
+.bv-seo .bv-cta {
+  margin-top: 2rem;
+  font-weight: 550;
+}
+.bv-seo .bv-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--color-ink-3);
+}
+.bv-seo .bv-crumbs li + li::before {
+  content: '/';
+  margin-right: 0.4rem;
+  color: var(--color-ink-3);
+}
+.bv-seo .bv-crumbs a {
+  color: var(--color-ink-2);
+  text-decoration: underline;
+}
+.bv-seo .bv-hours dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.5rem;
+  margin: 0;
+  font-size: 0.925rem;
+}
+.bv-seo .bv-hours dt {
+  color: var(--color-ink-2);
+}
+.bv-seo .bv-hours dd {
+  margin: 0;
+}
+.bv-seo .bv-products ul,
+.bv-seo .bv-cat-list ul,
+.bv-seo .bv-top ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.bv-seo .bv-products li {
+  margin-bottom: 0.3rem;
+}
+.bv-seo .bv-price {
+  color: var(--color-ink-2);
+}
+
+/* Respect the OS setting. This was absent entirely, and the map's booming
+   marker animation is a genuine vestibular trigger. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -5,11 +5,11 @@ import { BellPlus, Bookmark, MessageSquare, Star } from 'lucide-react'
 import { api, type CollectionDTO, type ProductDTO, type ReviewDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { toast } from '@/components/ui/Toast'
 import { formatMoney, useCurrency } from '@/stores/currency'
 
-/** Product modal (PRD §5.3.3): variants, per-product reviews, ask-about. */
+/** Product modal (PRD Â§5.3.3): variants, per-product reviews, ask-about. */
 export function ProductModal({
   product,
   businessId,
@@ -22,7 +22,7 @@ export function ProductModal({
   onClose: () => void
 }) {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const qc = useQueryClient()
   const { rates, display } = useCurrency()
   const [rating, setRating] = useState(5)
@@ -36,7 +36,7 @@ export function ProductModal({
   const reviews = data?.reviews ?? []
   const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : null
 
-  // Variant picker: option values → matching variant (PRD §5.4.3).
+  // Variant picker: option values â†’ matching variant (PRD Â§5.4.3).
   const options = product.options ?? []
   const [picks, setPicks] = useState<Record<string, string>>({})
   const matching = useMemo(
@@ -49,15 +49,15 @@ export function ProductModal({
   const shown = matching ?? product.variants?.[0] ?? null
   const price = shown?.price ?? product.base_price
 
-  // Gallery (PRD §5.3.3): cover + additional images, click-to-swap.
+  // Gallery (PRD Â§5.3.3): cover + additional images, click-to-swap.
   const gallery = [...new Set([product.cover_image_id, ...(product.image_ids ?? [])].filter(Boolean) as string[])]
   const [imgIdx, setImgIdx] = useState(0)
 
-  // Rating breakdown (PRD §5.3.3).
+  // Rating breakdown (PRD Â§5.3.3).
   const dist = [5, 4, 3, 2, 1].map((n) => ({ n, count: reviews.filter((r) => r.rating === n).length }))
   const maxDist = Math.max(1, ...dist.map((d) => d.count))
 
-  // Save-to-collection picker (PRD §5.3.3 / §6.6 collections).
+  // Save-to-collection picker (PRD Â§5.3.3 / Â§6.6 collections).
   const [pickerOpen, setPickerOpen] = useState(false)
   const { data: collections } = useQuery({
     queryKey: ['my-collections'],
@@ -75,7 +75,7 @@ export function ProductModal({
     },
   })
 
-  // "Ask about this" (PRD §5.3.3): open the business thread with a message
+  // "Ask about this" (PRD Â§5.3.3): open the business thread with a message
   // that already names the item so the owner has context.
   const askAbout = async () => {
     try {
@@ -289,7 +289,7 @@ export function ProductModal({
                 </button>
               ))}
             </div>
-            <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="What was it like? (10–2000 characters)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
+            <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="What was it like? (10â€“2000 characters)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => setWriting(false)}>Cancel</Button>
               <Button size="sm" onClick={() => void createReview.mutateAsync()} disabled={text.trim().length < 10 || createReview.isPending}>Post review</Button>
@@ -318,7 +318,7 @@ export function ProductModal({
                   aria-label="Helpful"
                   aria-pressed={r.my_vote === 1}
                 >
-                  👍 {r.helpful_count}
+                  ðŸ‘ {r.helpful_count}
                 </button>
               </div>
               <p className="mt-1 text-sm text-ink2">{r.text}</p>

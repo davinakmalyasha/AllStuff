@@ -11,6 +11,7 @@ import { Plus } from 'lucide-react'
 import '@/lib/i18n'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { ws } from '@/lib/ws'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { PublicLayout } from '@/components/layout/PublicLayout'
 import { UserShell } from '@/app/shells/UserShell'
 import { OwnerShell } from '@/app/shells/OwnerShell'
@@ -63,6 +64,8 @@ const StorefrontBuilderPage = lazy(() => import('@/features/dashboard/Storefront
 const ProductsPage = lazy(() => import('@/features/dashboard/ProductsPage').then((m) => ({ default: m.ProductsPage })))
 const SettingsPage = lazy(() => import('@/features/dashboard/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const AnalyticsPage = lazy(() => import('@/features/dashboard/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })))
+const BillingPage = lazy(() => import('@/features/dashboard/BillingPage').then((m) => ({ default: m.BillingPage })))
+const PricingPage = lazy(() => import('@/features/pages/PricingPage').then((m) => ({ default: m.PricingPage })))
 const DashboardReviewsPage = lazy(() => import('@/features/dashboard/EngagementPages').then((m) => ({ default: m.DashboardReviewsPage })))
 const DashboardCommentsPage = lazy(() => import('@/features/dashboard/EngagementPages').then((m) => ({ default: m.DashboardCommentsPage })))
 const AdminSettingsPage = lazy(() => import('@/features/admin/AdminSettingsPage').then((m) => ({ default: m.AdminSettingsPage })))
@@ -79,7 +82,7 @@ import { CurrencyProvider } from '@/components/CurrencyProvider'
 import { ToastStack, toast } from '@/components/ui/Toast'
 import { api, type BusinessDTO } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { hydrateCompare } from '@/stores/compare'
 
 function ScrollToTop() {
@@ -92,17 +95,26 @@ function ScrollToTop() {
 
 /** Suspense boundary for lazy routes. */
 function Lazy({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageSpinner />}>{children}</Suspense>
+  // The boundary is INSIDE the Suspense fallback's sibling, so a lazy chunk
+  // that resolves but throws on render still shows a recoverable panel rather
+  // than a blank page. `key` on the pathname resets the error state when the
+  // user navigates away, so one broken route does not poison the next one.
+  const { pathname } = useLocation()
+  return (
+    <ErrorBoundary key={pathname} label={pathname}>
+      <Suspense fallback={<PageSpinner />}>{children}</Suspense>
+    </ErrorBoundary>
+  )
 }
 
 function GuestOnly({ children }: { children: React.ReactNode }) {
-  const { user, initialized } = useAuth()
+  const { user, initialized } = useAuthState((s) => ({ user: s.user, initialized: s.initialized }))
   if (initialized && user) return <Navigate to="/me" replace />
   return <>{children}</>
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, initialized } = useAuth()
+  const { user, initialized } = useAuthState((s) => ({ user: s.user, initialized: s.initialized }))
   const location = useLocation()
   if (!initialized) return null // brief; fetchMe resolves fast
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
@@ -110,7 +122,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { user, initialized } = useAuth()
+  const { user, initialized } = useAuthState((s) => ({ user: s.user, initialized: s.initialized }))
   // Check initialized too: without it this guard bounces admins to "/" while
   // booting whenever it's ever mounted outside RequireAuth after a refactor.
   if (!initialized || !user?.is_admin) return <Navigate to="/" replace />
@@ -147,6 +159,7 @@ const router = createBrowserRouter([
       { path: 'map', element: <Lazy><MapPage /></Lazy> },
       { path: 'compare', element: <Lazy><ComparePage /></Lazy> },
       { path: 'for-business', element: <Lazy><ForBusinessPage /></Lazy> },
+      { path: 'pricing', element: <Lazy><PricingPage /></Lazy> },
       { path: 'claim', element: <Lazy><ClaimPage /></Lazy> },
       { path: 'b/:slug', element: <Lazy><BusinessPage /></Lazy> },
       { path: 'c/:slug', element: <Lazy><CategoryPage /></Lazy> },
@@ -226,6 +239,7 @@ const router = createBrowserRouter([
       { path: 'settings', element: <Lazy><SettingsPage /></Lazy> },
       { path: 'settings/verification', element: <Lazy><VerificationSettingsPage /></Lazy> },
       { path: 'analytics', element: <Lazy><AnalyticsPage /></Lazy> },
+      { path: 'billing', element: <Lazy><BillingPage /></Lazy> },
       { path: 'reviews', element: <Lazy><DashboardReviewsPage /></Lazy> },
       { path: 'comments', element: <Lazy><DashboardCommentsPage /></Lazy> },
       { path: '*', element: <NotFoundPage /> },
@@ -258,7 +272,7 @@ const router = createBrowserRouter([
 ])
 
 function DashboardIndex() {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const { data } = useQuery({
     queryKey: ['my-businesses'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
@@ -278,7 +292,7 @@ function DashboardIndex() {
       </div>
       {businesses.length === 0 ? (
         <Card className="py-12 text-center">
-          <p className="text-sm text-ink2">No businesses yet. Register your first storefront — it takes about 10 minutes and it's free forever.</p>
+          <p className="text-sm text-ink2">No businesses yet. Register your first storefront â€” it takes about 10 minutes and it's free forever.</p>
           <Link to="/dashboard/register" className="mt-4 inline-block">
             <Button>Start registration</Button>
           </Link>
@@ -315,7 +329,7 @@ const STATUS_TONE: Record<string, 'neutral' | 'attention' | 'positive' | 'danger
 }
 
 function Bootstrap() {
-  const { fetchMe, user } = useAuth()
+  const { fetchMe, user } = useAuthState((s) => ({ fetchMe: s.fetchMe, user: s.user }))
   useEffect(() => {
     void fetchMe()
     if ('serviceWorker' in navigator) {
@@ -329,7 +343,7 @@ function Bootstrap() {
             if (!installing) return
             installing.addEventListener('statechange', () => {
               if (installing.state === 'activated' && navigator.serviceWorker.controller) {
-                toast.info('A new version is available — refresh to update.')
+                toast.info('A new version is available â€” refresh to update.')
               }
             })
           })
@@ -358,7 +372,7 @@ function Bootstrap() {
       window.onerror = orig
     }
   }, [fetchMe])
-  // Compare tray follows the account across devices (PRD §5.1.5).
+  // Compare tray follows the account across devices (PRD Â§5.1.5).
   useEffect(() => {
     if (user) void hydrateCompare()
   }, [user])
@@ -376,10 +390,10 @@ function Bootstrap() {
 }
 
 /** Keeps one WS connection open for authed users: chat + notification.new.
- * Disconnects on logout — previously a zombie socket stayed connected (and
+ * Disconnects on logout â€” previously a zombie socket stayed connected (and
  * reconnecting forever) after the session ended. */
 function LiveEvents() {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   // Key on the stable id, not the object: fetchMe() after avatar uploads /
   // verifications produced a fresh user object and needlessly bounced the
   // socket (dropping every thread subscription mid-session).
@@ -393,7 +407,7 @@ function LiveEvents() {
 }
 
 function TabTitle() {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const { data: notif } = useQuery({
     // Distinct key: sharing ['notifications'] with NotificationsBell (which
     // fetches limit=15) made two queryFns fight over one cache entry, so the
@@ -448,7 +462,7 @@ function BackToTop() {
       className="fixed bottom-16 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-ink shadow-cardHover hover:bg-surface2"
       aria-label="Back to top"
     >
-      ↑
+      â†‘
     </button>
   )
 }

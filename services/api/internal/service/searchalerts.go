@@ -165,7 +165,20 @@ func paramsFromQuery(q map[string]any) SearchParams {
 	return p
 }
 
+// escapeHTML escapes for an HTML text node and for single-quoted attributes.
+//
+// `'` is included even though the alert template currently only interpolates
+// into element text. The three escapers in this codebase disagreed on this —
+// auth.go's htmlEscape includes it, this one did not — and the next template
+// edit that moved a value into an attribute would have reopened a stored-XSS
+// vector in transactional email. One consistent set, no exceptions.
 func escapeHTML(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&#39;",
+	)
 	return r.Replace(s)
 }

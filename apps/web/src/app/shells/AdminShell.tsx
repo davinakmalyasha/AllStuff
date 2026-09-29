@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { MobileNav } from '@/components/ui/MobileNav'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 const links = [
   { to: '/admin', label: 'Overview', end: true },
@@ -17,11 +17,11 @@ const links = [
   { to: '/admin/analytics', label: 'Analytics' },
 ]
 
-/** Admin shell (PRD §6.5). Landed for real in M6. */
+/** Admin shell (PRD Â§6.5). Landed for real in M6. */
 export function AdminShell() {
-  const { user, loading } = useAuth()
-  if (loading) return <PageSpinner label="Loading admin…" />
-  if (!user) return <PageSpinner label="Signing you in…" />
+  const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
+  if (loading) return <PageSpinner label="Loading adminâ€¦" />
+  if (!user) return <PageSpinner label="Signing you inâ€¦" />
 
   return (
     <div className="flex min-h-screen">

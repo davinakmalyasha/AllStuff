@@ -329,7 +329,8 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 	// re-broadcast so open threads update live.
 	if created.Type == "text" && created.Body != nil && urlRe.MatchString(*created.Body) && created.LinkPreview == nil {
 		bodyCopy := *created.Body
-		go func(msgID int64, threadID, body string) {
+		util.GoNamed("chat-link-preview", func() {
+			msgID, threadID, body := created.ID, threadID, bodyCopy
 			pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			preview, ok := fetchLinkPreview(pctx, body)
@@ -350,7 +351,7 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 					c.notifier.hub.SendToUser(pid, ws.Frame{Type: "message.edited", Payload: full})
 				}
 			}
-		}(created.ID, threadID, bodyCopy)
+		})
 	}
 
 	// chat_start event once per user/day (PRD §3 weights).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // lock attempt at boot retries with backoff instead of silently running
 // leaderless (two replicas booting during a DB hiccup would otherwise both
 // fan out duplicate emails).
-func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config.Config, sender email.Sender, notifier *service.Notifier) {
+func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config.Config, sender email.Sender, notifier *service.Notifier, billing *service.Billing) {
 	conn, err := acquireLeader(ctx, logger, repos)
 	if conn != nil {
 		defer conn.Release()
@@ -81,12 +82,14 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	alertTicker := time.NewTicker(24 * time.Hour)
 	purgeTicker := time.NewTicker(24 * time.Hour)
 	opsTicker := time.NewTicker(24 * time.Hour)
+	billingTicker := time.NewTicker(6 * time.Hour)
 	defer trendTicker.Stop()
 	defer currencyTicker.Stop()
 	defer digestCheckTicker.Stop()
 	defer alertTicker.Stop()
 	defer purgeTicker.Stop()
 	defer opsTicker.Stop()
+	defer billingTicker.Stop()
 
 	// Each ticker runs in its own goroutine so one slow job (a Monday digest
 	// over thousands of recipients) no longer freezes trending/currency/purges
@@ -108,6 +111,14 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				runningMu.Lock()
 				delete(running, name)
 				runningMu.Unlock()
+				// A panic in a job goroutine is unrecoverable from outside and
+				// takes the whole process down. recover() was previously
+				// present only in the HTTP middleware, so a nil deref in any
+				// detached job (trending recompute, digest fan-out, retention
+				// sweep) was a full outage rather than one failed tick.
+				if r := recover(); r != nil {
+					logger.Error("job panicked", "job", name, "panic", r, "stack", string(debug.Stack()))
+				}
 			}()
 			fn(ctx)
 		}()
@@ -189,6 +200,17 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				}
 				if err := ops.CleanupOrphanMedia(ctx); err != nil {
 					logger.Warn("media cleanup", "err", err)
+				}
+			})
+		case <-billingTicker.C:
+			// Billing reconciliation (Phase 7.1). Stripe delivers webhooks
+			// at-least-once, so a delivery can be lost; without this sweep a
+			// canceled subscription would keep granting entitlements forever
+			// and an active one would never be noticed if `created` was missed.
+			// Cheap: the query is index-backed and usually returns zero rows.
+			spawn("billing_reconcile", func(ctx context.Context) {
+				if err := billing.Reconcile(ctx); err != nil {
+					logger.Warn("billing reconcile", "err", err)
 				}
 			})
 		}

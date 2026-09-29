@@ -14,9 +14,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"bizverse/api/internal/config"
@@ -33,10 +31,28 @@ type Auth struct {
 	cfg    config.Config
 	email  mail.Sender
 	logger *slog.Logger
+
+	// totpGuard enforces single-use TOTP codes. nil disables the replay check
+	// entirely, so NewAuth keeps its old signature for tests and single-instance
+	// deployments; UseSharedTOTPGuard upgrades it in place.
+	totpGuard totpReplayGuard
 }
 
 func NewAuth(repos *repo.Repos, cfg config.Config, sender mail.Sender, logger *slog.Logger) *Auth {
-	return &Auth{repos: repos, cfg: cfg, email: sender, logger: logger}
+	a := &Auth{repos: repos, cfg: cfg, email: sender, logger: logger}
+	if cfg.RedisURL != "" {
+		// Sharing is the point: with 2-3 replicas a per-process guard lets the
+		// same phished code through once per replica.
+		if guard, err := newRedisTOTPGuard(cfg.RedisURL, logger); err != nil {
+			logger.Warn("totp replay guard unavailable; using process-local guard", "err", err)
+			a.totpGuard = newLocalTOTPGuard()
+		} else {
+			a.totpGuard = guard
+		}
+	} else {
+		a.totpGuard = newLocalTOTPGuard()
+	}
+	return a
 }
 
 var (
@@ -249,7 +265,14 @@ func (a *Auth) Refresh(ctx context.Context, refreshToken string, ip net.IP, ua s
 	if sess.RevokedAt != nil {
 		// Replay of an already-rotated refresh token is the classic theft
 		// signal: revoke the whole session family, not just reject.
-		_ = a.repos.Sessions.RevokeAllExcept(ctx, sess.UserID, "")
+		//
+		// The error is logged rather than discarded. This used to be `_ =`,
+		// which combined with the uuid/sentinel bug in RevokeAllExcept to make
+		// the anti-theft control a silent no-op with nothing in the logs.
+		if err := a.repos.Sessions.RevokeAllExcept(ctx, sess.UserID, ""); err != nil {
+			slog.Error("refresh replay: session family revocation failed",
+				"user_id", sess.UserID, "session_id", sess.ID, "err", err)
+		}
 		return nil, nil, domain.ErrSessionInvalid
 	}
 	user, err := a.repos.Users.GetByID(ctx, sess.UserID)
@@ -345,11 +368,26 @@ func (a *Auth) ResetPassword(ctx context.Context, token, password string) error 
 	if err != nil {
 		return err
 	}
-	if err := a.repos.Users.SetPassword(ctx, claims.UserID, hash); err != nil {
+	// Password change and session revocation are one atomic unit. Previously
+	// they were two statements: if the revocation failed, the caller got a 500
+	// while the password had ALREADY been changed — so the user believed the
+	// reset had failed and retried, and any attacker-held session survived the
+	// entire incident-response window. A partial ATO recovery must not be
+	// possible.
+	tx, err := a.repos.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	txRepos := repo.NewForTx(tx)
+	if err := txRepos.Users.SetPassword(ctx, claims.UserID, hash); err != nil {
 		return err
 	}
 	// Revoke all sessions on password change (PRD §5.9.1).
-	return a.repos.Sessions.RevokeAllExcept(ctx, claims.UserID, "")
+	if err := txRepos.Sessions.RevokeAllExcept(ctx, claims.UserID, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // IssueAccessToken builds a fresh access token for an authenticated user.
@@ -518,7 +556,7 @@ func (a *Auth) Disable2FA(ctx context.Context, userID, code string) error {
 	if serr != nil {
 		return serr
 	}
-	if !a.validateFreshTOTP(userID, secret, code) {
+	if !a.validateFreshTOTP(ctx, userID, secret, code) {
 		return domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
 	if err := a.repos.TFA.Disable(ctx, userID); err != nil {
@@ -538,32 +576,35 @@ func (a *Auth) TFAStatus(ctx context.Context, userID string) (map[string]any, er
 	return map[string]any{"enabled": enabled}, nil
 }
 
-// usedTOTPSteps enforces single-use TOTP: without it the same 6-digit code
-// passes repeatedly within its ±1 window (30-90s), so a phished code stays
-// valid long enough to replay. Keyed per user+timestep; values record when
-// the step was seen so pruning can use the step's real lifetime instead of
-// arbitrary eviction.
-var usedTOTPSteps sync.Map
-
+// usedTOTPStepTTL is how long a consumed timestep is remembered. It covers the
+// full ±1 verification window (90s) with generous headroom, so pruning can never
+// re-admit a code that is still inside its validity window.
 const usedTOTPStepTTL = 10 * time.Minute
 
-func (a *Auth) validateFreshTOTP(userID, secret, code string) bool {
+// validateFreshTOTP verifies a code and then claims its timestep, so the same
+// code cannot mint a second session inside its validity window.
+//
+// The claim is best-effort in one direction only. If the shared store is
+// unreachable we log and allow: denying would lock every enrolled user out of
+// their account whenever Redis is down, which is a far worse outcome than the
+// narrow replay it reopens. When the guard is available, a duplicate claim is
+// refused — that is the case this exists for.
+func (a *Auth) validateFreshTOTP(ctx context.Context, userID, secret, code string) bool {
 	step, ok := security.ValidateTOTPStep(secret, code)
 	if !ok {
 		return false
 	}
-	key := userID + ":" + strconv.FormatInt(step, 10)
-	if _, dup := usedTOTPSteps.LoadOrStore(key, time.Now()); dup {
-		return false
+	if a.totpGuard == nil {
+		return true
 	}
-	cutoff := time.Now().Add(-usedTOTPStepTTL)
-	usedTOTPSteps.Range(func(k, v any) bool {
-		if seen, ok := v.(time.Time); ok && seen.Before(cutoff) {
-			usedTOTPSteps.Delete(k)
+	fresh, err := a.totpGuard.claim(ctx, userID, step)
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Warn("totp replay guard unavailable; allowing code", "err", err)
 		}
 		return true
-	})
-	return true
+	}
+	return fresh
 }
 
 // Verify2FA completes a 2FA-gated login with TOTP or a recovery code.
@@ -590,7 +631,7 @@ func (a *Auth) Verify2FA(ctx context.Context, challengeToken, code string, ip ne
 	if serr != nil {
 		return nil, nil, serr
 	}
-	if a.validateFreshTOTP(user.ID, secret, code) {
+	if a.validateFreshTOTP(ctx, user.ID, secret, code) {
 		return a.finishLogin(ctx, user, ip, ua)
 	}
 	// Recovery code path: codes are argon2id-hashed passwords — verify
@@ -1043,11 +1084,25 @@ func (a *Auth) ChangePassword(ctx context.Context, userID, current, newPass, kee
 	if err != nil {
 		return err
 	}
-	if err := a.repos.Users.SetPassword(ctx, userID, hash); err != nil {
+	// Atomic with the revocation, for the same reason as ResetPassword: a
+	// failed revocation must not leave a changed password alongside live
+	// sessions. keepSessionID is "" when the caller has no refresh cookie, and
+	// RevokeAllExcept treats that as "revoke everything" rather than passing
+	// the empty string into a uuid comparison.
+	tx, err := a.repos.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	txRepos := repo.NewForTx(tx)
+	if err := txRepos.Users.SetPassword(ctx, userID, hash); err != nil {
 		return err
 	}
 	// Revoke all other sessions; keep the caller's own session alive.
-	return a.repos.Sessions.RevokeAllExcept(ctx, userID, keepSessionID)
+	if err := txRepos.Sessions.RevokeAllExcept(ctx, userID, keepSessionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ChangeEmail requires the current password, a valid TOTP code when 2FA is
@@ -1075,7 +1130,7 @@ func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail, totp
 		if serr != nil {
 			return serr
 		}
-		if !a.validateFreshTOTP(userID, secret, totpCode) {
+		if !a.validateFreshTOTP(ctx, userID, secret, totpCode) {
 			return domain.ErrValidation.WithField("code", "Code is invalid.")
 		}
 	}
@@ -1116,7 +1171,7 @@ func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string)
 	if serr != nil {
 		return nil, serr
 	}
-	if !a.validateFreshTOTP(userID, secret, code) {
+	if !a.validateFreshTOTP(ctx, userID, secret, code) {
 		return nil, domain.ErrValidation.WithField("code", "Code is invalid.")
 	}
 	codes := make([]string, 10)

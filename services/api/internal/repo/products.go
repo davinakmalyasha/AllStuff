@@ -122,6 +122,37 @@ func (r *ProductRepo) ListPublished(ctx context.Context, businessID string) ([]*
 	return out, rows.Err()
 }
 
+// CountByBusinessAndType counts live products of one type, for the plan's
+// catalogue cap.
+//
+// Counted per type rather than in total because products and services are sold
+// against the same cap but a salon and a hardware shop have very different
+// mixes, and a business that fills its product allowance should still be able to
+// list its services.
+//
+// Soft-deleted rows are excluded for the same reason they are excluded from
+// ListByBusiness: a deleted product no longer occupies a slot, and charging for
+// one would make the cap impossible to get under without a support request.
+// excludeID lets Duplicate skip the row being copied so a business already at
+// the cap can still duplicate a product within it.
+func (r *ProductRepo) CountByBusinessAndType(ctx context.Context, businessID string, ptype domain.ProductType, excludeID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FROM products
+		 WHERE business_id = $1 AND deleted_at IS NULL AND type = $2
+		   AND ($3 = '' OR id <> $3::uuid)`,
+		businessID, ptype, excludeID).Scan(&n)
+	return n, err
+}
+
+// CountByBusiness counts all live products for a business regardless of type.
+func (r *ProductRepo) CountByBusiness(ctx context.Context, businessID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM products WHERE business_id = $1 AND deleted_at IS NULL`, businessID).Scan(&n)
+	return n, err
+}
+
 func (r *ProductRepo) SoftDelete(ctx context.Context, id string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE products SET deleted_at = now(), is_published = false WHERE id = $1`, id)
@@ -134,14 +165,32 @@ func (r *ProductRepo) SetPublished(ctx context.Context, id string, published boo
 	return err
 }
 
+// SKUTaken reports whether a SKU is already in use, across the whole catalogue.
+//
+// The scope is GLOBAL because `product_variants.sku` carries a global UNIQUE
+// constraint, and the check must match the constraint exactly or the two
+// disagree. The previous per-business check let two owners both pass validation
+// for "SKU-1", and the second insert then failed on the constraint with a 23505
+// that nothing mapped to 409 — a 500 for an action the owner's own UI had just
+// validated.
+//
+// `businessID` is retained for call-site readability and is deliberately NOT
+// part of the scope: a per-business "unique" partial index is not expressible,
+// because a partial index predicate cannot contain a subquery joining products,
+// and denormalizing business_id onto product_variants purely to widen
+// uniqueness would be a worse trade than the global constraint.
+//
+// Soft-deleted products are excluded so a retired SKU can be reused, which is
+// what an owner expects when re-adding a discontinued product.
 func (r *ProductRepo) SKUTaken(ctx context.Context, sku, businessID, excludeID string) (bool, error) {
+	_ = businessID // scope is global; see the doc comment
 	var exists bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM product_variants v
 			JOIN products p ON p.id = v.product_id
-			WHERE v.sku = $1 AND p.business_id = $2 AND p.deleted_at IS NULL
-			  AND (NULLIF($3, '') IS NULL OR v.id <> NULLIF($3, '')::uuid))`,
-		sku, businessID, excludeID).Scan(&exists)
+			WHERE v.sku = $1 AND p.deleted_at IS NULL
+			  AND (NULLIF($2, '') IS NULL OR v.id <> NULLIF($2, '')::uuid))`,
+		sku, excludeID).Scan(&exists)
 	return exists, err
 }
 
@@ -162,6 +211,58 @@ func (r *ProductRepo) ListOptions(ctx context.Context, productID string) ([]*dom
 			return nil, err
 		}
 		out = append(out, &o)
+	}
+	return out, rows.Err()
+}
+
+// OptionsForProducts loads options for many products in ONE query.
+//
+// Added to kill a 2N+1 pattern: ListPublished/ListByBusiness called
+// ListOptions then ListVariants per product, so a business page with 50
+// products issued 105 round trips, and /compare repeats that per column.
+func (r *ProductRepo) OptionsForProducts(ctx context.Context, productIDs []string) (map[string][]*domain.ProductOption, error) {
+	out := map[string][]*domain.ProductOption{}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, product_id, name, values, sort_order FROM product_options
+		WHERE product_id = ANY($1::uuid[]) ORDER BY product_id, sort_order`, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o domain.ProductOption
+		if err := rows.Scan(&o.ID, &o.ProductID, &o.Name, &o.Values, &o.SortOrder); err != nil {
+			return nil, err
+		}
+		out[o.ProductID] = append(out[o.ProductID], &o)
+	}
+	return out, rows.Err()
+}
+
+// VariantsForProducts loads variants for many products in ONE query.
+// See OptionsForProducts for why.
+func (r *ProductRepo) VariantsForProducts(ctx context.Context, productIDs []string) (map[string][]*domain.ProductVariant, error) {
+	out := map[string][]*domain.ProductVariant{}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, product_id, name, sku, options, price, currency, stock_qty, in_stock, image_id, sort_order
+		FROM product_variants WHERE product_id = ANY($1::uuid[]) ORDER BY product_id, sort_order`, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v domain.ProductVariant
+		if err := rows.Scan(&v.ID, &v.ProductID, &v.Name, &v.SKU, &v.Options, &v.Price,
+			&v.Currency, &v.StockQty, &v.InStock, &v.ImageID, &v.SortOrder); err != nil {
+			return nil, err
+		}
+		out[v.ProductID] = append(out[v.ProductID], &v)
 	}
 	return out, rows.Err()
 }

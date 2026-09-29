@@ -122,6 +122,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		HasChat:           q.Get("has_chat") == "true",
 		Limit:             parsePositiveInt(q.Get("limit"), 24),
 		Offset:            parsePositiveInt(q.Get("offset"), 0),
+		// The exact count is requested on the FIRST page only, which is where a
+		// UI displays "1-24 of N". Paging further reads `has_more`, which costs
+		// nothing. Previously the count ran on every page except the last — so
+		// nearly every request paid for a second execution of the whole search
+		// predicate, and every saved search in the nightly alert job did too.
+		//
+		// `with_total=1` forces it on any page (a "jump to page N" control);
+		// `with_total=0` forces it off, which internal callers that only read
+		// `businesses` should use so they do not pay for a count they discard.
+		WithTotal: q.Get("with_total") == "1" ||
+			(q.Get("with_total") != "0" && parsePositiveInt(q.Get("offset"), 0) == 0),
 	}
 	if cats := q["category"]; len(cats) > 0 {
 		p.CategoryIDs = cats
@@ -168,7 +179,38 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	ok(w, map[string]any{"businesses": results, "count": total})
+	// `total` is -1 when it was not computed. The count query re-evaluates the
+	// entire candidate predicate, so it is opt-in: a client that wants
+	// "1-24 of 1,203" asks for it (by default on the first page), and a client
+	// paging through results does not pay for it 24 times.
+	//
+	// `count` is null rather than 0 when absent, so a client can distinguish
+	// "there are none" from "not computed" — rendering 0 would be a lie.
+	body := map[string]any{"businesses": results}
+	if total >= 0 {
+		body["count"] = total
+	} else {
+		body["count"] = nil
+	}
+	body["has_more"] = hasMoreResults(total, p.Offset, len(results), p.Limit)
+	ok(w, body)
+}
+
+// hasMoreResults reports whether a further page exists.
+//
+// total is the exact count, or a negative value when it was not computed (see
+// SearchParams.WithTotal). offset/returned describe the page just served.
+//
+// With an exact total the answer is exact. Deriving it from
+// `returned == limit` instead would advertise a next page of nothing on the
+// final full page — 48 results at limit 24 shows "1-24 of 48", a next link, and
+// then an empty "49-48" page. Without a total, a full page is the only honest
+// signal available: a short page proves the end, a full one might have more.
+func hasMoreResults(total, offset, returned, limit int) bool {
+	if total >= 0 {
+		return offset+returned < total
+	}
+	return returned == limit
 }
 
 func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {

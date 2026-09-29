@@ -8,12 +8,12 @@ import { Confirm, Modal } from '@/components/ui/Modal'
 import { ReportButton } from '@/components/engagement/ReportShare'
 import { toast } from '@/components/ui/Toast'
 import { formatDate, resetFileInput } from '@/lib/format'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
-/** Reviews with helpful votes and owner replies (PRD §5.6.2). */
+/** Reviews with helpful votes and owner replies (PRD Â§5.6.2). */
 export function ReviewsSection({ businessId, isOwner }: { businessId: string; isOwner: boolean }) {
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [sort, setSort] = useState<'newest' | 'highest' | 'helpful'>('newest')
   const [writing, setWriting] = useState(false)
   const [rating, setRating] = useState(5)
@@ -24,7 +24,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
-  // Owner reply lifecycle (PRD §5.6.2): replies are editable/deletable.
+  // Owner reply lifecycle (PRD Â§5.6.2): replies are editable/deletable.
   const [replyEdit, setReplyEdit] = useState<{ id: string; text: string } | null>(null)
   const [replyDeleteId, setReplyDeleteId] = useState<string | null>(null)
 
@@ -105,7 +105,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
     onError: (e) => toast.error((e as Error).message || 'Could not post the reply.'),
   })
 
-  // Reply edit/delete (PRD §5.6.2): PATCH stamps reply_edited_at.
+  // Reply edit/delete (PRD Â§5.6.2): PATCH stamps reply_edited_at.
   const replyEditMut = useMutation({
     mutationFn: ({ id, reply }: { id: string; reply: string }) => api(`/reviews/${id}/reply`, { method: 'PATCH', body: { reply } }),
     onSuccess: () => {
@@ -123,7 +123,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
     },
   })
 
-  /** Helpful toggle (PRD §5.6.1): clicking the active vote clears it. */
+  /** Helpful toggle (PRD Â§5.6.1): clicking the active vote clears it. */
   const voteHelpful = (r: ReviewDTO, vote: number) => {
     const next = r.my_vote === vote ? 0 : vote
     void helpfulMut.mutateAsync({ id: r.id, vote: next })
@@ -165,7 +165,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
           <h2 className="mono-label mb-1">Reviews</h2>
           {avg !== null && (
             <p className="text-sm text-ink2">
-              <span className="font-mono text-lg font-semibold text-ink">{avg.toFixed(1)}</span> · {reviews.length} review{reviews.length === 1 ? '' : 's'}
+              <span className="font-mono text-lg font-semibold text-ink">{avg.toFixed(1)}</span> Â· {reviews.length} review{reviews.length === 1 ? '' : 's'}
             </p>
           )}
         </div>
@@ -211,12 +211,12 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
               </button>
             ))}
           </div>
-          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="What was it like? (10–2000 characters)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
+          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="What was it like? (10â€“2000 characters)" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink3 focus:border-ink" />
           <div className="flex flex-wrap items-center gap-2">
             {photoIds.map((id) => (
               <div key={id} className="relative">
                 <img src={`/api/v1/media/${id}/file`} alt="" className="h-16 w-16 rounded-lg object-cover" />
-                <button onClick={() => setPhotoIds((prev) => prev.filter((x) => x !== id))} className="absolute -right-1.5 -top-1.5 rounded-full bg-accent p-0.5 text-accent-ink" aria-label="Remove photo">✕</button>
+                <button onClick={() => setPhotoIds((prev) => prev.filter((x) => x !== id))} className="absolute -right-1.5 -top-1.5 rounded-full bg-accent p-0.5 text-accent-ink" aria-label="Remove photo">âœ•</button>
               </div>
             ))}
             {photoIds.length < 6 && (
@@ -245,7 +245,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
       )}
 
       <div className="space-y-3">
-        {reviews.length === 0 && <Card className="py-8 text-center text-sm text-ink3">No reviews yet — be the first.</Card>}
+        {reviews.length === 0 && <Card className="py-8 text-center text-sm text-ink3">No reviews yet â€” be the first.</Card>}
         {reviews.map((r) => (
           <Card key={r.id} className="space-y-2">
             <div className="flex items-center gap-2">
@@ -330,7 +330,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
             )}
             {replyingTo === r.id && (
               <div className="flex gap-2">
-                <input value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Your reply…" className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
+                <input value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Your replyâ€¦" className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
                 <Button size="sm" onClick={() => void replyMut.mutateAsync({ id: r.id, reply: replyText })} disabled={!replyText.trim() || replyMut.isPending}>Send</Button>
               </div>
             )}
@@ -338,7 +338,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
         ))}
       </div>
 
-      {/* Edit modal — isolated per-review state. The old version shared the
+      {/* Edit modal â€” isolated per-review state. The old version shared the
           compose form's rating/text, so leftover drafts (or a previously
           edited review) pre-filled and could overwrite a DIFFERENT review. */}
       <EditReviewModal
@@ -369,11 +369,11 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
         danger
       />
 
-      {/* Load more (PRD §5.6.2: paginated review list) */}
+      {/* Load more (PRD Â§5.6.2: paginated review list) */}
       {reviews.length > 0 && hasMore && (
         <div className="mt-4 text-center">
           <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={moreLoading}>
-            {moreLoading ? 'Loading…' : 'Load more'}
+            {moreLoading ? 'Loadingâ€¦' : 'Load more'}
           </Button>
         </div>
       )}

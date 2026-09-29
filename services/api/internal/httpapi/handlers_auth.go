@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -13,12 +14,55 @@ import (
 	"bizverse/api/internal/service"
 )
 
-// accountThrottle caps authentication attempts per target ACCOUNT (10 per
-// 15 min). The per-IP limits alone let a modest IP pool run unlimited
+// accountThrottle caps FAILED authentication attempts for a target account
+// (10 per 15 min). The per-IP limits alone let a modest IP pool run unlimited
 // guesses against a single victim — including the 10^6 TOTP code space.
-func (s *Server) accountThrottle(kind, key string) bool {
-	_, _, ok := s.deps.RateLimiter.Allow("acct:"+kind+":"+key, 10, 15*time.Minute)
-	return !ok
+//
+// It must be called on FAILURE, never before the credential check.
+//
+// It used to run first, on every attempt, keyed only on the target email. That
+// made it a trivial UNAUTHENTICATED denial of service: ten requests with a
+// guessed email address locked a real user out for 15 minutes, repeatably and
+// indefinitely, for 10 requests of work. The victim was never notified and
+// nothing distinguished the attack from a user mistyping their password.
+//
+// The IP dimension is kept alongside the account so a distributed pool still
+// cannot grind forever, while one attacker cannot lock out a victim from a
+// single address either.
+// accountThrottleBypass is a TEST-ONLY escape hatch.
+//
+// The Playwright suite registers several users in one run. Every registration
+// that trips the per-account bucket makes the next one wait out a 15-minute
+// window, which is why the specs previously used 120-second expect timeouts to
+// paper over it — making the suite structurally rate-limit-dependent and adding
+// minutes of wall clock to a run that should take under one.
+//
+// It is deliberately narrow: it does not touch the per-IP tiers, only the
+// per-ACCOUNT buckets, and only when APP_ENV=test. config.Validate refuses any
+// other environment, so a production deployment cannot be started with it set —
+// the mistake would be a loud boot failure rather than a silently
+// unauthenticated one.
+var accountThrottleBypass = strings.EqualFold(os.Getenv("APP_ENV"), "test") &&
+	strings.TrimSpace(os.Getenv("E2E_ACCOUNT_THROTTLE_BYPASS")) != ""
+
+func (s *Server) accountThrottle(kind, email, ip string) bool {
+	if accountThrottleBypass {
+		return false
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false
+	}
+	// Per (account, IP): a single attacker cannot lock a victim out.
+	if _, _, allowed := s.deps.RateLimiter.Allow("acct:"+kind+":"+email+":"+ip, 10, 15*time.Minute); !allowed {
+		return true
+	}
+	// Per account, deliberately looser: this is the real brute-force defence
+	// when the attacker rotates source addresses. Being generous here means a
+	// family sharing a NAT is not caught, at the cost of a slower offline
+	// attack — which the 15-minute per-IP auth tier (5/min) already shapes.
+	_, _, allowed := s.deps.RateLimiter.Allow("acctall:"+kind+":"+email, 40, 15*time.Minute)
+	return !allowed
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -42,17 +86,20 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if s.accountThrottle("login", strings.ToLower(strings.TrimSpace(in.Email))) {
-		s.metrics.RateLimited()
-		w.Header().Set("Retry-After", "900")
-		fail(w, domain.ErrRateLimited)
-		return
-	}
-	user, tokens, err := s.deps.Auth.Login(r.Context(), in, clientIPValue(s.clientIP(r)), r.UserAgent())
+	ip := s.clientIP(r)
+	user, tokens, err := s.deps.Auth.Login(r.Context(), in, clientIPValue(ip), r.UserAgent())
 	if err != nil {
+		// A 2FA challenge is a SUCCESSFUL first factor, so it must not consume
+		// a failure budget — otherwise a legitimate user who mistypes a TOTP
+		// code five times is locked out of their own account.
 		if de := domain.FromError(err); de == domain.Err2FARequired && tokens != nil && tokens.RefreshToken != "" {
-			// 2FA gate: hand the challenge token to the client (PRD §5.9.1).
 			ok(w, map[string]any{"2fa_required": true, "challenge": tokens.RefreshToken, "user": s.publicUser(user)})
+			return
+		}
+		if s.accountThrottle("loginfail", in.Email, ip) {
+			s.metrics.RateLimited()
+			w.Header().Set("Retry-After", "900")
+			fail(w, domain.ErrRateLimited)
 			return
 		}
 		fail(w, err)
@@ -71,16 +118,18 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	// Same per-account brute-force budget as login: the target row holds a
-	// live argon2id hash for the entire grace window.
-	if s.accountThrottle("login", strings.ToLower(strings.TrimSpace(in.Email))) {
-		s.metrics.RateLimited()
-		w.Header().Set("Retry-After", "900")
-		fail(w, domain.ErrRateLimited)
-		return
-	}
-	user, tokens, err := s.deps.Auth.RestoreAccount(r.Context(), in.Email, in.Password, clientIPValue(s.clientIP(r)), r.UserAgent())
+	ip := s.clientIP(r)
+	user, tokens, err := s.deps.Auth.RestoreAccount(r.Context(), in.Email, in.Password, clientIPValue(ip), r.UserAgent())
 	if err != nil {
+		// Counted on failure, for the same reason as login: throttling every
+		// attempt turns this into a lockout primitive against any account
+		// sitting in its deletion grace window.
+		if s.accountThrottle("restorefail", in.Email, ip) {
+			s.metrics.RateLimited()
+			w.Header().Set("Retry-After", "900")
+			fail(w, domain.ErrRateLimited)
+			return
+		}
 		fail(w, err)
 		return
 	}
@@ -230,11 +279,13 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Depth (PRD §5.8.6 / ARCHITECTURE §4): WS connections + last trend run.
-	var lastTrend time.Time
+	// Pointer scan: max() is NULL before the first snapshot exists, which must
+	// not turn a health check into an error.
+	var lastTrend *time.Time
 	_ = s.deps.Repos.QueryRow(r.Context(),
 		`SELECT max(taken_at) FROM trend_snapshots WHERE period='24h'`).Scan(&lastTrend)
 	lastTrendStr := ""
-	if !lastTrend.IsZero() {
+	if lastTrend != nil {
 		lastTrendStr = lastTrend.UTC().Format(time.RFC3339)
 	}
 	ok(w, map[string]any{
@@ -249,10 +300,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	var lastTrend string
-	var ts time.Time
+	var ts *time.Time
 	_ = s.deps.Repos.QueryRow(r.Context(),
 		`SELECT max(taken_at) FROM trend_snapshots WHERE period='24h'`).Scan(&ts)
-	if !ts.IsZero() {
+	if ts != nil {
 		lastTrend = ts.UTC().Format(time.RFC3339)
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

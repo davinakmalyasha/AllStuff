@@ -1,0 +1,60 @@
+version: 2
+
+# The backend has three direct dependencies and each is a supply-chain
+# decision, so they are watched explicitly rather than left to a monthly sweep.
+updates:
+  - package-ecosystem: gomod
+    directory: /services/api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # pgx is the only database driver; a split update means a migration window.
+      pgx:
+        patterns: ["github.com/jackc/pgx*"]
+      # x/crypto carries Argon2id and the CSRF/token primitives. Security
+      # patches here are the highest-value upgrades in the repository.
+      x-crypto:
+        patterns: ["golang.org/x/crypto"]
+      x-sys:
+        patterns: ["golang.org/x/sys"]
+      go-minor:
+        patterns: ["go", "golang.org/toolchain"]
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # React and the router must move together: react-router 7 pins peer
+      # versions of react and react-dom.
+      react-core:
+        patterns: ["react", "react-dom", "react-router-dom", "scheduler"]
+      typescript-toolchain:
+        patterns: ["typescript", "@types/*", "@typescript-eslint/*", "eslint", "typescript-eslint"]
+      test-tooling:
+        patterns: ["@playwright/*", "vitest", "@vitest/*", "@testing-library/*", "jsdom"]
+      tailwind:
+        patterns: ["tailwindcss", "postcss", "autoprefixer"]
+    # npm audit is noisy for transitive dev-only advisories; the gate is
+    # govulncheck for the backend and this for production deps only.
+    ignore:
+      - dependency-name: "maplibre-gl"
+        # Bundles a vendored copy of a Protobuf runtime that npm audit reports
+        # on. Not reachable from our source; tracked in docs/AUDIT.md.
+        dependency-type: "production"
+
+  - package-ecosystem: github-actions
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

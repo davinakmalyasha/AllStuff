@@ -115,7 +115,7 @@ export function StorefrontPreview({
                 <div className="p-3">
                   <p className="text-sm font-semibold">{p.name}</p>
                   <p className="mt-0.5 text-xs" style={{ color: c.muted }}>
-                    {p.call_for_price ? 'Call for price' : priceLabel(p)}
+                    {p.call_for_price ? 'Call for price' : <Price product={p} />}
                   </p>
                 </div>
               </div>
@@ -172,19 +172,56 @@ function MailIcon() {
 }
 
 // Currency-aware formatting (PRD D5): display prices converted to the viewer's currency.
-export function priceLabel(p: ProductDTO, rates?: Record<string, number>, display?: string): string {
-  const st = useCurrency.getState()
-  const r = rates ?? st.rates
-  const d = display ?? st.display
+/**
+ * Formats a product price in the user's display currency.
+ *
+ * PURE — takes rates/display explicitly. Deliberately not a hook: the previous
+ * version read `useCurrency.getState()` imperatively, so every component calling
+ * it during render was NOT subscribed to the store. Changing the display
+ * currency in settings left every already-mounted price showing the old
+ * currency until some unrelated state change forced a repaint. Subscribing has
+ * to happen in a component, so this is the pure core and `Price` below is the
+ * subscribed wrapper.
+ */
+export function formatProductPrice(
+  p: ProductDTO,
+  rates: Record<string, number>,
+  display: string,
+): string {
   if (p.variants && p.variants.length > 0) {
     const prices = p.variants.filter((v) => v.price !== null).map((v) => v.price as number)
     if (prices.length > 0) {
       const min = Math.min(...prices)
       const max = Math.max(...prices)
-      const f = (n: number) => formatMoney(n, p.currency, d, r)
-      return min === max ? f(min) : `${f(min)}–${f(max)}`
+      const f = (n: number) => formatMoney(n, p.currency, display, rates)
+      return min === max ? f(min) : `${f(min)}-${f(max)}`
     }
   }
-  if (p.base_price !== null && p.base_price !== undefined) return formatMoney(p.base_price, p.currency, d, r)
-  return '—'
+  if (p.base_price !== null && p.base_price !== undefined) {
+    return formatMoney(p.base_price, p.currency, display, rates)
+  }
+  return '-'
+}
+
+/**
+ * Subscribed price renderer.
+ *
+ * Use this in any component that renders a price, so a currency change
+ * repaints. `priceLabel` is kept below only for the one non-React caller path
+ * and is deprecated.
+ */
+export function Price({ product, className }: { product: ProductDTO; className?: string }) {
+  const rates = useCurrency((s) => s.rates)
+  const display = useCurrency((s) => s.display)
+  return <span className={className}>{formatProductPrice(product, rates, display)}</span>
+}
+
+/**
+ * @deprecated Reads the store imperatively and therefore never repaints on a
+ * currency change. Use <Price product={...} /> in components, or
+ * formatProductPrice() when you already hold the rates.
+ */
+export function priceLabel(p: ProductDTO, rates?: Record<string, number>, display?: string): string {
+  const st = useCurrency.getState()
+  return formatProductPrice(p, rates ?? st.rates, display ?? st.display)
 }

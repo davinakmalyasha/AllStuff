@@ -11,12 +11,37 @@ import { SkeletonCard } from '@/lib/format'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 type SortKey = 'trending' | 'rating' | 'newest' | 'nearest' | 'relevance'
 
+/**
+ * Result-count line.
+ *
+ * `count` is null whenever the server did not compute an exact total â€” which is
+ * every page after the first, because the count query re-evaluates the entire
+ * search predicate and is opt-in. Rendering `?? 0` in that case would tell the
+ * user "0 results" on a page visibly showing 24 of them, so a null is reported
+ * as "at least N" using the number actually on screen.
+ */
+function resultSummary(
+  count: number | null | undefined,
+  shown: number,
+  query: string,
+  filtered: boolean,
+): string {
+  const forWhat = query ? ` for â€œ${query}â€` : filtered ? ' with these filters' : ''
+  if (count === null || count === undefined) {
+    return shown > 0
+      ? `At least ${shown} result${shown === 1 ? '' : 's'}${forWhat}`
+      : 'No results'
+  }
+  const n = count
+  return `${n} result${n === 1 ? '' : 's'}${forWhat}`
+}
+
 export function DiscoverPage() {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const cityParam = params.get('city') ?? ''
@@ -94,7 +119,7 @@ export function DiscoverPage() {
     )
   }
 
-  // Load-more: both queries derive from ONE filter object — the old page-2
+  // Load-more: both queries derive from ONE filter object â€” the old page-2
   // query silently dropped coords/radius/fully_verified and used a different
   // sort, so "Near me" became worldwide after the first 24 results.
   const [page, setPage] = useState(1)
@@ -107,13 +132,16 @@ export function DiscoverPage() {
   }
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['search', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
-    queryFn: () => api<{ businesses: BusinessDTO[]; count: number }>(searchPath(searchFilters)),
+    queryFn: () => api<{ businesses: BusinessDTO[]; count: number | null; has_more: boolean }>(searchPath(searchFilters)),
   })
   const { data: more, isFetching: moreLoading } = useQuery({
     queryKey: ['search-more', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords, page],
-    queryFn: () => api<{ businesses: BusinessDTO[] }>(searchPath({ ...searchFilters, offset: page * 24 })),
+    queryFn: () => api<{ businesses: BusinessDTO[]; has_more: boolean }>(searchPath({ ...searchFilters, offset: page * 24 })),
     enabled: page > 1,
   })
+  // The first page's has_more; later pages report their own. The last one to
+  // load wins, which is the one describing the furthest page fetched.
+  const hasMore = page > 1 ? (more?.has_more ?? true) : (data?.has_more ?? false)
   useEffect(() => {
     if (more?.businesses.length) {
       // Dedupe by id: trending reshuffles between pages otherwise produce
@@ -183,7 +211,7 @@ export function DiscoverPage() {
   type SuggestOpt = { key: string; href: string; name: string; meta: string }
   const suggestOpts: SuggestOpt[] = suggest
     ? [
-        ...suggest.businesses.map((s): SuggestOpt => ({ key: `b-${s.slug}`, href: `/b/${s.slug}`, name: s.name, meta: [s.category, s.city].filter(Boolean).join(' · ') })),
+        ...suggest.businesses.map((s): SuggestOpt => ({ key: `b-${s.slug}`, href: `/b/${s.slug}`, name: s.name, meta: [s.category, s.city].filter(Boolean).join(' Â· ') })),
         ...suggest.categories.map((c): SuggestOpt => ({ key: `c-${c.slug}`, href: `/c/${c.slug}`, name: c.name, meta: `${c.count} businesses` })),
       ]
     : []
@@ -242,7 +270,7 @@ export function DiscoverPage() {
               aria-controls="suggest-list"
               aria-activedescendant={hl >= 0 ? `suggest-opt-${hl}` : undefined}
               aria-autocomplete="list"
-              placeholder="Search businesses, categories, cities…"
+              placeholder="Search businesses, categories, citiesâ€¦"
               className="h-9 w-full bg-transparent text-sm text-ink placeholder:text-ink3 focus:outline-none"
             />
             {query && (
@@ -353,7 +381,7 @@ export function DiscoverPage() {
               {coords ? (
                 <Button variant="secondary" size="sm" onClick={() => setCoords(null)}>Clear location</Button>
               ) : (
-                <Button variant="secondary" size="sm" onClick={nearMe}>📍 Near me</Button>
+                <Button variant="secondary" size="sm" onClick={nearMe}>ðŸ“ Near me</Button>
               )}
               <Button size="sm" onClick={apply}>Apply filters</Button>
             </div>
@@ -362,7 +390,11 @@ export function DiscoverPage() {
       )}
 
       <p className="mb-4 flex items-center gap-3 text-sm text-ink3">
-        {isLoading ? 'Searching…' : `${data?.count ?? 0} result${data?.count === 1 ? '' : 's'}${submitted ? ` for “${submitted}”` : ''}`}
+        {isLoading ? (
+          'Searchingâ€¦'
+        ) : (
+          resultSummary(data?.count, data?.businesses.length ?? 0, submitted, hasFilters)
+        )}
         {user && (submitted || hasFilters) && (
           <button onClick={() => setSaveOpen(true)} className="flex items-center gap-1 text-ink3 hover:text-ink">
             <BellPlus className="h-3.5 w-3.5" /> Save search
@@ -383,7 +415,11 @@ export function DiscoverPage() {
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <SkeletonCard /><SkeletonCard /><SkeletonCard />
             </div>
-          ) : all.length < (data?.count ?? 0) ? (
+          ) : hasMore ? (
+            // Driven by `has_more`, not by comparing the loaded length against
+            // `count`. The count is now null on every page after the first (the
+            // server only computes it when asked), so the old comparison would
+            // have hidden "Load more" the moment a second page was fetched.
             <div className="mt-6 text-center">
               <Button variant="secondary" onClick={() => setPage((p) => p + 1)}>Load more</Button>
             </div>
@@ -403,7 +439,7 @@ export function DiscoverPage() {
                 ))}
               </div>
               <Link to="/dashboard/register" className="mt-2 text-sm font-medium text-ink underline underline-offset-4 hover:text-ink2">
-                Add your business →
+                Add your business â†’
               </Link>
             </>
           )}
@@ -414,8 +450,8 @@ export function DiscoverPage() {
       {/* Save search */}
       <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title="Save this search">
         <div className="space-y-3">
-          <p className="text-sm text-ink2">We'll keep this search handy in your profile — and it powers future alerts.</p>
-          <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. Cafés near me" className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
+          <p className="text-sm text-ink2">We'll keep this search handy in your profile â€” and it powers future alerts.</p>
+          <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. CafÃ©s near me" className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
           <label className="flex items-center gap-2 text-sm text-ink2">
             <input type="checkbox" checked={saveAlert} onChange={(e) => setSaveAlert(e.target.checked)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
             Email me daily when new businesses match

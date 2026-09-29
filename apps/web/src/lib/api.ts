@@ -526,3 +526,79 @@ export interface QuickReplyDTO {
   business_id: string
   text: string
 }
+
+// ---- billing (Phase 7.1) ----
+
+/**
+ * A plan from the public catalogue. `purchasable` is the server's view of
+ * whether checkout can start — a plan can be listed before its Stripe price is
+ * configured, in which case the UI must not offer a buy button.
+ */
+export interface PlanDTO {
+  id: string
+  name: string
+  description: string
+  price_cents: number
+  currency: string
+  entitlements: string[]
+  sort_order: number
+  purchasable: boolean
+}
+
+/**
+ * The resolved capability set for the current subscription.
+ *
+ * Every field is capacity the operator pays infrastructure for. There is
+ * deliberately no `verified_badge` and no `featured_placement`: verification is
+ * an admin decision made after reviewing documents, and featured is an editorial
+ * slot, so neither is purchasable. If a UI offers an upgrade prompt for trust
+ * or placement, that is a bug.
+ */
+export interface EntitlementsDTO {
+  analytics: boolean
+  analytics_advanced: boolean
+  api_access: boolean
+  support_priority: boolean
+  product_limit: number
+  gallery_limit: number
+  team_seats: number
+}
+
+export interface SubscriptionDTO {
+  id: string
+  business_id: string
+  plan_id: string
+  plan_name: string
+  price_cents: number
+  currency: string
+  status: string
+  cancel_at_period_end: boolean
+  current_period_start: string | null
+  current_period_end: string | null
+  canceled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InvoiceDTO {
+  id: string
+  number: string | null
+  status: string | null
+  amount_cents: number
+  currency: string
+  hosted_invoice_url: string | null
+  invoice_pdf_url: string | null
+  period_start: string | null
+  period_end: string | null
+  paid_at: string | null
+  created_at: string
+}
+
+/** GET /businesses/{id}/billing */
+export interface BillingStateDTO {
+  plan: PlanDTO | null
+  subscription: SubscriptionDTO | null
+  entitlements: EntitlementsDTO
+  /** False when Stripe is not configured on the deployment. */
+  enabled: boolean
+}

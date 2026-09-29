@@ -52,3 +52,39 @@ VALUES (
   '{"phone":"+62-21-5550202","email":"book@razorthread.id","instagram":"razorthread"}'::jsonb,
   ARRAY['haircut','shave','beard','walkins'], 2, 2015, now()
 ) ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Engagement events.
+--
+-- Without these the trending job writes no snapshots at all: Compute skips
+-- zero-score businesses deliberately (one row per business per window every
+-- 10 minutes was 432k rows/day, nearly all of them zeros). A database with no
+-- signals therefore has no leaderboards, which left /trending, /leaderboards
+-- and the category page's "Top in ..." section permanently empty.
+--
+-- Weights follow the signal taxonomy's own CHECK constraint (view, like,
+-- recommend, comment, review, collection_save, chat_start). The two businesses
+-- get different totals so the ranking is meaningful rather than arbitrary.
+-- ---------------------------------------------------------------------------
+INSERT INTO engagement_events (user_id, target_type, target_id, signal, weight, occurred_at, dedupe_key)
+SELECT '11111111-1111-4111-8111-111111111111'::uuid,
+       'business', s.target_id, s.signal, s.weight,
+       now() - (s.age_min || ' minutes')::interval,
+       'seed-engagement:' || s.target_id::text || ':' || s.n
+FROM (VALUES
+  (1, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396'::uuid, 'view',           1,  30),
+  (2, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'view',           1, 120),
+  (3, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'view',           1, 300),
+  (4, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'like',           3,  90),
+  (5, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'review',         5, 180),
+  (6, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'collection_save', 2,  60),
+  (7, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'recommend',      2, 240),
+  (8, '5845a5db-02b0-4ce8-a6d1-95f2b4b16396', 'chat_start',     2,  45),
+  (9, 'dcb251c1-01c7-4969-967f-54f47967d3e9', 'view',           1,  90),
+  (10,'dcb251c1-01c7-4969-967f-54f47967d3e9', 'view',           1, 360),
+  (11,'dcb251c1-01c7-4969-967f-54f47967d3e9', 'view',           1, 600),
+  (12,'dcb251c1-01c7-4969-967f-54f47967d3e9', 'like',           3, 200),
+  (13,'dcb251c1-01c7-4969-967f-54f47967d3e9', 'chat_start',     2, 150)
+) AS s(n, target_id, signal, weight, age_min)
+ON CONFLICT (dedupe_key) DO NOTHING;

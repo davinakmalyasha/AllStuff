@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import { api, type UserDTO } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { ws } from '@/lib/ws'
@@ -98,3 +99,31 @@ export const useAuth = create<AuthState>((set) => ({
     await api('/auth/reset-password', { method: 'POST', body: { token, password } })
   },
 }))
+
+/**
+ * Reads several auth fields at once WITHOUT subscribing to the whole store.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * `useAuth()` with no selector subscribes the component to the entire state
+ * object, so every `set()` re-renders it. `fetchMe` alone calls `set()` three
+ * times (loading, user, then loading+initialized), which means three full-app
+ * re-renders on every page load, and again on every login and logout. With 35
+ * call sites — the header, the shells, and every page — that is a lot of work
+ * triggered by state the component does not read.
+ *
+ * `useShallow` compares the SELECTED fields, so a component re-renders only
+ * when one of the fields it actually destructures changes identity. The
+ * alternative is rewriting all 35 sites to individual selectors, which fixes
+ * today's call sites and silently regresses the next one someone adds — so the
+ * safe default lives here instead.
+ *
+ * For a single field, prefer the selector form directly (`useAuth(s => s.user)`),
+ * which needs no comparison at all.
+ *
+ * Note the actions (login, logout, fetchMe, …) are stable references: the store
+ * is created once, so they never change identity and cannot cause a re-render.
+ */
+export function useAuthState<T>(selector: (s: AuthState) => T): T {
+  return useAuth(useShallow(selector))
+}

@@ -9,10 +9,10 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { Confirm } from '@/components/ui/Modal'
-import { useDialogA11y } from '@/components/ui/Modal'
+import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/components/ui/Toast'
 import { resetFileInput } from '@/lib/format'
-import { priceLabel } from './StorefrontPreview'
+import { Price } from './StorefrontPreview'
 
 export function ProductsPage() {
   const qc = useQueryClient()
@@ -93,7 +93,7 @@ export function ProductsPage() {
                 <Badge tone={p.is_published ? 'positive' : 'neutral'} dot>{p.is_published ? 'Live' : 'Draft'}</Badge>
               </div>
               <p className="mt-0.5 text-xs text-ink3">
-                {p.type} · {priceLabel(p)}
+                {p.type} · <Price product={p} />
                 {p.variants && p.variants.length > 0 && ` · ${p.variants.length} variants`}
                 {!p.is_available && ' · unavailable'}
               </p>
@@ -170,8 +170,7 @@ function ProductEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
-  // Mounted only while open — Escape/focus handled by the shared hook.
-  const dialogRef = useDialogA11y(true, onClose)
+  // Mounted only while open; Escape, focus trap and scroll lock come from Modal.
 
   const create = async () => {
     const r = await api<{ product: ProductDTO }>(`/businesses/${businessId}/products`, {
@@ -250,24 +249,13 @@ function ProductEditor({
     setVariants((prev) => prev.map((v, idx) => (idx === i ? { ...v, [field]: value } : v)))
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <Card className="my-6 w-full max-w-3xl" >
-        <div
-          ref={dialogRef}
-          tabIndex={-1}
-          role="dialog"
-          aria-modal="true"
-          aria-label={product ? 'Edit product' : 'New product'}
-          onClick={(e) => e.stopPropagation()}
-          className="space-y-5 outline-none"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">{product ? 'Edit product' : 'New product'}</h2>
-              <p className="text-xs text-ink3">Variants, pricing, stock.</p>
-            </div>
-            <button onClick={onClose} className="rounded-lg p-1 text-ink3 hover:bg-surface2 hover:text-ink" aria-label="Close">✕</button>
-          </div>
+    // Shared Modal rather than a hand-rolled overlay. This one is the worst case
+    // of the three: the body is a variant table that can hold thousands of rows,
+    // so without a focus trap a keyboard user tabs out of the dialog and types
+    // prices into the product list behind it.
+    <Modal open onClose={onClose} title={product ? 'Edit product' : 'New product'} maxWidth="max-w-3xl">
+      <div className="space-y-5">
+          <p className="text-xs text-ink3">Variants, pricing, stock.</p>
 
           {error && <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">{error}</p>}
 
@@ -397,9 +385,8 @@ function ProductEditor({
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
             </Button>
           </div>
-        </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   )
 }
 

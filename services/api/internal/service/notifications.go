@@ -11,6 +11,7 @@ import (
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/email"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/util"
 	"bizverse/api/internal/ws"
 )
 
@@ -68,8 +69,11 @@ func (n *Notifier) Create(ctx context.Context, userID, ntype string, payload map
 	}
 
 	// Email channel: only when the user opted the type into email.
+	//
+	// util.Go, not a bare `go`: a panic in the send path would otherwise take
+	// down the whole process, and the caller here is a request handler.
 	if n.emailOn(ctx, userID, ntype) {
-		go n.sendEmail(notif)
+		util.GoNamed("notification-email", func() { n.sendEmail(notif) })
 	}
 
 	// Real-time frame: unread count refreshed so the badge stays accurate.
@@ -107,12 +111,15 @@ func (n *Notifier) CreateForFollowers(ctx context.Context, businessID, ntype str
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func() {
+		// util.Go, not a bare `go`. One panic must abort that worker's queue, not
+		// the process: a single malformed notification row would otherwise take
+		// down the API for every user, and `wg.Wait()` would never return.
+		util.GoNamed("notification-worker", func() {
 			defer wg.Done()
 			for notif := range queue {
 				n.dispatch(ctx, notif)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return int64(len(created)), nil
@@ -122,7 +129,7 @@ func (n *Notifier) CreateForFollowers(ctx context.Context, businessID, ntype str
 // created notification row. Best-effort, like every other channel.
 func (n *Notifier) dispatch(ctx context.Context, notif *domain.Notification) {
 	if n.emailOn(ctx, notif.UserID, notif.Type) {
-		go n.sendEmail(notif)
+		util.GoNamed("notification-email", func() { n.sendEmail(notif) })
 	}
 	unread, err := n.repos.Engagement.UnreadCount(ctx, notif.UserID)
 	if err != nil {

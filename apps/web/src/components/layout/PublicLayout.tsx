@@ -8,12 +8,12 @@ import { NotificationsBell } from '@/components/ui/NotificationsBell'
 import { AnnouncementBanner } from '@/components/ui/AnnouncementBanner'
 import { CompareTray } from '@/components/compare/CompareTray'
 import { Button } from '@/components/ui/Button'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { setLanguage } from '@/lib/i18n'
 
 export function PublicLayout() {
   const { t, i18n } = useTranslation()
-  const { user, initialized } = useAuth()
+  const { user, initialized } = useAuthState((s) => ({ user: s.user, initialized: s.initialized }))
   const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
 
@@ -156,7 +156,7 @@ function PublicFooter() {
           </div>
         </div>
         <div className="mt-10 flex flex-col items-start justify-between gap-2 border-t border-border pt-6 text-xs text-ink3 sm:flex-row">
-          <p>© {year} BizVerse. Free forever.</p>
+          <p>Â© {year} BizVerse. Free forever.</p>
         </div>
       </div>
     </footer>

@@ -17,7 +17,16 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 
 ## Directory
 - `GET /categories` (tree+counts) · `GET /categories/{slug}` (page+leaderboard) · `GET /b/{slug}` (`?draft=1` = owner preview) · `GET /u/{username}`
-- `GET /search` (`q, category*, lat, lng, radius_km, bbox, price_level*, min_rating, open_now, verified_only, fully_verified_only, sort, limit`) · `GET /search/suggest` · `GET /users/search?q=`
+- `GET /search` (`q, category*, lat, lng, radius_km, bbox, price_level*, min_rating, open_now, verified_only, fully_verified_only, sort, limit, offset, with_total`) · `GET /search/suggest` · `GET /users/search?q=`
+  - Response: `{ businesses, count, has_more }`. **`count` is `null` unless
+    computed.** The exact count re-evaluates the entire candidate predicate — the
+    5-way FTS OR, the per-row products `EXISTS`, a `biz_is_open_now` call per
+    row, the `avg(rating)` subquery and the trend join — so it is opt-in: it
+    defaults on for `offset=0` (where a UI shows "1–24 of N") and off for
+    subsequent pages, which read the free `has_more` instead. `with_total=1`
+    forces it on; `with_total=0` forces it off, which internal callers that read
+    only `businesses` should pass. Rendering `count: null` as `0` would claim
+    "no results" on a page visibly showing 24.
 - `GET /compare?b=id,id` (2–4) · `GET /featured` · `GET /trending` · `GET /rising` · `GET /leaderboards?window=24h|7d|30d&scope=global|category:{id}|city:{c}`
 - Cities: `GET /cities` · `GET /cities/{slug}` (landing page payload)
 - `GET /rates` (currency) · `GET /meta` (announcement, rates freshness) · `GET /sitemap.xml` · `GET /og/b/{slug}` (SVG share card)
@@ -49,13 +58,37 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - Reviews by user: `GET /me/reviews`
 
 ## Messaging
-- Threads: `GET|POST /threads` · `GET /threads/{id}` · `POST /threads/{id}/messages` · `POST /threads/{id}/read|typing|close|leave` · `GET /threads/{id}/search|media|export`
+- Threads: `GET|POST /threads` · `GET /threads/{id}` (see pagination below) · `POST /threads/{id}/messages` · `POST /threads/{id}/read|typing|close|leave` · `GET /threads/{id}/search|media|export`
 - Messages: `PATCH /messages/{id}` · `DELETE /messages/{id}?scope=me|everyone` · `PUT|DELETE /messages/{id}/reaction` · `POST /messages/{id}/forward` · `GET /messages/search?q=` (across all of a user's threads)
 - Pins: `PUT|DELETE /threads/{id}/pin/{messageId}` · `GET /threads/{id}/pinned` · Pinned conversations: `PUT|DELETE /threads/{id}/pinned-thread` · `GET /me/pinned-threads` (max 5)
 - Blocks: `GET /blocks` · `POST|DELETE /blocks/{userId}`
 - Push: `POST|DELETE /push/subscribe` · `GET /push/vapid-key`
 - WS: `GET /ws` (cookie-authenticated only — no `?token=` query parameter); frames per ARCHITECTURE §3. `subscribe` frames are gated on thread membership.
 - Support & client errors: `POST /support/contact` · `POST /errors`
+
+### Thread history pagination
+
+`GET /threads/{id}` is **keyset**-paginated, not offset-paginated:
+
+- `before` — exclusive upper bound, a **message id**. Omit (or `0`) for the
+  newest page. For the next page back, pass the *oldest id you have received*.
+- `limit` — 50 by default, capped at 200.
+- Response: `{ thread, messages, has_more }`. `messages` are ascending by id.
+  `has_more` is derived by fetching one extra row, so a pager never needs a
+  `COUNT`.
+
+```bash
+# newest 50
+GET /api/v1/threads/{id}
+# then walk backwards; suppose the oldest id received was 41180
+GET /api/v1/threads/{id}?before=41180&limit=50
+```
+
+Served by `idx_chat_messages_thread (thread_id, id DESC)` — the best-suited
+index in the schema. This endpoint previously read no cursor at all and returned
+a fixed 50, which made the older half of any longer conversation permanently
+unreachable: no API path and no UI control could reach it, and reply/quote,
+jump-to-message and pinned cross-references all broke for old messages.
 
 ## Admin (`admin` claim)
 - Verify: `GET /admin/verify` (`?status=rejected`) · `GET /admin/verify/{id}` · `POST /admin/verify/{id}/decide` · `POST /admin/verify/{id}/re-request` · `GET /admin/verify/{id}/documents/{docId}/file`
@@ -92,3 +125,96 @@ Authenticate with `X-API-Key: bv_...` (issue keys at `POST /me/api-keys`; 300 re
 ## Category follows & stock alerts
 - `GET|PUT|DELETE /categories/{id}/follow`
 - `GET|PUT|DELETE /products/{id}/stock-alert`
+
+## Billing (Phase 7.1 monetization)
+
+Stripe is the system of record for money; this API is the system of record for
+*access*. Every entitlement decision reads the `subscriptions` table, which is
+only ever written by a signature-verified webhook or the 6-hourly reconciliation
+job — never by the client.
+
+Entitlements are capability strings on the plan (`analytics`,
+`analytics_advanced`, `featured_placement`, `verified_badge`, `api_access`,
+`webhooks`, `embeddable_widget`, `support_priority`) plus numeric caps
+(`product_limit:N`, `gallery_limit:N`, `team_seats:N`). The strings are a
+storage format: the API exposes them resolved into a booleans-and-caps object so
+a client never has to parse them.
+
+- `GET /plans` — **public**, no auth. The active catalogue plus `enabled: bool`
+  (false when Stripe is not configured on the deployment). `purchasable` is
+  false for a paid plan whose `stripe_price_id` has not been filled in yet, so
+  clients must not offer a buy button for it.
+- `GET /businesses/{id}/billing` — effective plan, subscription row, resolved
+  `entitlements`, `enabled`. Authorised for the owner **and** co-owners
+  (`CanManageBusiness`), so a co-owner can pay for the business they manage.
+- `GET /businesses/{id}/billing/invoices?limit=` — display-only history; Stripe
+  remains authoritative. `limit` caps at 100.
+- `POST /businesses/{id}/billing/checkout` (body: `{plan_id}`) → `{url}`, a
+  Stripe Checkout URL. The business is re-authorised server-side; a body-supplied
+  business id is never trusted. Refuses when Stripe is unconfigured (404, not
+  500), when the plan is not yet purchasable (409), or when the business already
+  has an active subscription (409, use the portal).
+- `POST /businesses/{id}/billing/portal` → `{url}`, a Stripe customer-portal URL
+  for self-serve cancellation and card updates. 409 when the business has no
+  billing account yet.
+- `POST /billing/webhook` — **no session, no CSRF, no API key.** Authenticated
+  solely by the `Stripe-Signature` HMAC over the *raw* body, verified before any
+  parsing. Handled event types:
+  `customer.subscription.created|updated|deleted`,
+  `invoice.created|paid|payment_failed|finalized`,
+  `checkout.session.completed` (acknowledged; state arrives via the
+  subscription events). Unknown types are acknowledged so a new Stripe event
+  cannot put the endpoint into a retry loop.
+  - **Idempotency:** `billing_webhook_events` is keyed on `provider_event_id`.
+    A duplicate returns 200 without reapplying — Stripe retries until it sees a
+    2xx, so a duplicate is a success, not an error. A *retry after a genuine
+    failure* re-runs the handler, so every handler is an idempotent upsert.
+  - A 4xx (bad signature, unparseable body, test-mode event in a live
+    deployment) is **not** retried. Anything else is a 5xx so Stripe retries.
+  - Configure the endpoint as
+    `https://<api-host>/api/v1/billing/webhook`. It is CSRF-exempt by explicit
+    allowlist (`csrfExemptPaths` in `httpapi/middleware.go`); adding a path there
+    is a security decision that requires a non-cookie auth mechanism.
+
+**Operator step before a paid plan can be sold** (a paid plan with no
+`stripe_price_id` is a valid catalogue entry, just not purchasable):
+
+```sql
+UPDATE plans SET stripe_price_id = 'price_...' WHERE id = 'growth';
+```
+
+**Subscription status → access.** `active`, `trialing` and `past_due` grant
+entitlements; `incomplete`, `unpaid`, `paused` and `canceled` do not. The list is
+a strict allowlist (`repo.Subscription.GrantsEntitlements`), so a status Stripe
+adds later cannot silently become a paid tier. `past_due` keeps access while
+Stripe retries the card; the `idx_subscriptions_period_end` partial index backs
+the sweep that catches rows the webhook never reached.
+
+## Server-rendered SEO (Phase 5)
+
+Not part of the JSON API. These are HTML responses served from the API origin;
+`apps/web/vercel.json` rewrites `/b/:slug`, `/c/:slug` and `/city/:slug` onto
+them, so a crawler receives a complete document instead of `<div id="root">`.
+
+- `GET /ssr/b/{slug}` — business page: `<title>`, meta description, canonical,
+  Open Graph + Twitter card, `LocalBusiness` + `BreadcrumbList` + `ItemList`
+  JSON-LD, and crawlable body text (about, hours, contact, catalog).
+- `GET /ssr/c/{slug}` — category landing: `CollectionPage` + `BreadcrumbList`.
+- `GET /ssr/city/{slug}` — city landing: `CollectionPage` + `BreadcrumbList`
+  plus the category breakdown and top-rated list.
+
+Behaviour worth relying on:
+
+- The crawlable content lives in a sibling `#seo` node; the SPA mounts into
+  `#root` and removes `#seo` **before** its first render
+  (`apps/web/src/main.tsx`), so nothing is ever visible twice.
+- Only a `verified` business is rendered, matching `GET /b/{slug}` exactly. A
+  404 renders a real 404 with `X-Robots-Tag: noindex,follow`.
+- Every interpolated value is HTML-escaped, and JSON-LD has `<` escaped so a
+  business name containing `</script>` cannot break out. Path segments are
+  percent-encoded, so a slug cannot inject a scheme or a host.
+- `aggregateRating` is emitted only when there is at least one review — a zero
+  review count is a rich-result spam signal.
+- Assets come from `WEB_DIST_DIR/.vite/manifest.json`. When that is missing the
+  shell still serves the crawlable HTML as a no-JS document: losing hydration
+  must never lose indexability.

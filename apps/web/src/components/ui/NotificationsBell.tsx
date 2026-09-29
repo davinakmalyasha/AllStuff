@@ -4,15 +4,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell } from 'lucide-react'
 import { api, type NotificationDTO } from '@/lib/api'
 import { NOTIF_LABELS, notifUrl } from '@/lib/notifications'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { formatDateTime } from '@/lib/format'
 import { ws } from '@/lib/ws'
 import { useDialogA11y } from '@/components/ui/Modal'
 
-/** Notification bell with unread badge + dropdown (PRD §5.7). Deep-links to targets. */
+/** Notification bell with unread badge + dropdown (PRD Â§5.7). Deep-links to targets. */
 export function NotificationsBell() {
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [open, setOpen] = useState(false)
   const panelRef = useDialogA11y(open, () => setOpen(false))
 
@@ -93,8 +93,8 @@ export function NotificationsBell() {
                   <>
                     <p className="font-medium text-ink">{NOTIF_LABELS[n.type] ?? n.type}</p>
                     <p className="mt-0.5 text-xs text-ink3">
-                      {typeof n.payload.title === 'string' ? `${n.payload.title} · ` : ''}
-                      {typeof n.payload.body === 'string' ? `${n.payload.body} · ` : ''}
+                      {typeof n.payload.title === 'string' ? `${n.payload.title} Â· ` : ''}
+                      {typeof n.payload.body === 'string' ? `${n.payload.body} Â· ` : ''}
                       {formatDateTime(n.created_at)}
                     </p>
                   </>

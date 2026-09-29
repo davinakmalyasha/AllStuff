@@ -84,7 +84,7 @@ export function AdminCurationPage() {  const qc = useQueryClient()
 
   const { data: search } = useQuery({
     queryKey: ['search-curation'],
-    queryFn: () => api<{ businesses: BusinessDTO[] }>('/search?sort=rating&limit=10'),
+    queryFn: () => api<{ businesses: BusinessDTO[] }>('/search?sort=rating&limit=10&with_total=0'),
   })
 
   const save = useMutation({
@@ -143,11 +143,16 @@ export function AdminCurationPage() {  const qc = useQueryClient()
                     on ? prev.filter((x) => x !== b.id) : prev.length >= 8 ? prev : [...prev, b.id],
                   )
                 }
+                // aria-pressed exposes the toggle state: the glyph and the
+                // background colour alone conveyed it to sighted users only, so
+                // this control was invisible as a toggle to a screen reader.
+                aria-pressed={on}
+                aria-label={`${on ? 'Remove' : 'Add'} ${b.name} ${on ? 'from' : 'to'} featured`}
                 className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs font-mono ${
                   on ? 'border-ink bg-accent text-accent-ink' : 'border-border text-ink3'
                 }`}
               >
-                {on ? '✓' : '+'}
+                <span aria-hidden>{on ? '✓' : '+'}</span>
               </button>
               {b.logo_url ? (
                 <img src={b.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />

@@ -1,23 +1,24 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { safeInternalPath } from '@/lib/url'
 import { AuthShell, AuthFooterLink, useForm } from './AuthShell'
 import { GoogleButton } from '@/components/ui/GoogleButton'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { ApiError } from '@/lib/api'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 export function RegisterPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { register } = useAuth()
+  const { register } = useAuthState((s) => ({ register: s.register }))
   const [params] = useSearchParams()
-  // Single leading slash not followed by / or \: rejects protocol-relative
-  // "//evil.com" AND "/\evil.com" (WHATWG treats \ as / in special schemes).
-  const rawNext = params.get('next') ?? '/me'
-  const next = /^\/[^/\\]/.test(rawNext) ? rawNext : '/me'
+  // Same parser-based guard as LoginPage; see safeInternalPath for why a
+  // character-class check is not sufficient (a tab is stripped by the URL
+  // parser, turning "/\t/evil.com" into "//evil.com").
+  const next = useMemo(() => safeInternalPath(params.get('next'), '/me'), [params])
   const { values, set } = useForm({
     email: '',
     password: '',

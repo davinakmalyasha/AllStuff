@@ -240,8 +240,21 @@ func (s *Server) handleMediaServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", item.Mime)
-	// Media paths are content-addressed by immutable UUID: cache for a year.
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Cache policy depends on visibility, not just on the path being immutable.
+	//
+	// The immutable-UUID year-long cache is correct for PUBLIC media. It is
+	// wrong for chat attachments: authorizeChatMedia gates them per request, but
+	// a `public` response authorises any shared cache (CDN, corporate proxy,
+	// nginx proxy_cache) to store the body and re-serve it to an
+	// UNAUTHENTICATED third party indefinitely. The authorization is per-request;
+	// the cache key is not. `Vary: Cookie` is added so a shared cache that
+	// ignores no-store still cannot cross users.
+	if isPrivateMediaKind(item.Kind) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Vary", "Cookie")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 	// User-controlled bytes served from the API origin: forbid MIME sniffing
 	// (text/plain → HTML XSS) and force download for anything that is not an
 	// image/audio/video (files can carry active content).
@@ -250,6 +263,19 @@ func (s *Server) handleMediaServe(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeCDName(item.OriginalName)+`"`)
 	}
 	http.ServeFile(w, r, path)
+}
+
+// isPrivateMediaKind reports whether a kind is gated behind thread membership
+// rather than being public. The two handlers that serve bytes must agree on
+// this, so it lives in one place.
+func isPrivateMediaKind(kind domain.MediaKind) bool {
+	switch kind {
+	case domain.MediaChatImage, domain.MediaChatFile, domain.MediaChatAudio, domain.MediaChatVideo,
+		domain.MediaDocVerif:
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeCDName(name string) string {
@@ -276,8 +302,15 @@ func (s *Server) handleMediaThumb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	// Thumbnails share the immutable media UUID.
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Thumbnails share the immutable media UUID, but chat thumbnails inherit the
+	// same per-thread authorization as the original, so they must not be
+	// publicly cacheable either.
+	if isPrivateMediaKind(item.Kind) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Vary", "Cookie")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, path)
 }

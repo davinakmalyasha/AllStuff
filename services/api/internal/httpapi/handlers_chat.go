@@ -12,6 +12,7 @@ import (
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/security"
 	"bizverse/api/internal/service"
+	"bizverse/api/internal/util"
 	"bizverse/api/internal/ws"
 )
 
@@ -65,6 +66,23 @@ func (s *Server) handleThreadCreate(w http.ResponseWriter, r *http.Request) {
 	created(w, map[string]any{"thread": t})
 }
 
+// handleThreadDetail returns a page of a thread's history.
+//
+// PAGINATION (audit finding, CRITICAL). This handler used to call
+// `Messages(..., 0, 50)` and read no cursor, so in any conversation longer than
+// 50 messages the older half was PERMANENTLY UNREACHABLE — no API path and no
+// UI control could reach it. Quote/reply, jump-to-message and pinned-message
+// cross-references all broke for old messages.
+//
+// The repo layer already supported keyset pagination
+// (`MessagesByThread(ctx, threadID, before, limit)`, served by
+// idx_chat_messages_thread (thread_id, id DESC) — the best index in the
+// schema); only the handler refused to pass a cursor.
+//
+// `before` is the exclusive upper bound (a message id). The client asks for
+// the newest page with before=0 and walks backwards with
+// `before=<oldest id received>`. `has_more` is reported so the UI can stop
+// paging without an extra request.
 func (s *Server) handleThreadDetail(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {
@@ -72,13 +90,39 @@ func (s *Server) handleThreadDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := r.PathValue("id")
-	msgs, err := s.deps.Chat.Messages(r.Context(), user.ID, threadID, 0, 50)
+
+	before := int64(0)
+	if v := strings.TrimSpace(r.URL.Query().Get("before")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			fail(w, domain.ErrValidation.WithField("before", "before must be a message id."))
+			return
+		}
+		before = n
+	}
+	// Fetch one extra row to detect whether more history exists, rather than
+	// paying for a COUNT or a second query.
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
+	if limit > 200 {
+		limit = 200
+	}
+
+	msgs, err := s.deps.Chat.Messages(r.Context(), user.ID, threadID, before, limit+1)
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	hasMore := false
+	if len(msgs) > limit {
+		hasMore = true
+		msgs = msgs[:limit]
+	}
 	t, _ := s.deps.Repos.Chat.GetThread(r.Context(), threadID)
-	ok(w, map[string]any{"thread": t, "messages": msgs})
+	ok(w, map[string]any{
+		"thread":   t,
+		"messages": msgs,
+		"has_more": hasMore,
+	})
 }
 
 // ---- messages ----
@@ -112,11 +156,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// Web-push fan-out is best-effort and each endpoint can take seconds:
 	// never block the sender's HTTP response on it. Detached context — the
 	// request ctx dies with the response.
-	go func(threadID string, msg *domain.ChatMessage) {
+	util.GoNamed("chat-push-fanout", func() {
 		pctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		s.pushToThread(pctx, threadID, msg)
-	}(threadID, msg)
+	})
 	created(w, map[string]any{"message": msg})
 }
 

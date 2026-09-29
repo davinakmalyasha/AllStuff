@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -278,11 +279,17 @@ var authPaths = map[string]bool{
 }
 
 // engagementPath: mutating engagement calls are user-scoped 30/min (PRD §8.8).
+//
+// NOTE on /api/v1/reports and /api/v1/claims: these used to fall through to
+// the 120/min global IP tier, which let a single IP open ~170k reports/day and
+// bury genuine abuse reports in the moderation queue. Both are now user-scoped.
 func engagementPath(p string) bool {
 	for _, prefix := range []string{
 		"/api/v1/likes/", "/api/v1/recommends/", "/api/v1/me/collections",
 		"/api/v1/businesses/", "/api/v1/comments/", "/api/v1/reviews/",
 		"/api/v1/questions/", "/api/v1/collections/",
+		"/api/v1/reports", "/api/v1/claims", "/api/v1/support/",
+		"/api/v1/me/appeal",
 	} {
 		if strings.HasPrefix(p, prefix) {
 			return true
@@ -315,6 +322,14 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			// Full-directory scan; keep crawlers on a tight budget.
 			tier = "sitemap"
 			limit, window = 10, time.Minute
+		case strings.HasPrefix(p, "/ssr/"):
+			// Server-rendered SEO shell. Public, cacheable, and reachable by
+			// any crawler, so it gets a crawl-shaped budget rather than the
+			// 120/min interactive default. Slightly looser than /sitemap.xml
+			// because these are the pages a crawler actually walks, and the
+			// handler is a handful of indexed reads.
+			tier = "ssr"
+			limit, window = 60, time.Minute
 		case p == "/api/v1/me/export" ||
 			(strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/export")):
 			// Heavy sequential exports: N+1 aggregations / 100k-message dumps
@@ -346,6 +361,22 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			// dedicated tier keeps them out of the global IP budget.
 			tier = "typing"
 			limit, window = 60, time.Minute
+		case strings.HasPrefix(p, "/api/v1/businesses/") && strings.Contains(p, "/billing/"):
+			// Checkout/portal create a Stripe session per call. Cheap, but it
+			// is a third-party round trip and an owner clicking "subscribe"
+			// repeatedly should not be able to hammer Stripe's rate limits.
+			tier = "billing"
+			limit, window = 10, time.Hour
+			if u, found := currentUser(r); found {
+				key = u.ID
+			}
+		case p == "/api/v1/billing/webhook":
+			// Per source IP rather than the global bucket: Stripe retries
+			// aggressively on a 5xx, and a retry storm must not lock out every
+			// other API caller sharing the edge egress IP. 600/min is far above
+			// any real webhook volume.
+			tier = "billinghook"
+			limit, window = 600, time.Minute
 		case engagementPath(p) && r.Method != http.MethodGet:
 			tier = "engage"
 			limit, window = 30, time.Minute // engagement writes: 30/min per user
@@ -367,9 +398,26 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 
 // ---- CSRF double-submit (PRD §5.9.1) ----
 
+// csrfExemptPaths are non-GET routes that cannot carry a browser CSRF token.
+// Every one of them must authenticate by some other means:
+//
+//	/api/v1/billing/webhook — Stripe posts with a signature over the raw
+//	body; there is no cookie, no session and no Origin. A CSRF token is
+//	meaningless here and requiring one would simply break the integration.
+//
+// Adding a path here is a security decision. It must be accompanied by a
+// non-cookie authentication mechanism in the handler.
+var csrfExemptPaths = map[string]bool{
+	"/api/v1/billing/webhook": true,
+}
+
 func (s *Server) withCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if csrfExemptPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -601,20 +649,43 @@ func (s *Server) metricsGuard(next http.HandlerFunc) http.HandlerFunc {
 // ---- helpers ----
 
 func (s *Server) clientIP(r *http.Request) string {
+	raw := r.RemoteAddr
 	if s.deps.Config.TrustXForwardedFor {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			// The rightmost entry was appended by the proxy we control and is
 			// the only hop a client cannot spoof; leftmost entries are
 			// attacker-supplied.
+			//
+			// A SINGLE value means no proxy appended ours, so the value is
+			// entirely client-controlled. Trusting it hands the attacker one
+			// fresh bucket per request — a total bypass of the 5/min login and
+			// 3/15min 2FA tiers. Fall back to RemoteAddr instead.
 			if i := strings.LastIndexByte(xff, ','); i >= 0 {
-				return strings.TrimSpace(xff[i+1:])
+				raw = strings.TrimSpace(xff[i+1:])
+			} else {
+				raw = r.RemoteAddr
 			}
-			return strings.TrimSpace(xff)
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(raw)
 	if err != nil {
-		return r.RemoteAddr
+		host = raw
+	}
+	host = strings.Trim(host, "[]")
+	// CANONICALIZATION IS LOAD-BEARING: this value is a map key, so two
+	// spellings of one address are two independent buckets. Previously the raw
+	// string was used, so 2001:db8::1 and 2001:0db8:0000:...:0001 were
+	// different keys — a single attacker with a /64 had 2^64 separate 5/min
+	// login buckets, making the auth tier effectively unlimited. The same
+	// applied to ::ffff:1.2.3.4 vs 1.2.3.4 on a dual-stack host.
+	//
+	// To4 folds IPv4-mapped IPv6 onto plain IPv4; String() renders IPv6 in its
+	// single canonical short form.
+	if ip := net.ParseIP(host); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			return v4.String()
+		}
+		return ip.String()
 	}
 	return host
 }
@@ -636,17 +707,51 @@ func seconds(d time.Duration) string {
 // /ws is excluded (hijacked connections must not be wrapped).
 func (s *Server) withGzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/ws" ||
-			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		if r.URL.Path == "/api/v1/ws" || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gzPool := gzipWriterPool{}
-		gzw := gzPool.get(w)
-		defer gzPool.put(gzw)
+		// The pool lives on the Server, NOT on the stack of this closure.
+		//
+		// It was declared as a local `gzipWriterPool{}` inside the handler, which
+		// allocates a brand new sync.Pool per request: get() always missed and
+		// put() wrote into a pool that was immediately garbage. So every
+		// gzip-advertising request paid a fresh gzip.NewWriter — which builds
+		// the level-6 compressor (~300-400 KB of zeroed hash/window state) —
+		// regardless of payload size, including 401 envelopes, 204s, health
+		// checks and Prometheus scrapes.
+		gzw := s.gzipPool.get(w)
+		defer s.gzipPool.put(gzw)
 		next.ServeHTTP(gzw, r)
 		gzw.close()
 	})
+}
+
+// acceptsGzip parses Accept-Encoding instead of substring-matching it, so
+// "gzip;q=0" (an explicit refusal) is not compressed and a bare "x-gzip" is
+// not either.
+func acceptsGzip(header string) bool {
+	if header == "" {
+		return false
+	}
+	for _, part := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		// q=0 means "do not use this". A malformed q is treated as acceptable,
+		// matching how a browser's own header is meant to be read.
+		for _, p := range strings.Split(params, ";") {
+			k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
+			if ok && strings.EqualFold(strings.TrimSpace(k), "q") {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && f <= 0 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
 }
 
 type gzipResponseWriter struct {

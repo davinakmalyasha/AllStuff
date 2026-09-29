@@ -67,9 +67,10 @@ export function useJsonLd(data: Record<string, unknown> | null) {
     script.id = id
     script.type = 'application/ld+json'
     // Escape "<" so user-controlled fields (business names/descriptions)
-    // cannot close the script tag. textContent is safe in the live DOM, but
-    // the prerender step serializes page.content() into static HTML where a
-    // raw "</script>" inside the JSON would break out into stored XSS.
+    // cannot close the script tag. textContent is safe in the live DOM, but the
+    // API-side /ssr/* handlers interpolate the same JSON into a server-rendered
+    // document, where a raw "</script>" inside the JSON would break out. Keep
+    // the escaping: it is what makes handlers_ssr.go safe.
     script.textContent = JSON.stringify(data).replace(/</g, '\\u003c')
     document.head.appendChild(script)
     return () => {

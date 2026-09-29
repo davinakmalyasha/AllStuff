@@ -33,19 +33,32 @@ func (o *Ops) PruneSnapshots(ctx context.Context) error {
 	return err
 }
 
+// softDeleteReclaimWindow is how long a moderation-hidden file is kept before
+// its bytes are reclaimed. Soft delete exists to make "hide" reversible, so the
+// window has to be long enough for an operator to notice a mistake and restore
+// the content; the row is hard-deleted at the end of it so the table does not
+// accumulate dead references.
+const softDeleteReclaimWindow = 30 * 24 * time.Hour
+
 // CleanupOrphanMedia deletes media rows whose file is missing, and files in
-// the media directory with no matching row. Documents are skipped when
-// encrypted (.enc) or missing the row is still removed. Best-effort.
+// the media directory with no matching row. Soft-deleted rows (moderation
+// hide) keep their bytes for softDeleteReclaimWindow and are then reclaimed.
+// Documents are skipped when encrypted (.enc) or missing the row is still
+// removed. Best-effort.
 func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
-	rows, err := o.repos.Query(ctx, `SELECT id, path FROM media`)
+	rows, err := o.repos.Query(ctx, `SELECT id, path, deleted_at FROM media`)
 	if err != nil {
 		return err
 	}
-	type mrow struct{ id, path string }
+	type mrow struct {
+		id        string
+		path      string
+		deletedAt *time.Time
+	}
 	var all []mrow
 	for rows.Next() {
 		var r mrow
-		if err := rows.Scan(&r.id, &r.path); err != nil {
+		if err := rows.Scan(&r.id, &r.path, &r.deletedAt); err != nil {
 			rows.Close()
 			// A truncated/errored scan must never feed the destructive walk below:
 			// missing rows would look like orphans and their files would be deleted.
@@ -59,12 +72,25 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 	}
 	rows.Close()
 
+	now := time.Now()
 	onDisk := map[string]bool{}
 	for _, r := range all {
 		full := filepath.Join(o.mediaDir, r.path)
 		if _, err := os.Stat(full); err != nil {
 			// Row without a file → drop the row.
 			_, _ = o.repos.Exec(ctx, `DELETE FROM media WHERE id = $1`, r.id)
+			continue
+		}
+		// A hidden-but-still-reversible row protects its own bytes: without this
+		// the file would look like an orphan and be deleted on the very next
+		// nightly run, which would make "hide" a one-way door.
+		if r.deletedAt != nil && now.Sub(*r.deletedAt) > softDeleteReclaimWindow {
+			if _, err := o.repos.Exec(ctx, `DELETE FROM media WHERE id = $1`, r.id); err != nil {
+				slog.Warn("soft-deleted media row not reclaimed", "id", r.id, "err", err)
+				continue
+			}
+			// Row is gone, so protect nothing: the walk below reclaims the file
+			// and its thumbnail once the 24h file grace has passed.
 			continue
 		}
 		onDisk[r.path] = true
@@ -84,8 +110,14 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		// A thumbnail survives only while its row does. Keying the skip off
+		// onDisk (rather than the suffix alone) is what lets a reclaimed row
+		// take its thumbnail with it; skipping every _thumb.jpg unconditionally
+		// leaked one file per deleted image forever.
 		if strings.HasSuffix(rel, "_thumb.jpg") {
-			return nil // thumbnail of a valid row
+			if onDisk[strings.TrimSuffix(rel, "_thumb.jpg")] {
+				return nil
+			}
 		}
 		if !onDisk[rel] && time.Since(info.ModTime()) > 24*time.Hour {
 			_ = os.Remove(path)

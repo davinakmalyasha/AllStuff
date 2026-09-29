@@ -286,8 +286,16 @@ func (m *Media) ServePath(ctx context.Context, id string) (*domain.MediaItem, st
 	if err != nil || item == nil {
 		return nil, "", domain.ErrNotFound
 	}
+	// Moderator-hidden media (PRD §5.8.2). Reported as 404 rather than 403 so
+	// the endpoint does not confirm that a removed item exists — the same answer
+	// a client gets for an id that never existed. The bytes stay on disk so the
+	// action remains reversible; ops.CleanupOrphanMedia reclaims them after
+	// softDeleteReclaimWindow (30d) has passed.
+	if item.DeletedAt != nil {
+		return nil, "", domain.ErrNotFound
+	}
 	if !publicKinds[item.Kind] {
-		return nil, "", domain.ErrForbidden // documents are not publicly servable (PRD §5.8.1)
+		return nil, "", domain.ErrForbidden // documents are not publicly servable
 	}
 	return item, filepath.Join(m.dir, item.Path), nil
 }

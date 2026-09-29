@@ -1,24 +1,34 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { safeInternalPath } from '@/lib/url'
 import { AuthShell, AuthFooterLink, useForm } from './AuthShell'
 import { GoogleButton } from '@/components/ui/GoogleButton'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { ApiError } from '@/lib/api'
-import { useAuth } from '@/stores/auth'
+import { useAuth, useAuthState } from '@/stores/auth'
 
 export function LoginPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { login, verify2FA } = useAuth()
+  const { login, verify2FA } = useAuthState((s) => ({ login: s.login, verify2FA: s.verify2FA }))
   const twoFaChallenge = useAuth((s) => s.twoFaChallenge)
   const [params] = useSearchParams()
-  const rawNext = params.get('next') ?? '/me'
-  // Single leading slash not followed by / or \: rejects protocol-relative
-  // "//evil.com" AND "/\evil.com" (WHATWG treats \ as / in special schemes).
-  const next = /^\/[^/\\]/.test(rawNext) ? rawNext : '/me'
+  // Return path. Two independent reasons this is stricter than a regex:
+  //
+  //  * `//evil.com` and `/\evil.com` are both cross-origin, and WHATWG treats a
+  //    backslash as a slash in special schemes, so both must be rejected.
+  //  * The WHATWG URL parser STRIPS U+0009/U+000A/U+000D from URLs, so
+  //    "/\t/evil.com" survives a naive character check and then normalises to
+  //    "//evil.com" inside history.pushState. Control characters are therefore
+  //    rejected outright rather than "not matched by the first class".
+  //
+  // The final authority is the URL parser: parse against the current origin and
+  // only accept a same-origin result. That is immune to the classes above rather
+  // than enumerating them.
+  const next = useMemo(() => safeInternalPath(params.get('next'), '/me'), [params])
   const { values, set } = useForm({ email: '', password: '', code: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState('')
@@ -39,7 +49,16 @@ export function LoginPage() {
       } else {
         await login(values.email, values.password)
       }
-      navigate(next, { replace: true })
+      // Do NOT navigate yet. `login` resolves normally when the account has 2FA
+      // enrolled â€” it stores a challenge and returns â€” so navigating here fired
+      // a redirect while still unauthenticated: RequireAuth bounced to
+      // /login?next=/me, OVERWRITING the original ?next. A 2FA user deep-linking
+      // to /dashboard/billing was therefore sent to /me and lost their
+      // destination.
+      //
+      // Gate on the store instead: the user is present only once a real session
+      // cookie has been issued.
+      if (useAuth.getState().user) navigate(next, { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.code === 'account_pending_deletion') {
         setPendingDeletion(true)

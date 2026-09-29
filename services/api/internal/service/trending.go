@@ -326,19 +326,27 @@ func (t *Trending) CategoryLeaderboard(ctx context.Context, categoryID string, l
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
-	var takenAt time.Time
+	// Scan into a pointer: max() over an empty set is NULL, and scanning NULL
+	// into a time.Time is a hard error. That made every category page 500 until
+	// the trending job happened to write its first snapshot — i.e. on a fresh
+	// deploy, and again on any environment where the job is not running.
+	// A leaderboard with no snapshots yet is legitimately empty, not a failure.
+	var takenAt *time.Time
 	if err := t.repos.QueryRow(ctx, `
 		SELECT max(taken_at) FROM trend_snapshots WHERE period='24h'`).Scan(&takenAt); err != nil {
 		return nil, time.Time{}, err
 	}
+	if takenAt == nil {
+		return []*domain.TrendEntry{}, time.Time{}, nil
+	}
 
 	// 1. Score-ranked top N in the category.
-	score, err := t.categoryEntries(ctx, categoryID, takenAt, limit, false)
+	score, err := t.categoryEntries(ctx, categoryID, *takenAt, limit, false)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
 	// 2. Rising (velocity > 0) entries in the category, any score rank.
-	rising, err := t.categoryEntries(ctx, categoryID, takenAt, 3, true)
+	rising, err := t.categoryEntries(ctx, categoryID, *takenAt, 3, true)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -354,7 +362,7 @@ func (t *Trending) CategoryLeaderboard(ctx context.Context, categoryID string, l
 	if len(out) > limit+3 {
 		out = out[:limit+3]
 	}
-	return out, takenAt, nil
+	return out, *takenAt, nil
 }
 
 func (t *Trending) categoryEntries(ctx context.Context, categoryID string, takenAt time.Time, limit int, risingOnly bool) ([]*domain.TrendEntry, error) {

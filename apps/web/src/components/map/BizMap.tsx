@@ -81,6 +81,12 @@ interface BizMapProps {
 export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, showControls = true, initialCategories = [], onSelect, embedded = false }: BizMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // `map` is only published once the style has finished loading. A MapLibre Map
+  // object exists as soon as the constructor returns, but `addSource`/
+  // `addLayer` throw "Style is not done loading." until then. Setting it
+  // earlier let the marker effect run against a half-initialised style and take
+  // down the whole route through the error boundary — the map is embedded in
+  // ordinary pages, not just /map, so an unstyled map bricked storefronts.
   const [map, setMap] = useState<maplibregl.Map | null>(null)
   const [markers, setMarkers] = useState<MapMarker[]>([])
   const [cats, setCats] = useState<string[]>(initialCategories)
@@ -131,8 +137,20 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       }
     }
     mapRef.current = m
-    setMap(m)
+    // Publish only once the style is usable — see the useState comment above.
+    let onLoad: (() => void) | null = null
+    if (m.isStyleLoaded()) {
+      setMap(m)
+    } else {
+      onLoad = () => {
+        m.off('load', onLoad!)
+        setMap(m)
+      }
+      m.on('load', onLoad)
+    }
     return () => {
+      if (onLoad) m.off('load', onLoad)
+      setMap((cur) => (cur === m ? null : cur))
       m.remove()
       mapRef.current = null
     }

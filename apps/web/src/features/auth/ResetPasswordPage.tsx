@@ -6,12 +6,12 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { ApiError } from '@/lib/api'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 export function ResetPasswordPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { resetPassword } = useAuth()
+  const { resetPassword } = useAuthState((s) => ({ resetPassword: s.resetPassword }))
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
 

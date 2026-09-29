@@ -89,7 +89,22 @@ func main() {
 		SMTPUser:  cfg.SMTPUser,
 		SMTPPass:  cfg.SMTPPass,
 	})
+	// Rate limiting: shared across replicas when REDIS_URL is set, per-instance
+	// otherwise. With N in-memory replicas the effective limit is N times the
+	// configured one, so a multi-instance deploy must set REDIS_URL — config
+	// .Validate already requires rediss:// in production.
 	rateLimiter := ratelimit.NewInMemory()
+	if cfg.RedisURL != "" {
+		redisLimiter, rlErr := ratelimit.NewRedis(cfg.RedisURL, logger)
+		if rlErr != nil {
+			// Not fatal: NewRedis already falls back to in-memory internally, and
+			// refusing to boot over a missing cache would turn a degradation into
+			// an outage.
+			logger.Warn("redis rate limiter unavailable; using per-instance limits", "err", rlErr)
+		} else {
+			rateLimiter = redisLimiter
+		}
+	}
 	wsOrigins := append(append([]string{}, cfg.WSOrigins...), cfg.CORSOrigins...)
 	var pubsub *ws.RedisPubSub
 	if cfg.RedisURL != "" {
@@ -113,8 +128,27 @@ func main() {
 	authSvc := service.NewAuth(repos, cfg, sender, logger)
 	userSvc := service.NewUsers(repos)
 	categorySvc := service.NewCategories(repos)
-	businessSvc := service.NewBusinesses(repos)
-	productSvc := service.NewProducts(repos, notifier)
+
+	// Billing (Phase 7.1) is constructed BEFORE the services that gate on it,
+	// because Products.Create, the storefront gallery update and Invites.Create
+	// all resolve capacity entitlements on the request path. A nil-safe Stripe
+	// client means a deployment with no Stripe key still serves the free plan;
+	// only checkout/portal/webhook are unavailable, and those return a
+	// 501-shaped domain error rather than 500.
+	//
+	// There is no import cycle: *service.Billing satisfies
+	// service.EntitlementSource, so the gated services take the interface and
+	// Billing is constructed first purely as a construction-order requirement.
+	stripeClient := security.NewStripeClient(cfg.StripeSecretKey, cfg.StripePublishableKey)
+	billingSvc := service.NewBilling(repos, cfg, stripeClient, logger)
+	if billingSvc.Enabled() {
+		logger.Info("billing enabled (stripe)", "publishable", stripeClient.PublishableKey() != "")
+	} else {
+		logger.Warn("billing disabled: STRIPE_SECRET_KEY is not set; free plan only")
+	}
+
+	businessSvc := service.NewBusinesses(repos, billingSvc)
+	productSvc := service.NewProducts(repos, notifier, billingSvc)
 	analyticsSvc := service.NewAnalytics(repos)
 	engagementSvc := service.NewEngagement(repos, notifier)
 	trendingSvc := service.NewTrending(repos, notifier)
@@ -137,7 +171,7 @@ func main() {
 	oauthSvc := service.NewOAuth(repos, cfg)
 	communitySvc := service.NewCommunity(repos, notifier)
 	profilesSvc := service.NewProfiles(repos, notifier)
-	invitesSvc := service.NewInvites(repos, cfg, sender)
+	invitesSvc := service.NewInvites(repos, cfg, sender, billingSvc)
 	searchSvc := service.NewSearch(repos)
 	adminSvc := service.NewAdmin(repos, notifier)
 	mediaSvc := service.NewMedia(repos, cfg.MediaDir, cfg.MediaBase, cfg.MediaEncryptionKey, cfg.ClamAVAddr)
@@ -169,6 +203,7 @@ func main() {
 		Cities:      citiesSvc,
 		APIKeys:     apiKeysSvc,
 		Claims:      claimsSvc,
+		Billing:     billingSvc,
 		Notifier:    notifier,
 		RateLimiter: rateLimiter,
 		Hub:         hub,
@@ -186,7 +221,7 @@ func main() {
 	backgroundWG.Add(1)
 	go func() {
 		defer backgroundWG.Done()
-		jobs.Run(ctx, logger, repos, cfg, sender, notifier)
+		jobs.Run(ctx, logger, repos, cfg, sender, notifier, billingSvc)
 	}()
 
 	go func() {

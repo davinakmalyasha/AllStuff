@@ -1,8 +1,39 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": [
+    "REPLACE `https://api.example.com` with your own API origin before deploying.",
+    "The original value pointed at a real third-party host, so deploying without",
+    "editing it silently proxied the app to someone else's API.",
+    "",
+    "REWRITE ORDER MATTERS: Vercel applies the first matching rule. The WebSocket",
+    "rule MUST stay above /api/:path* — the client hardcodes",
+    "wss://<host>/api/v1/ws, and without an explicit wss:// destination the /api",
+    "rule rewrote it to https://, which silently killed every realtime feature",
+    "(chat delivery, typing, live notifications, unread badges, read receipts).",
+    "",
+    "Server-rendered SEO routes (Phase 5) sit above /api so a crawler hitting",
+    "/b/:slug gets real HTML instead of <div id=root></div>."
+  ],
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://bizverse-api.up.railway.app/api/:path*" },
-    { "source": "/og/:path*", "destination": "https://bizverse-api.up.railway.app/og/:path*" },
-    { "source": "/robots.txt", "destination": "https://bizverse-api.up.railway.app/robots.txt" }
+    {
+      "source": "/api/v1/ws",
+      "destination": "wss://api.example.com/api/v1/ws"
+    },
+    {
+      "source": "/b/:slug",
+      "destination": "https://api.example.com/ssr/b/:slug"
+    },
+    {
+      "source": "/c/:slug",
+      "destination": "https://api.example.com/ssr/c/:slug"
+    },
+    {
+      "source": "/city/:slug",
+      "destination": "https://api.example.com/ssr/city/:slug"
+    },
+    { "source": "/api/:path*", "destination": "https://api.example.com/api/:path*" },
+    { "source": "/og/:path*", "destination": "https://api.example.com/og/:path*" },
+    { "source": "/robots.txt", "destination": "https://api.example.com/robots.txt" }
   ],
   "headers": [
     {
@@ -10,8 +41,26 @@
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "X-Frame-Options", "value": "DENY" }
+        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(self), geolocation=(self), payment=(), usb=(), interest-cohort=()"
+        },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+        }
       ]
+    },
+    {
+      "source": "/(.*).map",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     }
   ]
 }

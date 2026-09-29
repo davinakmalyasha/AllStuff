@@ -95,15 +95,23 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 			return err
 		}
 
-		// Statements using CREATE/DROP INDEX CONCURRENTLY must run OUTSIDE
-		// the migration transaction (Postgres forbids it inside one). They
-		// execute after the TX commits, on autocommit connections; a failure
-		// aborts the migration run.
-		stmts := splitStatements(string(body))
+		// Statements that must run OUTSIDE the migration transaction execute
+		// after the TX commits, on autocommit connections. Two classes:
+		//
+		//   1. CREATE/DROP INDEX CONCURRENTLY — Postgres forbids these inside
+		//      a transaction. Detected by the literal marker, which is also
+		//      what makes them show up in `splitStatements` as their own unit.
+		//   2. Anything tagged `/* autocommit */` — see autocommitTag. This
+		//      exists because ordering between a replacement constraint and
+		//      the constraint it replaces is load-bearing: 0029 builds
+		//      businesses_slug_live and only then may drop businesses_slug_key,
+		//      because dropping first leaves a window in which `slug` has NO
+		//      uniqueness at all. A substring heuristic cannot express "after",
+		//      so the ordering has to be explicit in the file.
+		stmts := SplitStatements(string(body))
 		var txStmts, concStmts []string
 		for _, stmt := range stmts {
-			if strings.Contains(stmt, " INDEX CONCURRENTLY ") ||
-				strings.Contains(stmt, " INDEX CONCURRENTLY\n") {
+			if isAutocommit(stmt) {
 				concStmts = append(concStmts, stmt)
 			} else {
 				txStmts = append(txStmts, stmt)
@@ -137,12 +145,103 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 			return err
 		}
 	}
+
+	// Every recorded migration is now believed applied. Before returning, prove
+	// that one specific way of "applied" is not a lie.
+	//
+	// A CREATE INDEX CONCURRENTLY that fails leaves an INVALID index behind:
+	// pg_class gets a row, pg_index.indisvalid stays false. `IF NOT EXISTS`
+	// matches on NAME and does not check validity, so every subsequent boot
+	// skips the build and the invariant the index was added to enforce is
+	// silently absent forever. 0029's five UNIQUE indexes exist to make
+	// invariants unbreakable; an INVALID one makes them merely decorative.
+	//
+	// This is a hard startup failure rather than a warning on purpose. The
+	// alternative — a degraded mode nobody is paged for — is exactly how an
+	// index that never got built stays unnoticed until an incident.
+	if bad, err := InvalidIndexes(ctx, conn); err != nil {
+		return fmt.Errorf("migrate: index validity check: %w", err)
+	} else if len(bad) > 0 {
+		return fmt.Errorf("migrate: %d invalid index(es) present — an earlier CREATE INDEX CONCURRENTLY "+
+			"failed and IF NOT EXISTS has been skipping the rebuild ever since. Drop and rebuild each: %v",
+			len(bad), bad)
+	}
 	return nil
 }
 
-// splitStatements splits SQL on ';' at end-of-line, ignoring semicolons inside
-// dollar-quoted bodies ($$ or $tag$, e.g. the plpgsql trigger function).
-func splitStatements(sql string) []string {
+// InvalidIndexes returns every index in the public schema whose build did not
+// complete. A non-empty result is always an operator-actionable condition; see
+// the recovery procedure in docs/RUNBOOK.md.
+func InvalidIndexes(ctx context.Context, conn *pgxpool.Conn) ([]string, error) {
+	rows, err := conn.Query(ctx, `
+		SELECT n.nspname || '.' || c.relname
+		  FROM pg_index i
+		  JOIN pg_class c     ON c.oid = i.indexrelid
+		  JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = 'public'
+		   AND NOT i.indisvalid
+		 ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
+// autocommitTag marks a statement that must run outside the migration
+// transaction even though it is not an INDEX CONCURRENTLY statement.
+//
+// It is a SQL block comment, not a `--` comment, on purpose: splitStatements
+// DROPS whole-line `--` comments before they ever reach a statement, so a
+// `--`-based marker would be invisible by the time the router looks for it. A
+// block comment survives splitting, is valid SQL to Postgres, and reads as an
+// instruction to a human skimming the migration.
+//
+// Put it on the same line as the statement, BEFORE it:
+//
+//	/* autocommit */ ALTER TABLE businesses DROP CONSTRAINT IF EXISTS businesses_slug_key;
+const autocommitTag = "/* autocommit */"
+
+// isAutocommit reports whether a statement must be executed on autocommit
+// rather than inside the migration transaction.
+func isAutocommit(stmt string) bool {
+	if strings.Contains(stmt, " INDEX CONCURRENTLY ") ||
+		strings.Contains(stmt, " INDEX CONCURRENTLY\n") {
+		return true
+	}
+	return strings.Contains(stmt, autocommitTag)
+}
+
+// SplitStatements splits SQL into executable statements.
+//
+// Exported because internal/db's own replay test and the migration linter must
+// see exactly the boundaries the runner sees. A checker that re-implemented
+// this would be checking a fiction — the whole point is that it is the same
+// function.
+//
+// Rules, which every migration in this repository must obey:
+//
+//   - A statement ends only when the accumulated line, trimmed, ends with ';'.
+//     A ';' anywhere else (inside a string literal, mid-line) does NOT split.
+//     Consequence: never end a line with a string literal whose final character
+//     is ';'.
+//   - Whole-line '--' comments are dropped before parsing. They are for
+//     humans; the `-- migrate:` header block is read from the raw file by
+//     ParseHeader, not from the split output.
+//   - '$$' and '$tag$' bodies are tracked, so a ';' inside plpgsql is safe.
+//   - '--' starting mid-line is preserved into the statement, so a trailing
+//     '--' comment on a line that also ends in ';' SUPPRESSES the split. Put
+//     every comment on its own line.
+func SplitStatements(sql string) []string {
 	var stmts []string
 	var cur strings.Builder
 	inDollar := false

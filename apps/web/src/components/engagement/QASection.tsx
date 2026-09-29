@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { formatDate } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/components/ui/Toast'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 interface AnswerDTO {
   id: string
@@ -29,10 +29,10 @@ interface QuestionDTO {
   answers?: AnswerDTO[]
 }
 
-/** Q&A on business pages (B5) — anyone can ask, owner answers highlighted. */
+/** Q&A on business pages (B5) â€” anyone can ask, owner answers highlighted. */
 export function QASection({ businessId }: { businessId: string }) {
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const [text, setText] = useState('')
   const [answerFor, setAnswerFor] = useState<string | null>(null)
   const [answerText, setAnswerText] = useState('')
@@ -71,7 +71,7 @@ export function QASection({ businessId }: { businessId: string }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && void ask.mutateAsync()}
-            placeholder="Ask about this business — parking, menu, availability…"
+            placeholder="Ask about this business â€” parking, menu, availabilityâ€¦"
             className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-ink3 focus:border-ink"
           />
           <Button onClick={() => void ask.mutateAsync()} disabled={text.trim().length < 3 || ask.isPending}>Ask</Button>
@@ -98,7 +98,7 @@ export function QASection({ businessId }: { businessId: string }) {
             )}
             {answerFor === q.id && (
               <div className="mt-2 flex gap-2">
-                <input value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="Your answer…" className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
+                <input value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="Your answerâ€¦" className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" />
                 <Button size="sm" onClick={() => void answer.mutateAsync()} disabled={!answerText.trim() || answer.isPending}>Post</Button>
               </div>
             )}

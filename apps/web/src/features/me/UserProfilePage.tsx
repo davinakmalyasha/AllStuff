@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Ban, MessageSquare, Star } from 'lucide-react'
@@ -10,8 +10,9 @@ import { Confirm } from '@/components/ui/Modal'
 import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 import { formatDate } from '@/lib/format'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 import { toast } from '@/components/ui/Toast'
+import { profileLinkEntries } from '@/lib/url'
 
 interface PublicProfileDTO {
   id: string
@@ -19,6 +20,8 @@ interface PublicProfileDTO {
   username: string
   avatar_url: string | null
   bio: string | null
+  timezone?: string
+  profile_links?: Record<string, unknown>
   joined_at: string
   reviews: Array<{ id: string; rating: number; text: string; created_at: string; business_name: string; business_slug: string }>
   comments: Array<{ id: string; text: string; created_at: string; business_name: string; business_slug: string }>
@@ -26,10 +29,10 @@ interface PublicProfileDTO {
   businesses: Array<{ id: string; name: string; slug: string; logo_url: string | null; city: string; category_id: string }>
 }
 
-/** Public user profile (PRD §6.1 /u/:username). */
+/** Public user profile (PRD Â§6.1 /u/:username). */
 export function UserProfilePage() {
   const { username = '' } = useParams()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['profile', username],
@@ -39,6 +42,10 @@ export function UserProfilePage() {
   usePageMeta(data ? `${data.name} (@${data.username})` : 'Profile')
 
   const isSelf = !!user && data && user.id === data.id
+
+  // Re-checked through the scheme allowlist here too: these rows are written by
+  // a different surface than the editor and may predate the server-side check.
+  const publicLinks = useMemo(() => profileLinkEntries(data?.profile_links), [data?.profile_links])
 
   if (isLoading) return <PageSpinner />
   if (isError) return <ErrorNote onRetry={() => void refetch()} />
@@ -59,8 +66,27 @@ export function UserProfilePage() {
         </div>
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{data.name}</h1>
-          <p className="text-sm text-ink3">@{data.username} · joined {formatDate(data.joined_at)}</p>
+          <p className="text-sm text-ink3">
+            @{data.username} Â· joined {formatDate(data.joined_at)}
+            {data.timezone && <span title="Timezone"> Â· {data.timezone}</span>}
+          </p>
           {data.bio && <p className="mt-1 text-sm text-ink2">{data.bio}</p>}
+          {publicLinks.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {publicLinks.map((l) => (
+                <li key={l.key}>
+                  <a
+                    href={l.href}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow me"
+                    className="rounded-full border border-border px-2.5 py-0.5 text-xs text-ink2 hover:text-ink"
+                  >
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         {!isSelf && <ProfileActions userId={data.id} profileUsername={username} />}
       </div>
@@ -131,9 +157,9 @@ export function UserProfilePage() {
   )
 }
 
-/** Message + block actions for other users (PRD §5.5.2). */
+/** Message + block actions for other users (PRD Â§5.5.2). */
 function ProfileActions({ userId, profileUsername }: { userId: string; profileUsername: string }) {
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [messaging, setMessaging] = useState(false)

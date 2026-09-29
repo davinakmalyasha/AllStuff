@@ -5,11 +5,11 @@ import { AuthShell, useForm } from './AuthShell'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 export function ForgotPasswordPage() {
   const { t } = useTranslation()
-  const { forgotPassword } = useAuth()
+  const { forgotPassword } = useAuthState((s) => ({ forgotPassword: s.forgotPassword }))
   const { values, set } = useForm({ email: '' })
   const [pending, setPending] = useState(false)
   const [sent, setSent] = useState(false)

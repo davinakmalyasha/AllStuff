@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { ApiError, post } from '@/lib/api'
-import { useAuth } from '@/stores/auth'
+import { useAuth, useAuthState } from '@/stores/auth'
 
 const RESEND_COOLDOWN_S = 60
 
@@ -15,7 +15,7 @@ export function VerifyEmailPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const user = useAuth((s) => s.user)
-  const { verifyEmail, fetchMe } = useAuth()
+  const { verifyEmail, fetchMe } = useAuthState((s) => ({ verifyEmail: s.verifyEmail, fetchMe: s.fetchMe }))
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
 

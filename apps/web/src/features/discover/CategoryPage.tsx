@@ -6,11 +6,11 @@ import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { BusinessCard } from '@/components/ui/BusinessCard'
 import { Button } from '@/components/ui/Button'
 import { usePageMeta, useJsonLd } from '@/lib/meta'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
 
 export function CategoryPage() {
   const { slug = '' } = useParams()
-  const { user } = useAuth()
+  const { user } = useAuthState((s) => ({ user: s.user }))
   const qc = useQueryClient()
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -33,7 +33,7 @@ export function CategoryPage() {
       api(`/categories/${cat!.id}/follow`, { method: on ? 'PUT' : 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cat-follow', cat?.id] }),
   })
-  usePageMeta(cat ? `${cat.name} — Businesses` : 'Category', cat?.description ?? undefined, {
+  usePageMeta(cat ? `${cat.name} â€” Businesses` : 'Category', cat?.description ?? undefined, {
     url: cat ? `${window.location.origin}/c/${cat.slug}` : undefined,
   })
   useJsonLd(
@@ -100,7 +100,7 @@ export function CategoryPage() {
                 <BusinessCard business={b as unknown as BusinessDTO} />
                 {(b as TrendEntryDTO).is_rising && (
                   <span className="absolute -right-2 -top-2 z-10 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-semibold text-ink2">
-                    ▲ Rising
+                    â–² Rising
                   </span>
                 )}
               </div>

@@ -5,7 +5,8 @@ import { Camera, Link2 } from 'lucide-react'
 import { api, uploadMedia } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { useAuth } from '@/stores/auth'
+import { useAuthState } from '@/stores/auth'
+import { ProfileEditor } from '@/features/me/ProfileEditor'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/components/ui/Toast'
 import { formatDate, resetFileInput } from '@/lib/format'
@@ -18,7 +19,7 @@ interface SavedSearchDTO {
   created_at: string
 }
 
-/** Rebuild the FULL /discover query string a saved search stores — mirrors
+/** Rebuild the FULL /discover query string a saved search stores â€” mirrors
  *  what DiscoverPage reads back from the URL on load. */
 function savedSearchHref(query: Record<string, unknown>): string {
   const p = new URLSearchParams()
@@ -39,7 +40,7 @@ function savedSearchHref(query: Record<string, unknown>): string {
 export function MePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { user, fetchMe, logout } = useAuth()
+  const { user, fetchMe, logout } = useAuthState((s) => ({ user: s.user, fetchMe: s.fetchMe, logout: s.logout }))
   const qc = useQueryClient()
 
   const { data: savedSearches } = useQuery({
@@ -105,19 +106,13 @@ export function MePage() {
         </div>
       </div>
 
+      <ProfileEditor user={user} />
+
       <Card className="mb-4">
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
             <dt className="mono-label">{t('auth.email')}</dt>
             <dd className="mt-1 text-sm text-ink">{user.email}</dd>
-          </div>
-          <div>
-            <dt className="mono-label">{t('me.timezone')}</dt>
-            <dd className="mt-1 text-sm text-ink">{user.timezone}</dd>
-          </div>
-          <div>
-            <dt className="mono-label">{t('me.bio')}</dt>
-            <dd className="mt-1 text-sm text-ink2">{user.bio ?? '—'}</dd>
           </div>
           <div>
             <dt className="mono-label">Member since</dt>
@@ -144,7 +139,7 @@ export function MePage() {
               Daily alert
             </label>
             <Link to={savedSearchHref(s.query)} className="text-xs text-ink3 hover:text-ink">Open</Link>
-            <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">✕</button>
+            <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">âœ•</button>
           </div>
         ))}
         {(savedSearches?.searches?.length ?? 0) === 0 && <p className="text-sm text-ink3">Save a search from the Discover page to find it here.</p>}
