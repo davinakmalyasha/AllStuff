@@ -239,7 +239,7 @@ func (t *Trending) markRising(ctx context.Context, cfg TrendingConfig) error {
 			SELECT s.business_id, s.velocity, s.is_booming,
 				b.created_at,
 				(SELECT score FROM trend_snapshots WHERE period='30d' AND business_id = s.business_id
-				 ORDER BY taken_at DESC LIMIT 1) AS score30
+				 ORDER BY taken_at DESC, business_id ASC LIMIT 1) AS score30
 			FROM trend_snapshots s
 			JOIN businesses b ON b.id = s.business_id AND `+repo.PubliclyVisibleBusiness+`
 			WHERE s.period='24h' AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')

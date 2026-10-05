@@ -335,14 +335,44 @@ func TestByStatusAdminQueueHasATotalOrder(t *testing.T) {
 // statically opts out with an explicit `lint:allow` and a reason, so the opt-outs
 // are reviewable rather than hidden.
 func TestEveryLimitedQueryHasATotalOrder(t *testing.T) {
+	// BOTH packages, not just this one.
+	//
+	// The lint's own comment said "every ORDER BY that feeds a LIMIT or an OFFSET
+	// in this package" - and `go test` runs the binary with the working directory
+	// set to the PACKAGE directory, so `filepath.Glob("*.go")` only ever saw
+	// internal/repo. Four OFFSET queries live in internal/service
+	// (admin.go x3, claims.go x1) and were therefore never checked.
+	//
+	// That is how service.AuditTrail kept `ORDER BY ma.created_at DESC` with no
+	// tiebreaker while idx_moderation_actions_created - built by 0031 - already
+	// carried `(created_at DESC, id DESC)`. 0033's header names this exact index
+	// as the case it acted on and left the query unfixed above the repo boundary.
+	// The bug was not in the rule; the rule was not looking where the bug was.
 	entries, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The unique key every total order must terminate in. `id` is a uuid
-	// primary key everywhere in this schema, so it is always available and
-	// always total.
-	finalTerm := regexp.MustCompile(`(?i)\bid\b[^,]*\b(asc|desc)?\b`)
+	svc, err := filepath.Glob(filepath.Join("..", "service", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries = append(entries, svc...)
+	// The unique key every total order must terminate in.
+	//
+	// `id` is a uuid primary key everywhere in this schema, so it is always
+	// available and always total.
+	//
+	// It also accepts any `*_id` column, and it did not at first. Three
+	// subqueries legitimately tie-break on `business_id` -
+	// `(SELECT score FROM trend_snapshots WHERE period='30d' AND
+	//  business_id = s.business_id ORDER BY taken_at DESC LIMIT 1)` - and the
+	// lint reported them, which trains people to ignore it. `_id` is this
+	// schema's naming convention for a key column, and in the final position of
+	// an ORDER BY it is the intended tiebreaker. The lint remains a heuristic:
+	// its own header says it is not a substitute for reading the diff, and a
+	// column that is not actually unique is exactly the kind of thing a human
+	// should catch.
+	finalTerm := regexp.MustCompile(`(?i)\b(?:id|[a-z0-9_]*_id)\b[^,]*\b(?:asc|desc)?\b`)
 	// `LIMIT 1` exactly, not `LIMIT 100`.
 	limitOne := regexp.MustCompile(`LIMIT\s+1\b`)
 

@@ -176,7 +176,7 @@ type ReportItem struct {
 func (a *Admin) Reports(ctx context.Context, status string, limit, offset int) ([]*ReportItem, error) {
 	rows, err := a.repos.Query(ctx, `
 		SELECT id, reporter_id, target_type, target_id, reason, status, created_at, evidence
-		FROM reports WHERE status = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
+		FROM reports WHERE status = $1 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3`,
 		status, limit, offset)
 	if err != nil {
 		return nil, err
@@ -472,7 +472,7 @@ func (a *Admin) SearchUsers(ctx context.Context, q string, limit, offset int) ([
 	rows, err := a.repos.Query(ctx, `
 		SELECT `+repo.UserColumns+` FROM users
 		WHERE name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%' OR username ILIKE '%' || $1 || '%'
-		ORDER BY created_at DESC LIMIT $2 OFFSET $3`, util.EscapeLike(q), limit, offset)
+		ORDER BY created_at DESC, id ASC LIMIT $2 OFFSET $3`, util.EscapeLike(q), limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +642,7 @@ func (a *Admin) AuditTrail(ctx context.Context, limit, offset int) ([]map[string
 		SELECT ma.id, ma.action, ma.target_type, ma.target_id, ma.reason, ma.created_at,
 			u.name AS admin_name
 		FROM moderation_actions ma JOIN users u ON u.id = ma.admin_id
-		ORDER BY ma.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+		ORDER BY ma.created_at DESC, ma.id DESC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}

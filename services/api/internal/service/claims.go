@@ -117,7 +117,7 @@ func (c *Claims) List(ctx context.Context, userID string, admin bool, limit, off
 			u.name, u.email
 		FROM business_claims cl JOIN users u ON u.id = cl.user_id
 		`+where+`
-		ORDER BY cl.created_at DESC LIMIT `+limitPh+` OFFSET `+offsetPh, args...)
+		ORDER BY cl.created_at DESC, cl.id ASC LIMIT `+limitPh+` OFFSET `+offsetPh, args...)
 	if err != nil {
 		return nil, err
 	}

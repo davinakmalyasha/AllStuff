@@ -157,9 +157,9 @@ func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period 
 	if err := a.repos.QueryRow(ctx, `
 		SELECT
 			(SELECT rank_global FROM trend_snapshots WHERE business_id = $1 AND period='7d'
-			 ORDER BY taken_at DESC LIMIT 1),
+			 ORDER BY taken_at DESC, business_id ASC LIMIT 1),
 			(SELECT rank_category FROM trend_snapshots WHERE business_id = $1 AND period='24h'
-			 ORDER BY taken_at DESC LIMIT 1)`, businessID).
+			 ORDER BY taken_at DESC, business_id ASC LIMIT 1)`, businessID).
 		Scan(&gRank, &cRank); err == nil && (gRank != nil || cRank != nil) {
 		out.Leaderboard = &LeaderboardPos{Global: gRank, Category: cRank}
 	}
