@@ -101,6 +101,28 @@ func Category(t *testing.T, h *H, name string) *domain.Category {
 	return c
 }
 
+// ChildCategory inserts a category nested under parent.
+//
+// Separate from Category because the parent/child split is a real schema feature
+// (categories.parent_id) rather than a test convenience: the catalogue is two
+// levels deep in production, and any test about how counts aggregate has to be
+// able to build a hierarchy to aggregate over.
+func ChildCategory(t *testing.T, h *H, parent *domain.Category, name string) *domain.Category {
+	t.Helper()
+	c := &domain.Category{
+		ID:        util.NewUUID(),
+		ParentID:  &parent.ID,
+		Name:      name,
+		Slug:      "cat-" + util.NewUUID()[:10],
+		Icon:      "store",
+		SortOrder: 1,
+	}
+	if err := h.Repos.Categories.Create(fixtureCtx(), c); err != nil {
+		t.Fatalf("seed child category: %v", err)
+	}
+	return c
+}
+
 // BusinessOpts are the knobs a test needs to vary. Everything else defaults to a
 // verified, owned, located listing, because that is what almost every query
 // filters to — a fixture that defaulted to anything else would make every test

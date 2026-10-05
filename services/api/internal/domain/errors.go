@@ -16,6 +16,26 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
+// Is makes errors.Is compare on Code instead of pointer identity.
+//
+// This is load-bearing. WithField returns a CLONE - a different pointer carrying
+// the same Code - and without this method errors.Is(clone, ErrValidation) is
+// false. So every `errors.Is(err, domain.ErrX)` in the codebase silently failed
+// whenever the error had a field attached, which is most validation errors, the
+// single most common kind. A handler branching on the sentinel would fall
+// through to its default case and answer 500 for a 400.
+//
+// Code is the right identity to match on: it is what FromError exposes, what
+// HTTP status mapping switches on, and what the client sees. Pointer identity
+// would mean the sentinel and its own clones were unrelated, which is the bug.
+//
+// Status is deliberately NOT part of the comparison - it is derived from Code and
+// comparing it would make two spellings of one condition compare unequal.
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	return ok && t.Code == e.Code
+}
+
 // WithField returns a CLONE of the error with the field attached. Sentinels
 // are shared package globals; mutating them per-request caused concurrent map
 // writes across requests (and cross-request field leakage).
