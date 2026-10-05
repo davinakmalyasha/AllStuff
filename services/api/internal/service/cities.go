@@ -115,7 +115,7 @@ func (c *Cities) BySlug(ctx context.Context, slug string) (*CityPage, error) {
 			SELECT b.id, b.name, b.slug, b.logo_url, b.city, cat.name, s.score, s.velocity,
 				s.is_booming, s.is_rising, b.verification_level, s.rank_city
 			FROM trend_snapshots s
-			JOIN businesses b ON b.id = s.business_id
+			JOIN businesses b ON b.id = s.business_id AND `+repo.PubliclyVisibleBusiness+`
 			LEFT JOIN categories cat ON cat.id = b.category_id
 			WHERE s.period = '24h' AND s.taken_at = $1 AND b.city = $2
 			ORDER BY s.rank_city NULLS LAST, s.score DESC LIMIT 8`, takenAt, chosen.name)

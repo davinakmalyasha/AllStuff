@@ -319,8 +319,11 @@ func (r *EngagementRepo) ListComments(ctx context.Context, businessID string, li
 		SELECT c.id, c.business_id, c.user_id, c.parent_id, c.text, c.status, c.created_at,
 			u.name, u.username, u.avatar_url,
 			(SELECT count(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count
-		FROM comments c JOIN users u ON u.id = c.user_id
+		FROM comments c
+		JOIN users u ON u.id = c.user_id
+		JOIN businesses b ON b.id = c.business_id
 		WHERE c.business_id = $1 AND c.status = 'visible'
+		  AND `+PubliclyVisibleBusiness+`
 		ORDER BY c.created_at ASC, c.id ASC
 		LIMIT $2 OFFSET $3`, businessID, limit, offset)
 	if err != nil {
@@ -459,8 +462,20 @@ func (r *EngagementRepo) ListReviews(ctx context.Context, businessID string, pro
 			r.status, r.created_at, u.name, u.username, u.avatar_url,
 			(SELECT coalesce(sum(vote),0) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count,
 			(SELECT vote FROM review_helpful_votes v WHERE v.review_id = r.id AND v.user_id = NULLIF($5::text,'')::uuid) AS my_vote
-		FROM reviews r JOIN users u ON u.id = r.user_id
+		FROM reviews r
+		JOIN users u ON u.id = r.user_id
+		JOIN businesses b ON b.id = r.business_id
 		WHERE r.business_id=$1 AND r.deleted_at IS NULL
+		  -- A hidden review stays hidden, and stops counting toward the average.
+		  -- Without the first, 'POST /admin/content/review/{id}/hide' changed
+		  -- nothing a reader could observe. Without the second, a hidden review
+		  -- still moved the star rating rendered on every listing card.
+		  AND r.status = 'visible'
+		  -- ...and a review is only as public as the listing it is attached to.
+		  -- This join is what stops a suspended or closed business keeping a
+		  -- served reputation page, which is the moderation bypass the comment on
+		  -- PubliclyVisibleBusiness describes.
+		  AND `+PubliclyVisibleBusiness+`
 		  AND (NULLIF($2::text,'') IS NULL AND r.product_id IS NULL OR r.product_id::text = $2::text)
 		ORDER BY `+order+` LIMIT $3 OFFSET $4`, businessID, deref(productID), limit, offset, deref(viewerID))
 	if err != nil {

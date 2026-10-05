@@ -36,12 +36,33 @@ const BusinessCols = `b.id, COALESCE(b.owner_id::text, '') AS owner_id,
 	b.is_featured, b.last_published_at, b.published_snapshot, b.verification_level, b.verified_at, b.slug_changed_at, b.created_at, b.updated_at`
 
 const BusinessCounts = `,
-	(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id = b.id AND r.deleted_at IS NULL) AS rating_avg,
-	(SELECT count(*) FROM reviews r WHERE r.business_id = b.id AND r.deleted_at IS NULL) AS review_count,
+	(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id = b.id AND r.deleted_at IS NULL AND r.status = 'visible') AS rating_avg,
+	(SELECT count(*) FROM reviews r WHERE r.business_id = b.id AND r.deleted_at IS NULL AND r.status = 'visible') AS review_count,
 	(SELECT count(*) FROM likes l WHERE l.target_type = 'business' AND l.target_id = b.id) AS like_count,
 	(SELECT count(*) FROM recommends rc WHERE rc.business_id = b.id) AS recommend_count,
 	(SELECT count(*) FROM collection_items ci WHERE ci.target_type = 'business' AND ci.target_id = b.id) AS save_count,
 	COALESCE(cat.name,'') AS category_name, COALESCE(cat.slug,'') AS category_slug`
+
+// PubliclyVisibleBusiness is the ONE definition of a listing the public is
+// allowed to see, as a SQL predicate that can be pasted into any reader.
+//
+// It exists because the rule was previously expressed only in Go, in
+// service.Businesses.GetPublic. Every OTHER reader of the same rows -
+// ListReviews, ListComments, the question/answer readers, the leaderboards, the
+// city page - went unguarded, so a review on a suspended listing stayed fully
+// readable AND kept counting toward the star average rendered on every card.
+// Hiding the listing page while leaving its reputation page served is not
+// moderation.
+//
+// `paused` is included deliberately: a paused listing is a business that has
+// temporarily closed, not one under sanction, and its page stays reachable with
+// a "temporarily closed" notice.
+//
+// This MUST agree with the switch in service.Businesses.GetPublic.
+// TestPublicVisibilityPredicateMatchesTheServiceWhitelist in
+// internal/repo asserts they do, because they are in different layers and
+// cannot share code.
+const PubliclyVisibleBusiness = `b.deleted_at IS NULL AND b.status IN ('verified','paused')`
 
 func scanBusiness(row pgx.Row) (*domain.Business, error) {
 	var b domain.Business

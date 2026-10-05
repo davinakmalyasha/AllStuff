@@ -28,6 +28,9 @@ func (s *Community) Ask(ctx context.Context, userID, businessID, text string) (*
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
 	}
+	if err := requiresAcceptingActivity(b); err != nil {
+		return nil, err
+	}
 	text = strings.TrimSpace(text)
 	if n := len([]rune(text)); n < 3 || n > 500 {
 		return nil, domain.ErrValidation.WithField("text", "Question must be 3–500 characters.")

@@ -134,7 +134,7 @@ func (t *Trending) Compute(ctx context.Context) error {
 				row_number() OVER (PARTITION BY b.city ORDER BY s.score DESC) AS rank_city
 			FROM trend_snapshots s JOIN maxes m ON true
 			LEFT JOIN prev p ON p.business_id = s.business_id
-			JOIN businesses b ON b.id = s.business_id
+			JOIN businesses b ON b.id = s.business_id AND `+repo.PubliclyVisibleBusiness+`
 			WHERE s.period='24h' AND s.taken_at = m.latest
 		)
 		UPDATE trend_snapshots s
@@ -240,7 +240,8 @@ func (t *Trending) markRising(ctx context.Context, cfg TrendingConfig) error {
 				b.created_at,
 				(SELECT score FROM trend_snapshots WHERE period='30d' AND business_id = s.business_id
 				 ORDER BY taken_at DESC LIMIT 1) AS score30
-			FROM trend_snapshots s JOIN businesses b ON b.id = s.business_id
+			FROM trend_snapshots s
+			JOIN businesses b ON b.id = s.business_id AND `+repo.PubliclyVisibleBusiness+`
 			WHERE s.period='24h' AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period='24h')
 		),
 		ranked AS (
@@ -277,7 +278,7 @@ func (t *Trending) Leaderboard(ctx context.Context, period, scope string, limit 
 			s.score, s.velocity, s.is_booming, s.is_rising,
 			b.verification_level
 		FROM trend_snapshots s
-		JOIN businesses b ON b.id = s.business_id
+		JOIN businesses b ON b.id = s.business_id AND ` + repo.PubliclyVisibleBusiness + `
 		LEFT JOIN categories cat ON cat.id = b.category_id
 		WHERE s.period = $1 AND s.taken_at = (SELECT max(taken_at) FROM trend_snapshots WHERE period = $1)`
 	var args []any
@@ -370,7 +371,7 @@ func (t *Trending) categoryEntries(ctx context.Context, categoryID string, taken
 		SELECT b.id, b.name, b.slug, b.logo_url, b.city, cat.name AS category,
 			s.score, s.velocity, s.is_booming, s.is_rising, b.verification_level, s.rank_category
 		FROM trend_snapshots s
-		JOIN businesses b ON b.id = s.business_id
+		JOIN businesses b ON b.id = s.business_id AND ` + repo.PubliclyVisibleBusiness + `
 		LEFT JOIN categories cat ON cat.id = b.category_id
 		WHERE s.period='24h' AND s.taken_at = $1 AND b.category_id = $2`
 	var order string

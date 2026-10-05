@@ -193,6 +193,36 @@ func (s *Engagement) InCollections(ctx context.Context, userID, targetType, targ
 
 // ---- comments (PRD §5.6.2: nested any depth, likes, mentions) ----
 
+// requiresAcceptingActivity reports whether a listing is in a state where new
+// public activity should be recorded against it.
+//
+// The READ side of moderation was the defect this pairs with: hiding a listing's
+// page while leaving its reviews served is not moderation. But the WRITE side
+// was wrong too, and in a way that looks harmless.
+//
+// Businesses.GetByID deliberately filters neither status nor deleted_at, because
+// the owner dashboard and the admin tools must read exactly those rows. That is
+// correct for an internal accessor, and it means every caller has to decide for
+// itself. CreateReview, CreateComment, community.Ask and community.PostUpdate
+// all resolved the target and never checked it, so an admin suspending a
+// fraudulent listing did not stop it accruing reviews.
+//
+// Nothing new becomes PUBLIC - the readers now filter - so this is invisible
+// rather than catastrophic. But it is not inert: the suspended owner keeps
+// receiving notifications, engagement_events keeps feeding the trending engine,
+// and the moment the listing is restored every item accumulated in the meantime
+// goes live at once.
+func requiresAcceptingActivity(b *domain.Business) error {
+	switch b.Status {
+	case domain.BusinessVerified, domain.BusinessPaused:
+		return nil
+	default:
+		return domain.ErrValidation.WithField("_",
+			"This listing is not accepting new activity right now.")
+	}
+}
+
+// CreateComment records a comment on a listing.
 func (s *Engagement) CreateComment(ctx context.Context, userID, businessID, parentID, text string) (*domain.Comment, error) {
 	text = strings.TrimSpace(text)
 	if text == "" || len([]rune(text)) > 500 {
@@ -201,6 +231,9 @@ func (s *Engagement) CreateComment(ctx context.Context, userID, businessID, pare
 	b, err := s.repos.Businesses.GetByID(ctx, businessID)
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
+	}
+	if err := requiresAcceptingActivity(b); err != nil {
+		return nil, err
 	}
 	if parentID != "" {
 		parent, err := s.repos.Engagement.GetComment(ctx, parentID)
@@ -326,6 +359,9 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 	b, err := s.repos.Businesses.GetByID(ctx, businessID)
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
+	}
+	if err := requiresAcceptingActivity(b); err != nil {
+		return nil, err
 	}
 	if productID != nil && *productID != "" {
 		p, err := s.repos.Products.GetByID(ctx, *productID)

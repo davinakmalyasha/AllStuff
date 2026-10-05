@@ -30,8 +30,11 @@ func (r *CommunityRepo) ListQuestions(ctx context.Context, businessID string, li
 	rows, err := r.pool.Query(ctx, `
 		SELECT q.id, q.business_id, q.user_id, q.text, q.status, q.created_at,
 			u.name, u.username
-		FROM questions q JOIN users u ON u.id = q.user_id
-		WHERE q.business_id = $1 ORDER BY q.created_at DESC, q.id DESC LIMIT $2 OFFSET $3`,
+		FROM questions q
+		JOIN users u ON u.id = q.user_id
+		JOIN businesses b ON b.id = q.business_id
+		WHERE q.business_id = $1 AND `+PubliclyVisibleBusiness+`
+		ORDER BY q.created_at DESC, q.id DESC LIMIT $2 OFFSET $3`,
 		businessID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -88,8 +91,11 @@ func (r *CommunityRepo) ListQuestionsWithAnswers(ctx context.Context, businessID
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT a.id, a.question_id, a.user_id, a.text, a.is_owner, a.created_at, u.name, u.username
-		FROM answers a JOIN users u ON u.id = a.user_id
-		WHERE a.question_id = ANY($1)
+		FROM answers a
+		JOIN users u ON u.id = a.user_id
+		JOIN questions q ON q.id = a.question_id
+		JOIN businesses b ON b.id = q.business_id
+		WHERE a.question_id = ANY($1) AND `+PubliclyVisibleBusiness+`
 		ORDER BY a.is_owner DESC, a.created_at ASC`, ids)
 	if err != nil {
 		return nil, err
@@ -116,8 +122,12 @@ func (r *CommunityRepo) ListQuestionsWithAnswers(ctx context.Context, businessID
 func (r *CommunityRepo) ListAnswers(ctx context.Context, questionID string) ([]*domain.Answer, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT a.id, a.question_id, a.user_id, a.text, a.is_owner, a.created_at, u.name, u.username
-		FROM answers a JOIN users u ON u.id = a.user_id
-		WHERE a.question_id = $1 ORDER BY a.is_owner DESC, a.created_at ASC`, questionID)
+		FROM answers a
+		JOIN users u ON u.id = a.user_id
+		JOIN questions q ON q.id = a.question_id
+		JOIN businesses b ON b.id = q.business_id
+		WHERE a.question_id = $1 AND `+PubliclyVisibleBusiness+`
+		ORDER BY a.is_owner DESC, a.created_at ASC`, questionID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +218,11 @@ func (r *CommunityRepo) CreateUpdate(ctx context.Context, businessID, authorID, 
 
 func (r *CommunityRepo) ListUpdates(ctx context.Context, businessID string, limit int) ([]*domain.BusinessUpdate, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, business_id, author_id, title, body, created_at
-		FROM business_updates WHERE business_id = $1 ORDER BY created_at DESC LIMIT $2`,
+		SELECT u.id, u.business_id, u.author_id, u.title, u.body, u.created_at
+		FROM business_updates u
+		JOIN businesses b ON b.id = u.business_id
+		WHERE u.business_id = $1 AND `+PubliclyVisibleBusiness+`
+		ORDER BY u.created_at DESC LIMIT $2`,
 		businessID, limit)
 	if err != nil {
 		return nil, err
