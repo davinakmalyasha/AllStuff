@@ -4,7 +4,7 @@
 // ---------------
 // Until now the repository layer had no tests at all: 2,972 lines of SQL across
 // thirteen files, zero test files, 0% coverage. CI provisioned a PostgreSQL
-// service, applied all 31 migrations, loaded the seed — and then ran a test
+// service, applied all 31 migrations, loaded the seed â€” and then ran a test
 // suite in which nothing opened a connection. Every step of that setup was
 // ceremony.
 //
@@ -17,7 +17,7 @@
 //
 // WHY NO NEW DEPENDENCY
 // ---------------------
-// The backend has three direct dependencies on purpose — JWT, TOTP, Argon2id,
+// The backend has three direct dependencies on purpose â€” JWT, TOTP, Argon2id,
 // the Redis RESP client, Stripe, Web Push and the Prometheus exposition are all
 // hand-rolled. Adding testcontainers-go (itself a dozen transitive deps) to get
 // a database would undercut that. CI already provisions PostgreSQL as a service
@@ -48,7 +48,7 @@
 //     Pool().Begin() will panic.
 //   - `Repos.Exec` / `Repos.QueryRow` delegate to that nil pool, so calling them
 //     panics too. This is easy to miss because it looks like an ordinary
-//     statement helper — the scheduler's claimPeriod calls repos.Exec, so
+//     statement helper â€” the scheduler's claimPeriod calls repos.Exec, so
 //     `internal/jobs` tests must use PoolRepos instead.
 //
 // Use H.PoolRepos() for those paths. The trade is real: pool-bound tests lose
@@ -78,7 +78,7 @@ import (
 // adminDSN returns the DSN this package may create and drop databases on.
 //
 // It must point at a database that EXISTS and that the caller is willing to have
-// sibling databases created and destroyed next to it — `postgres`, normally.
+// sibling databases created and destroyed next to it â€” `postgres`, normally.
 // Pointing this at a database holding data will not corrupt it directly, but
 // every test database is created with it as its parent and the naming is
 // deterministic enough to be careless with.
@@ -95,11 +95,48 @@ func adminDSN(t *testing.T) string {
 // the migration replay test uses.
 func MigrationsDir(t *testing.T) string {
 	t.Helper()
-	if d := os.Getenv("MIGRATIONS_DIR"); d != "" {
-		return d
+	dir, err := resolveMigrationsDir()
+	if err != nil {
+		t.Fatal(err)
 	}
-	// internal/testutil -> internal -> api -> services -> repo root
-	return filepath.Join("..", "..", "..", "..", "infra", "postgres", "migrations")
+	return dir
+}
+
+// resolveMigrationsDir returns the migrations directory, or an error explaining
+// why the path it resolved does not hold any migrations.
+//
+// It used to be a bare os.Getenv with a 4-up default, and a path that pointed
+// nowhere failed SILENTLY. The symptom appeared in a completely different test:
+//
+//	stage invalid index: relation "categories" does not exist
+//
+// because `go test` runs the binary from the PACKAGE directory, so a CI step
+// that set MIGRATIONS_DIR=../../infra/postgres/migrations resolved it against
+// services/api/internal/db and got services/api/infra/postgres/migrations,
+// which does not exist. Migrate() then applied nothing - an empty directory is a
+// supported input, see TestMigrateAppliesAnEmptyDirectory - so the replay suite
+// built a pristine but EMPTY template database and passed. Four thousand lines
+// away, in an unrelated file, naming a table nobody had touched.
+//
+// It returns an error rather than calling t.Fatalf so the behaviour is directly
+// testable; see migrations_dir_test.go.
+func resolveMigrationsDir() (string, error) {
+	dir := os.Getenv("MIGRATIONS_DIR")
+	if dir == "" {
+		// internal/testutil -> internal -> api -> services -> repo root
+		dir = filepath.Join("..", "..", "..", "..", "infra", "postgres", "migrations")
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "*.sql"))
+	if err != nil || len(matches) == 0 {
+		wd, _ := os.Getwd()
+		return "", fmt.Errorf(
+			"migrations directory %q holds no .sql files (resolved from the working directory %q). "+
+				"If MIGRATIONS_DIR is set, it must be relative to the directory the PROCESS runs in: "+
+				"`go test` runs from the package directory, while `go run` inherits the step's "+
+				"working-directory. The two need different paths for the same target.",
+			dir, wd)
+	}
+	return dir, nil
 }
 
 var (
@@ -309,7 +346,7 @@ func (h *H) ExecPool(t *testing.T, sql string, args ...any) {
 // construction (or since the last ResetQueryCount).
 //
 // It exists to assert query SHAPE rather than results. A performance fix such as
-// the two-phase search rewrite — or its regression back into per-row hydration —
+// the two-phase search rewrite â€” or its regression back into per-row hydration â€”
 // returns exactly the same rows either way, so no result assertion can see it.
 // Counting statements can.
 //
@@ -337,7 +374,7 @@ func (h *H) PoolRepos() *repo.Repos { return repo.New(h.Pool) }
 // POISONS it: the transaction enters the aborted state and every subsequent
 // command fails with 25P02 "current transaction is aborted", regardless of
 // what it is. So a test that asserts "this insert must violate the unique
-// constraint" passes its first assertion and then cannot run anything else —
+// constraint" passes its first assertion and then cannot run anything else â€”
 // including the assertions that would tell you whether the error was the right
 // kind.
 //
@@ -346,7 +383,7 @@ func (h *H) PoolRepos() *repo.Repos { return repo.New(h.Pool) }
 //
 // The returned error is the one fn produced, so the caller can assert on its
 // SQLSTATE. That distinction matters: a test that only checked "an error
-// happened" would also pass when the statement failed for an unrelated reason —
+// happened" would also pass when the statement failed for an unrelated reason â€”
 // a missing NOT NULL, a dropped column, a typo in the fixture.
 func (h *H) ExpectError(t *testing.T, what string, fn func() error) error {
 	t.Helper()

@@ -98,6 +98,13 @@ jobs:
         run: go run ./cmd/api -migrate
         env:
           DATABASE_URL: ${{ env.PGDATA_URL }}
+          # Explicit, and different from the go test steps below. `go run`
+          # inherits this step's working-directory (services/api), so the repo
+          # root is two hops up. `go test` does NOT: it runs the binary from the
+          # package directory, which is why those steps set nothing and rely on
+          # testutil.MigrationsDir's own default. Same value, two different
+          # reasons, and conflating them is what made the replay step apply
+          # nothing.
           MIGRATIONS_DIR: ../../infra/postgres/migrations
 
       - name: Seed demo content
@@ -135,7 +142,6 @@ jobs:
         run: go test -count=1 ./internal/db/ -run 'TestMigrate' -v -timeout 25m
         env:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
-          MIGRATIONS_DIR: ../../infra/postgres/migrations
 
       - name: Index usage
         # Seeds a synthetic fixture, ANALYZEs, and EXPLAINs inside a transaction
@@ -285,7 +291,6 @@ jobs:
             || true
         env:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
-          MIGRATIONS_DIR: ../../infra/postgres/migrations
 
       - name: Integration tests
         # The repository/service/jobs suites, run WITHOUT -race so the build tag
@@ -295,7 +300,6 @@ jobs:
         run: go test -count=1 -timeout 30m ./internal/repo/ ./internal/service/ ./internal/jobs/ -v
         env:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
-          MIGRATIONS_DIR: ../../infra/postgres/migrations
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -417,7 +421,7 @@ jobs:
             && psql "$PGDATA_URL" -v ON_ERROR_STOP=1 -f scripts/seed.sql
         env:
           DATABASE_URL: ${{ env.PGDATA_URL }}
-          MIGRATIONS_DIR: infra/postgres/migrations
+          MIGRATIONS_DIR: ../../infra/postgres/migrations
           PGDATA_URL: ${{ env.PGDATA_URL }}
 
       - name: Playwright
