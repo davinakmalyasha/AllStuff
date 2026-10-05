@@ -32,6 +32,20 @@ import { register, seededBusinessBySlug, twoSeededBusinesses, uniqueSuffix } fro
 
 const PASSWORD = 'e2e-password-1234'
 
+/**
+ * Accessible-name matcher for a business name.
+ *
+ * `getByRole('link', { name })` matches the whole accessible name, and a
+ * BusinessCard's link also carries the verification badge's aria-label and the
+ * category/city line. An exact string therefore fails against a card that is
+ * rendering correctly, so substring matching is the honest assertion here: what
+ * matters is that the business is present and reachable by name, not that it is
+ * the link's entire text.
+ */
+function businessName(target: { name: string }): RegExp {
+  return new RegExp(target.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+}
+
 test('register, land on /me, sign out, sign back in', async ({ page }) => {
   const uid = uniqueSuffix()
   const email = `e2e-${uid}@example.com`
@@ -108,9 +122,15 @@ test('landing page renders categories and trending', async ({ page }) => {
   // Shopping has no seeded businesses - and forbidding them would be asserting
   // something untrue about the catalogue. What must hold is that the counts are
   // derived from businesses that exist.
+  // `business(?:es)?` and not `businesses?`: the latter parses as "businessE"
+  // plus an optional "s", so it matches neither "business" nor "businesses" and
+  // the assertion silently rejected a page whose counts were perfectly correct.
+  // The first run of this test failed with every tile printed and two of them
+  // reading "1 business" - which is exactly the behaviour it was written to
+  // require. A guard that rejects the fixed state is worse than no guard.
   const labels = await tiles.allInnerTexts()
   expect(
-    labels.some((l) => /\b[1-9]\d* businesses?\b/.test(l)),
+    labels.some((l) => /\b[1-9]\d* business(?:es)?\b/.test(l)),
     `every category tile claimed zero businesses, so the counts are not rolled up: ${JSON.stringify(labels)}`,
   ).toBe(true)
 })
@@ -121,13 +141,19 @@ test('search returns the seeded coffee shop', async ({ page, request }) => {
 
   // A real assertion about the result, not about the word "result". This fails
   // on "No results found", on an error state, and on an empty page.
-  await expect(page.getByRole('heading', { name: target.name })).toBeVisible()
+  //
+  // The name is asserted as a LINK, not a heading. BusinessCard renders the name
+  // in a <p> inside a <Link to={/b/slug}> - there is no heading on a result card,
+  // and no reason for one: the card's job is to be clickable and crawlable, and
+  // asserting the link says so. A heading role here never matched anything, so
+  // this test was failing against correct results.
+  await expect(page.getByRole('link', { name: businessName(target) })).toBeVisible()
 })
 
 test('search reports an honest count', async ({ page, request }) => {
   const target = await seededBusinessBySlug(request, 'rumah-kopi-senja')
   await page.goto('/discover?q=coffee')
-  await expect(page.getByRole('heading', { name: target.name })).toBeVisible()
+  await expect(page.getByRole('link', { name: businessName(target) })).toBeVisible()
 
   // The count is either a number or the literal "At least N" when the total was
   // not computed — DiscoverPage renders `count: null` as "At least N" rather
@@ -186,6 +212,8 @@ test('unauthenticated write is rejected, not silently accepted', async ({ page }
   // Negative-path coverage the previous suite had none of: a POST to an
   // engagement endpoint with no session must fail, and must not leave the user
   // believing it succeeded.
+  // The page has no cookie or storage access to read a CSRF token from.
+  await page.goto('/')
   const result = await page.evaluate(async () => {
     const csrf = document.cookie.match(/bv_csrf=([^;]+)/)?.[1] ?? ''
     const res = await fetch('/api/v1/likes/business/00000000-0000-4000-8000-000000000000', {

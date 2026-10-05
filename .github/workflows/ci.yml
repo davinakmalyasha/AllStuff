@@ -29,7 +29,7 @@ env:
   # Pinned to an exact patch rather than "1.26"/"24". A floating minor means the
   # compiler can change between two runs of the same commit, which is how a
   # green PR becomes red on someone else's machine.
-  GO_VERSION: "1.26.5"
+  GO_VERSION: "1.26.6"
   NODE_VERSION: "24.4.1"
   PGDATA_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
   PGADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable

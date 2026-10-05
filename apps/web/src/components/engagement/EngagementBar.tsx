@@ -139,11 +139,20 @@ export function EngagementBar({
   if (!user) {
     return (
       <div className="flex items-center gap-2">
+        {/* aria-label, not just an icon. An icon-only button whose accessible name
+            is a bare count announces as "0 button", which tells a screen-reader
+            user nothing about what pressing it does. It also means the count is the
+            control's name, so any test or assistive tech matching on "like" finds
+            nothing on a perfectly working bar. */}
         <Link to={`/login?next=/b/${businessSlug}`}>
-          <Button variant="secondary"><Heart className="h-4 w-4" /> {counts.likes}</Button>
+          <Button variant="secondary" aria-label="Like">
+            <Heart className="h-4 w-4" aria-hidden /> {counts.likes}
+          </Button>
         </Link>
         <Link to={`/login?next=/b/${businessSlug}`}>
-          <Button variant="secondary"><ThumbsUp className="h-4 w-4" /> {counts.recommends}</Button>
+          <Button variant="secondary" aria-label="Recommend">
+            <ThumbsUp className="h-4 w-4" aria-hidden /> {counts.recommends}
+          </Button>
         </Link>
       </div>
     )
@@ -155,18 +164,27 @@ export function EngagementBar({
         variant={isLiked ? 'primary' : 'secondary'}
         onClick={() => void likeMut.mutateAsync(!isLiked)}
         disabled={likeMut.isPending}
+        aria-pressed={isLiked}
+        aria-label="Like"
       >
-        <Heart className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} /> {counts.likes + likeDelta}
+        <Heart className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} aria-hidden /> {counts.likes + likeDelta}
       </Button>
       <Button
         variant={isRecommended ? 'primary' : 'secondary'}
         onClick={() => void recMut.mutateAsync(!isRecommended)}
         disabled={recMut.isPending}
+        aria-pressed={isRecommended}
+        aria-label="Recommend"
       >
-        <ThumbsUp className={`h-4 w-4 ${isRecommended ? 'fill-current' : ''}`} /> Recommend {counts.recommends + recDelta}
+        <ThumbsUp className={`h-4 w-4 ${isRecommended ? 'fill-current' : ''}`} aria-hidden /> Recommend {counts.recommends + recDelta}
       </Button>
-      <Button variant={isSaved ? 'primary' : 'secondary'} onClick={() => setPickerOpen((v) => !v)}>
-        <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} /> Save
+      <Button
+        variant={isSaved ? 'primary' : 'secondary'}
+        onClick={() => setPickerOpen((v) => !v)}
+        aria-expanded={pickerOpen}
+        aria-label="Save"
+      >
+        <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} aria-hidden /> Save
       </Button>
 
       {pickerOpen && (
