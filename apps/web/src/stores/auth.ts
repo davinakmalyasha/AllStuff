@@ -71,6 +71,19 @@ export const useAuth = create<AuthState>((set) => ({
   logout: async () => {
     try {
       await api('/auth/logout', { method: 'POST' })
+    } catch {
+      // Swallowed deliberately, and this is load-bearing.
+      //
+      // The only caller is `void logout().then(() => navigate('/login'))`. With a
+      // bare try/finally a rejected POST ran the finally block - clearing the user
+      // - and then REJECTED, so `.then` never ran. The result was the worst
+      // possible half-state: the UI said signed out, the user was still sitting on
+      // /me because nothing navigated, and the refresh cookie was still valid, so
+      // the next refresh silently logged them back in.
+      //
+      // The local session is cleared in `finally` either way, so there is nothing
+      // for the caller to do about a failure here. Swallowing it means the promise
+      // always resolves and the caller always navigates.
     } finally {
       set({ user: null, twoFaChallenge: null })
       // Cross-account bleed: without this the next user on a shared machine

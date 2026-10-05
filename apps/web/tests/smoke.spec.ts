@@ -41,7 +41,26 @@ test('register, land on /me, sign out, sign back in', async ({ page }) => {
   await expect(page.getByText('E2E Owner')).toBeVisible()
 
   await page.getByRole('button', { name: /sign out/i }).click()
-  await page.goto('/login')
+  // Wait for the URL instead of calling `page.goto('/login')` afterwards.
+  //
+  // MePage signs out with `void logout().then(() => navigate('/login'))`. A
+  // Playwright `click()` resolves when the event is DISPATCHED, not when the
+  // async handler finishes, so the old `await page.goto('/login')` tore the page
+  // down while the logout POST was still in flight. The server never received it,
+  // the refresh cookie survived, and the bootstrap `fetchMe()` on the new /login
+  // succeeded - so `GuestOnly` rendered, then bounced to /me as soon as `user`
+  // arrived, unmounting the email input mid-fill.
+  //
+  // The symptom bore no resemblance to the cause: Playwright reported
+  // "element was detached from the DOM, retrying" and burned the full 120s test
+  // timeout. The artifact page snapshot showed /me fully rendered, which is what
+  // finally made it clear the journey had never been broken - only raced.
+  //
+  // Asserting the URL is both the fix and the better test: the app navigating on
+  // its own is the actual contract, and waiting on it is what proves the POST
+  // completed.
+  await expect(page).toHaveURL(/\/login$/)
+
   await page.getByLabel(/email/i).fill(email)
   await page.getByLabel(/password/i).fill(PASSWORD)
   // Scoped to the form that holds the password field, not to the page. A
