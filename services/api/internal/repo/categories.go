@@ -24,11 +24,50 @@ func scanCategory(row pgx.Row) (*domain.Category, error) {
 }
 
 // ListWithCounts returns the full tree flattened, each with verified-business counts.
+// ListWithCounts returns every category with the number of verified businesses
+// in its whole SUBTREE, not just those assigned to it directly.
+//
+// The direct-count version was quietly wrong for every parent category. Businesses
+// are assigned to leaf categories - "Café", not "Food & Dining" - so a parent
+// whose own count was measured directly was structurally guaranteed to be 0. Not
+// "stale" or "wrong for edge cases": every group, always. The landing page
+// rendered all six groups as "0 businesses" while the same page's own stats
+// banner said "2 Verified businesses", which is what finally made it visible.
+//
+// A parent that means "everything under Food & Dining" should say so, and that is
+// the number a user is asking for when they see the tile. The recursion also means
+// the category page and its breadcrumb no longer contradict the sidebar, which
+// GetBySlug was already having to paper over by preferring this list's copy.
+//
+// lineage materialises one row per (descendant, ancestor) pair, self included, so
+// summing the direct counts of c's descendants is the subtree total in a single
+// pass and works at any depth rather than assuming exactly two levels.
 func (r *CategoryRepo) ListWithCounts(ctx context.Context) ([]*domain.Category, error) {
 	rows, err := r.pool.Query(ctx, `
+		WITH RECURSIVE lineage AS (
+			SELECT c.id AS descendant, c.id AS ancestor
+			  FROM categories c
+			UNION ALL
+			SELECT l.descendant, c.parent_id
+			  FROM lineage l
+			  JOIN categories c ON c.id = l.ancestor
+			 WHERE c.parent_id IS NOT NULL
+		),
+		direct AS (
+			SELECT c.id,
+			       (SELECT count(*) FROM businesses b
+			         WHERE b.category_id = c.id
+			           AND b.status = 'verified'
+			           AND b.deleted_at IS NULL) AS n
+			  FROM categories c
+		)
 		SELECT `+categoryCols+`,
-			(SELECT count(*) FROM businesses b
-			 WHERE b.category_id = c.id AND b.status = 'verified' AND b.deleted_at IS NULL) AS count
+			COALESCE((
+				SELECT sum(d.n)
+				  FROM lineage l
+				  JOIN direct d ON d.id = l.descendant
+				 WHERE l.ancestor = c.id
+			), 0) AS count
 		FROM categories c
 		ORDER BY c.sort_order, c.name`)
 	if err != nil {

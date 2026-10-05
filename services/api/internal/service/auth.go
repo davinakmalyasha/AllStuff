@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -539,11 +540,20 @@ func (a *Auth) stepUp(ctx context.Context, userID, password string) error {
 		return domain.ErrValidation.WithField("current_password", "Confirm your password to continue.")
 	}
 	u, err := a.repos.Users.GetByID(ctx, userID)
-	if err != nil {
+	// An unknown user must fail exactly like a wrong password. The two cases
+	// used to return ErrNotFound and ErrInvalidCreds respectively, which is an
+	// account-existence oracle reachable by anyone holding an access token -
+	// the very credential this function exists to protect.
+	//
+	// Only "not found" collapses. A genuine database or connectivity failure is
+	// returned as-is: masking that behind ErrInvalidCreds would turn an outage
+	// into "your password is wrong", which is its own kind of lie and hides the
+	// fault from whoever is trying to diagnose it.
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return err
 	}
-	if u == nil {
-		return domain.ErrNotFound
+	if err != nil || u == nil {
+		return domain.ErrInvalidCreds
 	}
 	ok, err := security.VerifyPassword(password, u.PasswordHash)
 	if err != nil || !ok {

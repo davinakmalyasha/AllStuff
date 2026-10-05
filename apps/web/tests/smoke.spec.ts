@@ -86,10 +86,33 @@ test('landing page renders categories and trending', async ({ page }) => {
   // The headline is a claim about the product, so it is asserted as a heading
   // rather than as any text node.
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-  // The category grid is a link per category, so count the links rather than
-  // matching the word "Categories", which appears in the nav, the footer and
-  // the section heading simultaneously.
-  await expect(page.getByRole('link', { name: /Café|Restaurant|Barber|Clinic/ }).first()).toBeVisible()
+
+  // A category tile is a LINK to /c/<slug>. It used to be a <button> that ran
+  // `navigate('/discover?q=<category name>')`, which searched for the literal
+  // text "Food & Dining" - a string no business carries, so all six group tiles
+  // were dead ends that happened to look like navigation. A category is a
+  // destination, so it gets an href: middle-click, open-in-new-tab, and
+  // crawlers all work.
+  const tiles = page.locator('a[href^="/c/"]')
+  await expect(tiles.first()).toBeVisible()
+
+  // Counts are rolled up over the whole subtree, so a parent group reports the
+  // businesses beneath it rather than only its own. This is the assertion that
+  // catches a regression to direct-only counting, which cannot pass while the
+  // seeded data is present: businesses are only ever assigned to leaf categories,
+  // so every parent was structurally pinned to 0 - and the landing page rendered
+  // all six groups as "0 businesses" directly beneath its own "2 Verified
+  // businesses" banner.
+  //
+  // Deliberately NOT an assertion that no tile says "0". Empty groups are real -
+  // Shopping has no seeded businesses - and forbidding them would be asserting
+  // something untrue about the catalogue. What must hold is that the counts are
+  // derived from businesses that exist.
+  const labels = await tiles.allInnerTexts()
+  expect(
+    labels.some((l) => /\b[1-9]\d* businesses?\b/.test(l)),
+    `every category tile claimed zero businesses, so the counts are not rolled up: ${JSON.stringify(labels)}`,
+  ).toBe(true)
 })
 
 test('search returns the seeded coffee shop', async ({ page, request }) => {

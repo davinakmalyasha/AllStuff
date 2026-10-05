@@ -181,9 +181,9 @@ export function LandingPage() {
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {topCategories.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => navigate(`/discover?q=${encodeURIComponent(c.name)}`)}
+              <Link
+                key={c.slug}
+                to={`/c/${c.slug}`}
                 className="group card flex flex-col items-start gap-3 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-cardHover"
               >
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface2 text-ink transition-colors group-hover:bg-accent group-hover:text-accent-ink">
@@ -193,7 +193,7 @@ export function LandingPage() {
                   <span className="block text-sm font-medium text-ink">{c.name}</span>
                   <span className="mt-0.5 block text-xs text-ink3">{c.note}</span>
                 </span>
-              </button>
+              </Link>
             ))}
           </div>
         </div>
