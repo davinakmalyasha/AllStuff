@@ -152,6 +152,28 @@ jobs:
           PGDATA_URL: ${{ env.PGDATA_URL }}
 
       - name: Unit tests (race)
+        # `if: always()` is load-bearing, and it exists because of what it costs to
+        # learn the hard way.
+        #
+        # Steps in a job are fail-fast, and this step sat BELOW three SQL harnesses
+        # (Migration contract, Migration replay, Index usage) that assert against a
+        # live database. "Index usage" failed - on a fixture that asserted an exact
+        # business count the demo seed made impossible - so the job died there and
+        # this step never ran. Not once, across every push since the branch rename.
+        #
+        # So the entire Go suite, 13 packages including every service, repo and
+        # domain test, was silently not executing, while CI reported a red X that
+        # everyone read as "the tests are failing". They were not running at all.
+        #
+        # Every bug fixed in this batch lived in exactly that blind spot:
+        # user_2fa.enabled_at defaulting to now() so enrollment armed 2FA, a
+        # step-up account-existence oracle, Repos.Exec panicking in transaction
+        # mode. All three had a test that would have failed. None of them ran.
+        #
+        # `always()` makes the suite immune to whatever brittle harness sits above
+        # it. A genuine compile failure still fails here too, so this cannot paper
+        # over a real break.
+        #
         # -race is not optional here. Four suites are explicitly concurrency
         # tests — the TOTP replay guard ("concurrent claims allow exactly one"),
         # the WS hub, the goroutine panic isolator, and the rate-limit DoS
@@ -159,6 +181,7 @@ jobs:
         # codebase is a heavily concurrent Go server with a hand-rolled WS hub
         # and custom maps, so this is the test most likely to catch something
         # real.
+        if: always()
         run: go test -count=1 -shuffle=on -race -timeout 15m ./...
         # -shuffle=on randomises test order. The integration harness gives each
         # test its own cloned database and rolls it back, so nothing should
@@ -293,10 +316,14 @@ jobs:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
 
       - name: Integration tests
+        # `if: always()` for the same reason as the -race step above: a failing
+        # harness higher up must not be able to skip the suite.
+        #
         # The repository/service/jobs suites, run WITHOUT -race so the build tag
         # on them admits them. They are not covered by the -race step above
         # (the tag excludes them) and they must not depend on the coverage step
         # being configured correctly to have run.
+        if: always()
         run: go test -count=1 -timeout 30m ./internal/repo/ ./internal/service/ ./internal/jobs/ -v
         env:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
