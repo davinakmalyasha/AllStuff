@@ -28,7 +28,11 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    # See the note on the same key in ci.yml: the branch was renamed from master
+    # to main on 2026-10-04, and this key filters on the branch that PRODUCED the
+    # CI run. With only `main` listed, deploys triggered by a push to `master`
+    # were silently dropped.
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:

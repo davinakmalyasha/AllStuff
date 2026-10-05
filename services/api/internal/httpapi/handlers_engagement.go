@@ -218,7 +218,7 @@ func (s *Server) handleSaveState(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
-		offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+		offset := parseOffset(r.URL.Query().Get("offset"), 0)
 		list, err := s.deps.Engagement.ListComments(r.Context(), r.PathValue("id"), limit, offset)
 		if err != nil {
 			fail(w, err)
@@ -301,7 +301,7 @@ func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	businessID := r.PathValue("id")
 	if r.Method == http.MethodGet {
 		limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
-		offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+		offset := parseOffset(r.URL.Query().Get("offset"), 0)
 		sort := r.URL.Query().Get("sort")
 		if sort == "" {
 			sort = "newest"
@@ -452,7 +452,7 @@ func (s *Server) handleMyReviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 30)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	offset := parseOffset(r.URL.Query().Get("offset"), 0)
 	list, err := s.deps.Engagement.MyReviews(r.Context(), user.ID, limit, offset)
 	if err != nil {
 		fail(w, err)
@@ -469,7 +469,7 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodGet {
 		limit := parsePositiveInt(r.URL.Query().Get("limit"), 30)
-		offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+		offset := parseOffset(r.URL.Query().Get("offset"), 0)
 		ntype := r.URL.Query().Get("type")
 		list, unread, err := s.deps.Engagement.ListNotifications(r.Context(), user.ID, ntype, limit, offset)
 		if err != nil {

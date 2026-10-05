@@ -42,7 +42,7 @@ import { copyText, resetFileInput } from '@/lib/format'
 import { toast } from '@/components/ui/Toast'
 import { Confirm, Modal, useDialogA11y } from '@/components/ui/Modal'
 
-const EMOJIS = ['ðŸ‘', 'â¤ï¸', 'ðŸ˜‚', 'ðŸ˜®', 'ðŸ˜¢', 'ðŸ™', 'ðŸ”¥', 'ðŸŽ‰', 'âœ…', 'âŒ', 'ðŸ¤”', 'ðŸ‘', 'ðŸ˜', 'ðŸ˜Ž', 'ðŸ’¯', 'ðŸ¥³', 'ðŸ¤', 'ðŸ‘Œ', 'ðŸ˜…', 'ðŸ™Œ']
+const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '❌', '🤔', '👏', '😍', '😎', '💯', '🥳', '🤝', '👌', '😅', '🙌']
 
 // Monotonic temp ids: `-Date.now()` collided when two messages were sent in
 // the same millisecond (duplicate React keys broke reconciliation).
@@ -798,7 +798,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       {replyTo && (
         <div className="flex items-center gap-2 border-t border-border bg-surface2 px-4 py-2">
           <p className="flex-1 truncate text-xs text-ink2">{t('chat.replyingTo')} {replyTo.body ?? 'media'}</p>
-          <button onClick={() => setReplyTo(null)} className="text-ink3 hover:text-ink">âœ•</button>
+          <button onClick={() => setReplyTo(null)} className="text-ink3 hover:text-ink">✕</button>
         </div>
       )}
 
@@ -818,7 +818,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
             ))}
           </div>
         )}
-        {pendingFile && <p className="mb-2 text-xs text-ink2">{uploadingMedia ? 'â³' : 'ðŸ“Ž'} {pendingKind} ready to send</p>}
+        {pendingFile && <p className="mb-2 text-xs text-ink2">{uploadingMedia ? '⏳' : '📎'} {pendingKind} ready to send</p>}
         <div className="flex items-end gap-2">
           <label className="cursor-pointer rounded-lg p-2 text-ink3 hover:bg-surface2 hover:text-ink" title="Send image">
             <ImageIcon className="h-5 w-5" />
@@ -850,7 +850,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
                 autoFocus
               />
               <Button size="sm" onClick={() => void edit()} disabled={!text.trim()}>Save</Button>
-              <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setText('') }}>âœ•</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setText('') }}>✕</Button>
             </>
           ) : (
             <>
@@ -1024,7 +1024,7 @@ function MessageRow({
       <div className={`max-w-[75%] ${own ? 'order-1' : ''}`}>
         {replyTarget && (
           <button onClick={() => onJump(m.reply_to_id ?? 0)} className="mb-0.5 block max-w-full truncate rounded-t-lg bg-surface2 px-3 py-1 text-[10px] text-ink3 hover:text-ink" title="Jump to original">
-            â†³ {replyTarget.body ?? 'media'}
+            ↳ {replyTarget.body ?? 'media'}
           </button>
         )}
         <div className={`rounded-2xl px-3.5 py-2 text-sm ${own ? 'bg-accent text-accent-ink' : 'border border-border bg-surface text-ink'}`}>
@@ -1036,7 +1036,7 @@ function MessageRow({
           )}
           {m.type === 'file' && m.media_id && (
             <a href={`/api/v1/media/${m.media_id}/file`} target="_blank" rel="noreferrer" className="mb-1.5 flex items-center gap-2 rounded-lg bg-surface2 px-3 py-2 text-xs underline-offset-2 hover:underline">
-              ðŸ“Ž {m.body ?? 'Download file'}
+              📎 {m.body ?? 'Download file'}
             </a>
           )}
           {m.type === 'audio' && m.media_id && (

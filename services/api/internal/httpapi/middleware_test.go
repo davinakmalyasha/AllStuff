@@ -196,3 +196,49 @@ func TestParsePositiveIntCapped(t *testing.T) {
 		t.Fatalf("default broken: %d", got)
 	}
 }
+
+// TestParseOffsetIsNotCappedLikeALimit is the regression test for the bug this
+// pair of helpers used to share.
+//
+// `offset` used to be read with parsePositiveInt, which caps at 100 because it
+// exists to bound LIMIT. Every paginated list in the product therefore
+// truncated at roughly result 124 (limit 24 x offset 100 plus one page) while
+// still reporting has_more=true, because the pager kept advancing an offset that
+// had been clamped back to the same 100 — so page 6 returned page 5's rows and
+// the loop never terminated.
+//
+// The two helpers must therefore NOT agree on the ceiling, and this test fails
+// if someone merges them back.
+func TestParseOffsetIsNotCappedLikeALimit(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"first page is zero, which parsePositiveInt cannot express", "0", 0},
+		{"empty falls back to the default", "", 0},
+		{"a normal second page passes through", "24", 24},
+		{"deep paging is allowed well past the limit ceiling", "500", 500},
+		{"past the old 100 cap, so the two helpers disagree", "101", 101},
+		{"exactly the old cap", "100", 100},
+		{"still bounded, to stop a full-table OFFSET scan", "999999999", maxPageOffset},
+		{"exactly the new ceiling", "10000", maxPageOffset},
+		{"negative is not a valid offset", "-5", 0},
+		{"non-numeric falls back", "abc", 0},
+		{"whitespace is not a number", " 12", 0},
+		{"a huge number that overflows int falls back rather than wrapping", "99999999999999999999", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseOffset(tt.in, 0); got != tt.want {
+				t.Errorf("parseOffset(%q, 0) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	// The whole point: the ceilings must differ. If these are ever equal again,
+	// offset is being clamped by the limit rule and deep pagination is broken.
+	if got := parseOffset("101", 0); got == parsePositiveInt("101", 0) {
+		t.Errorf("parseOffset and parsePositiveInt agree at 101 (%d); offset must not share the LIMIT ceiling", got)
+	}
+}

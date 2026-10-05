@@ -17,7 +17,7 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodGet {
 		limit := parsePositiveInt(r.URL.Query().Get("limit"), 30)
-		offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+		offset := parseOffset(r.URL.Query().Get("offset"), 0)
 		list, err := s.deps.Claims.List(r.Context(), user.ID, false, limit, offset)
 		if err != nil {
 			fail(w, err)

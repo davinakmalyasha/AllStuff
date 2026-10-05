@@ -318,7 +318,7 @@ export function ProductModal({
                   aria-label="Helpful"
                   aria-pressed={r.my_vote === 1}
                 >
-                  ðŸ‘ {r.helpful_count}
+                  👍 {r.helpful_count}
                 </button>
               </div>
               <p className="mt-1 text-sm text-ink2">{r.text}</p>

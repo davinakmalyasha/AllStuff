@@ -121,7 +121,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		FullyVerifiedOnly: q.Get("fully_verified_only") == "true",
 		HasChat:           q.Get("has_chat") == "true",
 		Limit:             parsePositiveInt(q.Get("limit"), 24),
-		Offset:            parsePositiveInt(q.Get("offset"), 0),
+		Offset:            parseOffset(q.Get("offset"), 0),
 		// The exact count is requested on the FIRST page only, which is where a
 		// UI displays "1-24 of N". Paging further reads `has_more`, which costs
 		// nothing. Previously the count ran on every page except the last — so
@@ -132,7 +132,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		// `with_total=0` forces it off, which internal callers that only read
 		// `businesses` should use so they do not pay for a count they discard.
 		WithTotal: q.Get("with_total") == "1" ||
-			(q.Get("with_total") != "0" && parsePositiveInt(q.Get("offset"), 0) == 0),
+			(q.Get("with_total") != "0" && parseOffset(q.Get("offset"), 0) == 0),
 	}
 	if cats := q["category"]; len(cats) > 0 {
 		p.CategoryIDs = cats
@@ -390,4 +390,38 @@ func parsePositiveIntMax(s string, def, max int) int {
 		return v
 	}
 	return def
+}
+
+// maxPageOffset bounds OFFSET so a crafted ?offset= cannot ask Postgres to walk
+// the whole table and then discard it.
+//
+// This is deliberately NOT parsePositiveInt. That helper caps at 100 because it
+// exists to bound LIMIT, and it used to parse `offset` too — which meant every
+// paginated list in the product silently truncated at roughly result 124 while
+// still reporting has_more=true, because the pager kept advancing an offset
+// that had been clamped back to the same 100. A directory of 40,000 listings was
+// a directory of 124, and each individual response was a perfectly valid page,
+// so nothing errored and nothing logged.
+//
+// 10,000 is the ceiling: with the default limit of 24 that is result ~240,000,
+// far past anything real, and at that depth the OFFSET scan itself is the thing
+// that needs replacing. Keyset pagination is the answer; until it lands, a
+// bounded floor on a wrong-but-honest number beats a wrong-and-silent one.
+const maxPageOffset = 10000
+
+// parseOffset parses a pagination offset. 0 is a legitimate value (and the
+// default), which is why this is not parsePositiveInt at all: a helper named
+// for positivity would reject the first page.
+func parseOffset(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 {
+		return def
+	}
+	if v > maxPageOffset {
+		return maxPageOffset
+	}
+	return v
 }

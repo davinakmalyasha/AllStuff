@@ -18,7 +18,7 @@ func (s *Server) handleAdminReports(w http.ResponseWriter, r *http.Request) {
 		status = "open"
 	}
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	offset := parseOffset(r.URL.Query().Get("offset"), 0)
 	reports, err := s.deps.Admin.Reports(r.Context(), status, limit, offset)
 	if err != nil {
 		fail(w, err)
@@ -88,7 +88,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		q = "%"
 	}
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 30)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	offset := parseOffset(r.URL.Query().Get("offset"), 0)
 	users, err := s.deps.Admin.SearchUsers(r.Context(), q, limit, offset)
 	if err != nil {
 		fail(w, err)
@@ -157,7 +157,7 @@ func (s *Server) handleAdminCuration(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	offset := parseOffset(r.URL.Query().Get("offset"), 0)
 	trail, err := s.deps.Admin.AuditTrail(r.Context(), limit, offset)
 	if err != nil {
 		fail(w, err)

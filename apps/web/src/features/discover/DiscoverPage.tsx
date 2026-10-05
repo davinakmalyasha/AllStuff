@@ -30,7 +30,7 @@ function resultSummary(
   query: string,
   filtered: boolean,
 ): string {
-  const forWhat = query ? ` for â€œ${query}â€` : filtered ? ' with these filters' : ''
+  const forWhat = query ? ` for “${query}”` : filtered ? ' with these filters' : ''
   if (count === null || count === undefined) {
     return shown > 0
       ? `At least ${shown} result${shown === 1 ? '' : 's'}${forWhat}`
@@ -381,7 +381,7 @@ export function DiscoverPage() {
               {coords ? (
                 <Button variant="secondary" size="sm" onClick={() => setCoords(null)}>Clear location</Button>
               ) : (
-                <Button variant="secondary" size="sm" onClick={nearMe}>ðŸ“ Near me</Button>
+                <Button variant="secondary" size="sm" onClick={nearMe}>📍 Near me</Button>
               )}
               <Button size="sm" onClick={apply}>Apply filters</Button>
             </div>

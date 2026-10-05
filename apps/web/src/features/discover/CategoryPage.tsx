@@ -100,7 +100,7 @@ export function CategoryPage() {
                 <BusinessCard business={b as unknown as BusinessDTO} />
                 {(b as TrendEntryDTO).is_rising && (
                   <span className="absolute -right-2 -top-2 z-10 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-semibold text-ink2">
-                    â–² Rising
+                    ▲ Rising
                   </span>
                 )}
               </div>

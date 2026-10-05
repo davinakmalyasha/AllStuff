@@ -92,7 +92,7 @@ func (s *Server) handleAdminVerifyQueue(w http.ResponseWriter, r *http.Request) 
 		statuses = []string{"rejected"}
 	}
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	offset := parseOffset(r.URL.Query().Get("offset"), 0)
 	queue, err := s.deps.Admin.VerifyQueue(r.Context(), statuses, limit, offset)
 	if err != nil {
 		fail(w, err)

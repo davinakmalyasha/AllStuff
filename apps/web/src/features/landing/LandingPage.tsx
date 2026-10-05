@@ -101,7 +101,7 @@ export function LandingPage() {
   })
   const trending = (trendingData?.entries ?? []).map((e, i) => ({
     rank: i + 1, name: e.name, cat: e.category ?? e.city, score: e.score.toFixed(1),
-    delta: e.is_booming ? `â–² ${e.velocity.toFixed(1)}` : '', rising: e.is_rising, slug: e.slug,
+    delta: e.is_booming ? `▲ ${e.velocity.toFixed(1)}` : '', rising: e.is_rising, slug: e.slug,
   }))
   const rising = risingData?.entries ?? []
 
@@ -166,7 +166,7 @@ export function LandingPage() {
           />
           <Stat value="100%" label={t('landing.stats.free')} />
           <Stat value="2" label={t('landing.stats.verified')} />
-          <Stat value="âˆž" label={t('landing.stats.messages')} />
+          <Stat value="∞" label={t('landing.stats.messages')} />
           </div>
         </div>
       </section>
@@ -356,7 +356,7 @@ export function LandingPage() {
                   <div className="p-4">
                     <p className="truncate text-sm font-semibold text-ink group-hover:underline">{b.name}</p>
                     <p className="text-xs text-ink3">{b.category_name} · {b.city}</p>
-                    {b.review_count > 0 && <p className="mt-1 text-xs text-ink2">â˜… {b.rating_avg?.toFixed(1)} ({b.review_count})</p>}
+                    {b.review_count > 0 && <p className="mt-1 text-xs text-ink2">★ {b.rating_avg?.toFixed(1)} ({b.review_count})</p>}
                   </div>
                 </Link>
               ))}

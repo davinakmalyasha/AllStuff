@@ -139,7 +139,7 @@ export function MePage() {
               Daily alert
             </label>
             <Link to={savedSearchHref(s.query)} className="text-xs text-ink3 hover:text-ink">Open</Link>
-            <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">âœ•</button>
+            <button onClick={() => void removeSearch.mutateAsync(s.id)} className="text-xs text-ink3 hover:text-ink" aria-label="Delete search">✕</button>
           </div>
         ))}
         {(savedSearches?.searches?.length ?? 0) === 0 && <p className="text-sm text-ink3">Save a search from the Discover page to find it here.</p>}

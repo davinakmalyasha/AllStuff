@@ -12,7 +12,7 @@ func (s *Server) handleQuestions(w http.ResponseWriter, r *http.Request) {
 	businessID := r.PathValue("id")
 	if r.Method == http.MethodGet {
 		limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
-		offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+		offset := parseOffset(r.URL.Query().Get("offset"), 0)
 		list, err := s.deps.Community.Questions(r.Context(), businessID, limit, offset)
 		if err != nil {
 			fail(w, err)

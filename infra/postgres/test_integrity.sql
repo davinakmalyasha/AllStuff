@@ -293,6 +293,67 @@ BEGIN
   RAISE NOTICE '0032 slug-release assertions passed';
 END $do$;
 
+-- ---------------------------------------------------------------------------
+-- 0035: subscriptions is UNIQUE on business_id.
+--
+-- This is the assertion for the defect described in 0034. It is a pure schema
+-- check with no fixtures, so it could be asserted the moment 0035 was written --
+-- but nothing in the Go test suite covers it either, because the failure mode is
+-- SQLSTATE 42P10 at RUNTIME: repo/billing.go compiles fine, the upsert compiles
+-- fine, and the statement only fails when Stripe delivers an event. A
+-- green build with a broken billing path was the whole problem.
+--
+-- The check is written against pg_indexes rather than by attempting the upsert,
+-- for one reason: attempting it would need a business, a plan and a subscription
+-- row, and a 42P10 raised inside a BEGIN block poisons the transaction for
+-- everything after it. Reading the catalog cannot fail.
+--
+-- Two things are asserted, because either one alone is insufficient:
+--   1. an index named subscriptions_business_unq exists AND is UNIQUE, and
+--   2. it is unique on business_id alone.
+-- A non-unique index with the right name would pass a name-only check, which is
+-- the same class of mistake as 0028's IF NOT EXISTS matching a name with
+-- different columns.
+-- ---------------------------------------------------------------------------
+
+DO $do$
+DECLARE
+  def text;
+  n    int;
+BEGIN
+  SELECT pg_get_indexdef(i.indexrelid) INTO def
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+   WHERE c.relname = 'subscriptions_business_uniq'
+     AND i.indisunique;
+
+  IF def IS NULL THEN
+    RAISE EXCEPTION
+      'subscriptions has no UNIQUE index named subscriptions_business_uniq. repo/billing.go UpsertSubscription uses ON CONFLICT (business_id); Postgres resolves that against unique indexes only, so every customer.subscription.* webhook and the 6-hourly reconcile raised 42P10 and were then permanently swallowed by the billing_webhook_events ledger. See migration 0034.';
+  END IF;
+
+  IF def NOT LIKE '%(business_id)%' THEN
+    RAISE EXCEPTION
+      'subscriptions_business_uniq is unique on the wrong column set: %', def;
+  END IF;
+
+  -- And the live data must already satisfy it, or the concurrent build in 0035
+  -- failed and left an INVALID index behind. Migrate() hard-fails at boot on an
+  -- invalid index, but this file is also run by hand, so check it here too.
+  SELECT count(*) INTO n
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+   WHERE c.relname = 'subscriptions_business_uniq'
+     AND NOT i.indisvalid;
+
+  IF n > 0 THEN
+    RAISE EXCEPTION
+      'subscriptions_business_uniq exists but is INVALID - the concurrent build was interrupted. Re-run 0035.';
+  END IF;
+
+  RAISE NOTICE '0035 subscriptions business_id uniqueness assertion passed';
+END $do$;
+
 ROLLBACK;
 
 \echo === done (all work rolled back)

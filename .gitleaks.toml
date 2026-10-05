@@ -1,0 +1,84 @@
+# gitleaks configuration.
+#
+# There are no blanket regex or path ignores here, deliberately. The workflow
+# comment claimed the shipped dev placeholders were "documented rather than
+# allowing blanket ignores" - and no file existed, so the job was scanning with
+# stock rules and would have failed on the repository's own dev defaults.
+#
+# Every exception below is scoped to a single path AND states why the string is
+# not a secret. A real credential pasted into any of these files still trips the
+# gate, because the exception is for a specific literal, not for a shape.
+#
+# Verify locally with:
+#   gitleaks detect --source . --config .gitleaks.toml -v
+
+title = "BizVerse secret scan"
+
+[extend]
+# Inherit the upstream default ruleset. Everything below narrows it; nothing
+# replaces it, so a new rule added upstream applies here on the next Dependabot
+# bump without anyone editing this file.
+useDefault = true
+
+[[allowlists]]
+description = """
+config.go ships a self-identifying dev JWT secret. It is a literal placeholder
+by design and config.Validate() refuses to start a production deployment while
+it is set: the value is on the knownPlaceholder denylist in the same file, which
+is why the constant is named for the property it demonstrates rather than for a
+real key. Scoped to the one file so the same string anywhere else is a finding.
+"""
+path = '''^services/api/internal/config/config\.go$'''
+regexes = [
+  '''dev-secret-change-me-in-production-0123456789abcdef''',
+]
+
+[[allowlists]]
+description = """
+The development compose file and the CI workflow both need a literal
+postgres/postgres DSN to reach a loopback-bound or service-container database.
+The compose file publishes it on 127.0.0.1 only, and config.Validate() requires
+sslmode=disable only outside production. Not a credential: it is the documented
+default password of the postgres image.
+"""
+paths = [
+  '''^infra/docker/docker-compose\.yml$''',
+  '''^\.github/workflows/ci\.yml$''',
+]
+regexes = [
+  '''postgres://postgres:postgres@localhost:5432/''',
+  '''["']postgres:postgres["']''',
+]
+
+[[allowlists]]
+description = """
+Redis and MinIO dev passwords in the compose file. Redis's is passed as a command
+argument, which is visible in `docker inspect` - a real weakness of the dev
+compose file and not of this configuration, which is why the ports bind to
+loopback. Both are local development defaults for containers that publish nothing
+off the host.
+"""
+path = '''^infra/docker/docker-compose\.yml$'''
+regexes = [
+  '''--requirepass",\s*"bizverse"''',
+  '''MINIO_ROOT_PASSWORD:\s*minio123''',
+  '''redis://:bizverse@localhost:6379''',
+]
+
+[[allowlists]]
+description = """
+E2E fixture passwords in the test harness and the seed. These authenticate against
+a throwaway database created per run and dropped afterwards, and the register path
+they exercise is rate-limited per account only when APP_ENV=test - which is the
+one environment the test harness sets and config.Validate() refuses elsewhere.
+"""
+paths = [
+  '''^services/api/internal/testutil/''',
+  '''^scripts/seed\.sql$''',
+  '''^apps/web/tests/''',
+  '''^services/api/internal/.*_test\.go$''',
+]
+regexes = [
+  '''secret1234''',
+  '''seed-only-no-login''',
+]

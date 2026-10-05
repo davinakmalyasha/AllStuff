@@ -462,7 +462,7 @@ function BackToTop() {
       className="fixed bottom-16 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-ink shadow-cardHover hover:bg-surface2"
       aria-label="Back to top"
     >
-      â†‘
+      ↑
     </button>
   )
 }

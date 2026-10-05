@@ -34,7 +34,7 @@ export function ComparePage() {
   const businesses = data?.businesses ?? []
   const topProducts = data?.top_products ?? {}
 
-  // URL is the source of truth while viewing a shared â‰¥2-id selection;
+  // URL is the source of truth while viewing a shared ≥2-id selection;
   // store mutations then would push someone else's picks into your tray.
   const isSharedView = queryIds.length >= 2
 
@@ -176,7 +176,7 @@ export function ComparePage() {
           </div>
 
           {row('Category', (b) => b.category_name ?? '—')}
-          {row('Rating', (b) => b.review_count > 0 ? `â˜… ${b.rating_avg?.toFixed(1)} (${b.review_count})` : '—')}
+          {row('Rating', (b) => b.review_count > 0 ? `★ ${b.rating_avg?.toFixed(1)} (${b.review_count})` : '—')}
           {row('Price level', (b) => "$".repeat(b.price_level ?? 0) || '—')}
           {row('Top products', (b) => {
             const list = topProducts[b.id] ?? []

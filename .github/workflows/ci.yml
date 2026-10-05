@@ -1,8 +1,14 @@
 name: CI
 
 on:
+  # `main` is the branch. `master` is still listed because the repository was
+  # renamed from master to main on 2026-10-04, and a contributor with an older
+  # clone will push to master for a while. Listing both means CI runs for them
+  # too, rather than their pushes landing with no status check at all - which is
+  # the failure this rename fixes: the workflow watched `main` while the branch
+  # was `master`, so no push ever triggered a run and no deploy ever fired.
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 # `contents: read` everywhere. Without an explicit block, every `uses:` in this
@@ -32,7 +38,12 @@ jobs:
   backend:
     name: Go API
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Raised from 20. Two steps below declare -timeout 25m and -timeout 30m,
+    # and GitHub enforces the JOB timeout first - so the job was killed at 20m
+    # and Go never printed the goroutine dump those flags exist to produce. A
+    # hang reported as "exceeded the maximum execution time" with no stack is
+    # the worst of both: slow to diagnose and impossible to act on.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17
@@ -121,7 +132,7 @@ jobs:
         # AND to leave a byte-identical schema fingerprint. This is what catches
         # a migration that would wedge startup after a crash between COMMIT and
         # the marker write. Needs a server it may create and drop databases on.
-        run: go test ./internal/db/ -run 'TestMigrate' -v -timeout 25m
+        run: go test -count=1 ./internal/db/ -run 'TestMigrate' -v -timeout 25m
         env:
           TEST_DATABASE_URL: ${{ env.PGADMIN_URL }}
           MIGRATIONS_DIR: ../../infra/postgres/migrations
@@ -142,7 +153,14 @@ jobs:
         # codebase is a heavily concurrent Go server with a hand-rolled WS hub
         # and custom maps, so this is the test most likely to catch something
         # real.
-        run: go test -race ./...
+        run: go test -count=1 -shuffle=on -race -timeout 15m ./...
+        # -shuffle=on randomises test order. The integration harness gives each
+        # test its own cloned database and rolls it back, so nothing should
+        # depend on source order - and if something DOES, that is a real coupling
+        # bug that this makes visible on the run where it happens to bite rather
+        # than on the run where it happens to bite locally. It costs nothing.
+        # -timeout 15m because the default 10m is per package and internal/db
+        # under -race needs more (see the coverage step's note for the figure).
 
       - name: Dependency audit
         # x/crypto is the only direct dependency carrying security-relevant code
@@ -223,9 +241,26 @@ jobs:
         # paths are covered so far. That is an honest starting point, not a
         # finished one.
         run: |
+          # `set -o pipefail` is load-bearing, not hygiene. `go test ... | tail -20`
+          # returns tail's exit status, which is always 0, so before this line a
+          # FAILED TEST in the coverage run did not fail the step. The step then
+          # read coverage.out and reported either a confusing "coverage fell"
+          # error or, worse, a pass. A gate that reports success while its input
+          # failed is worse than no gate, because it is trusted.
+          set -o pipefail
           coverpkg=$(go list ./... | grep -v '/internal/testutil$' | paste -sd, -)
           echo "coverpkg: $coverpkg"
-          go test -coverpkg="$coverpkg" -coverprofile=coverage.out ./... 2>&1 | tail -20
+          # -count=1 defeats the result cache. `go test` reuses a cached result
+          # when the binary and all inputs are unchanged, so a warm runner could
+          # report coverage from a run that never executed.
+          # -timeout 25m because the default is 10m PER PACKAGE and the slowest
+          # package here is internal/db, whose replay suite clones a database
+          # roughly twenty times and re-migrates each clone (~90s, ~820s under
+          # the race detector, materially worse again under -coverpkg across
+          # every package). Without this the package panics on timeout, writes a
+          # partial coverage.out, and - per the pipefail note above - that was
+          # not a visible failure.
+          go test -count=1 -timeout 25m -coverpkg="$coverpkg" -coverprofile=coverage.out ./... 2>&1 | tail -20
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
           echo "coverage: ${total}%"
           ratchet=$(cat ../../coverage.ratchet)
@@ -238,6 +273,13 @@ jobs:
           }'
           # Write the new figure only when it improved, so a green build does not
           # leave a modified file behind.
+          #
+          # This never lands on a pull_request: the workspace is discarded, and
+          # nothing commits it back. That is intentional - the comment above this
+          # step says raising the ratchet is a deliberate act performed in the
+          # same PR that adds tests, so the diff shows both. The write is kept
+          # only because it is the correct behaviour for a push to a branch where
+          # a human will reconcile it.
           awk -v t="$total" -v r="$ratchet" 'BEGIN { exit !(t + 0 > r + 0) }' \
             && echo "$total" > ../../coverage.ratchet \
             || true
@@ -277,6 +319,20 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+
+      - name: Encoding check
+        # Mojibake - UTF-8 decoded as cp1252 and re-encoded - is still valid
+        # UTF-8 and still valid TypeScript, so tsc, ESLint and `vite build` all
+        # pass over it and only a browser shows the damage. That is not
+        # hypothetical: 3e4d259 repaired 128 occurrences across 25 files, and the
+        # eighteen it could not repair mechanically included a 20-entry emoji
+        # picker that shipped as garbage glyphs. This gate now catches the class.
+        #
+        # It also fired on four U+FFFD in docs/ARCHITECTURE.md the moment it was
+        # added, which is the point - those were unrepairable by definition,
+        # since a replacement character means the original was destroyed rather
+        # than transformed.
+        run: node scripts/check-encoding.mjs
 
       - name: Typecheck
         # `npm run lint` bundles tsc, but the tests/ directory and
@@ -383,16 +439,36 @@ jobs:
     name: Security
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # gitleaks-action uploads a SARIF report. Without this the upload is
+      # rejected under the workflow's top-level `contents: read`, so the step
+      # named "Secret scan" would fail on its own reporting rather than on a
+      # finding - and a gate that fails for the wrong reason trains people to
+      # click through it.
+      security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # fetch-depth: 0 is the whole point of this job. actions/checkout
+          # defaults to a depth-1 clone, and gitleaks scans what is in the
+          # working tree. With history absent, a secret committed twenty commits
+          # ago is invisible - which is precisely the case a secret scanner
+          # exists to catch, and the case that matters most, because rewriting
+          # history to remove one is expensive and public.
+          fetch-depth: 0
 
       - name: Secret scan
         # The repository is clean today — every secret-shaped string in it is
         # either a self-identifying placeholder that config.Validate() rejects in
         # prod, a test fixture, or a loopback-bound dev default. Nothing was
         # enforcing that, so one pasted JWT_SECRET would have shipped silently.
+        #
+        # The four exceptions are enumerated by path in .gitleaks.toml, so the
+        # gate has a reviewable list rather than a blanket ignore. The workflow
+        # comment here used to claim they were "documented"; they were not,
+        # because no .gitleaks.toml existed.
         uses: gitleaks/gitleaks-action@cb7149cb3c58a4d15dcd7f6d2bd8b6b9c9c0bf7 # v2.3.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -400,6 +476,7 @@ jobs:
           # intentionally literal; document them rather than allowing blanket
           # ignores, so a real secret still trips the gate.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_CONFIG: .gitleaks.toml
 
   codeql:
     name: CodeQL
@@ -410,6 +487,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # CodeQL's default languages are set below, but a fork pull request
+          # cannot obtain security-events: write. Skipping the job there is
+          # honest; letting it fail red is noise that hides a real failure.
+          fetch-depth: 0
       - uses: github/codeql-action/init@6aaf88b0d6f8b49c50292ad8c0150c31d7fd2d5b # v3.28.9
         with:
           languages: go, javascript-typescript

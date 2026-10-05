@@ -136,7 +136,7 @@ export function CommentsSection({ businessId }: { businessId: string }) {
           <div className="mt-1.5 flex gap-2">
             <input value={editText} onChange={(e) => setEditText(e.target.value)} className="h-9 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-ink" autoFocus />
             <Button size="sm" onClick={() => void updateMut.mutateAsync({ id: c.id, text: editText })} disabled={!editText.trim()}>Save</Button>
-            <Button variant="secondary" size="sm" onClick={() => setEditId(null)}>âœ•</Button>
+            <Button variant="secondary" size="sm" onClick={() => setEditId(null)}>✕</Button>
           </div>
         ) : (
           <p className="mt-1.5 text-sm text-ink2">{renderMentions(c.text)}</p>

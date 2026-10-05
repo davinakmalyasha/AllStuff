@@ -237,7 +237,7 @@ export function BusinessPage() {
               <h2 className="mono-label mb-3">Amenities</h2>
               <div className="flex flex-wrap gap-2">
                 {b.amenities!.map((a) => (
-                  <span key={a} className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-ink2">âœ“ {a}</span>
+                  <span key={a} className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-ink2">✓ {a}</span>
                 ))}
               </div>
             </section>
@@ -374,7 +374,7 @@ export function BusinessPage() {
                 return (
                   <ContactRow
                     key={k}
-                    icon={<span className="text-ink3">â†—</span>}
+                    icon={<span className="text-ink3">↗</span>}
                     label={`${label} · @${handle}`}
                     href={SOCIAL_URLS[k]?.(handle) ?? handle}
                   />

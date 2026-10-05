@@ -450,20 +450,20 @@ is the complete set.
 ## 7. Addendum (platform extensions)
 
 ### 7.1 Community & profiles
-- Q&A: questions/answers tables; owner answers highlighted; notifications on ask/answer (PRD �5.6.2 extension).
+- Q&A: questions/answers tables; owner answers highlighted; notifications on ask/answer (PRD §5.6.2 extension).
 - Follows + owner announcements: follows table (unique user+business); business_updates with follower notification fan-out; following feed endpoint.
-- Public profiles: GET /u/:username � reviews/comments/public collections/verified businesses.
+- Public profiles: GET /u/:username → reviews/comments/public collections/verified businesses.
 
 ### 7.2 Verification & trust (B3)
-- Resubmission cap: businesses.resubmit_count (max 3, PRD �8.2).
+- Resubmission cap: businesses.resubmit_count (max 3, PRD §8.2).
 - Appeals: appeals table; user submits via /me/appeal; admin decides (approve restores account); result notified.
 - Co-owner invites: business_invites (accepted_at = active); CanManageBusiness replaces owner-only checks everywhere.
-- Trending anomalies: engagement_events.flagged ? admin review queue; resolve clears the flag.
+- Trending anomalies: engagement_events.flagged → admin review queue; resolve clears the flag.
 
 ### 7.3 Messaging extensions
 - Link previews: server-side og: extraction on text sends (SSRF-safe: http/https only, 2s timeout, 256KB cap, private IPs rejected); stored in chat_messages.link_preview.
 - Pinned messages: chat_participants.pinned_message_ids (bigint[], max 5) + pin endpoints.
-- Quiet hours: notification_prefs.quiet_hours enforced for push delivery (22:00�08:00 local).
+- Quiet hours: notification_prefs.quiet_hours enforced for push delivery (22:00–08:00 local).
 
 ### 7.4 Platform ops
 - KPI endpoint: /admin/kpis (counts + 14-day registration series).

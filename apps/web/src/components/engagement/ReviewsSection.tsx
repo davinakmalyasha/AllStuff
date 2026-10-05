@@ -216,7 +216,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
             {photoIds.map((id) => (
               <div key={id} className="relative">
                 <img src={`/api/v1/media/${id}/file`} alt="" className="h-16 w-16 rounded-lg object-cover" />
-                <button onClick={() => setPhotoIds((prev) => prev.filter((x) => x !== id))} className="absolute -right-1.5 -top-1.5 rounded-full bg-accent p-0.5 text-accent-ink" aria-label="Remove photo">âœ•</button>
+                <button onClick={() => setPhotoIds((prev) => prev.filter((x) => x !== id))} className="absolute -right-1.5 -top-1.5 rounded-full bg-accent p-0.5 text-accent-ink" aria-label="Remove photo">✕</button>
               </div>
             ))}
             {photoIds.length < 6 && (
