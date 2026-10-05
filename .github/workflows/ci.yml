@@ -338,6 +338,17 @@ jobs:
         # than transformed.
         run: node scripts/check-encoding.mjs
 
+      - name: CSP check
+        # A <meta> CSP is just a string in an HTML file, so tsc, ESLint and
+        # `vite build` all pass straight over it. Three defects shipped that way
+        # and only a browser console revealed them: a `frame-ancestors` that is
+        # ignored in <meta> (so the page's only clickjacking directive did
+        # nothing), `/api/v1/media` in img-src (a path is not an origin, so it
+        # was silently dropped), and an inline theme script that script-src
+        # blocked - meaning the FOUC guard never ran and every dark-mode user got
+        # a white flash on every load.
+        run: node scripts/check-csp.mjs
+
       - name: Typecheck
         # `npm run lint` bundles tsc, but the tests/ directory and
         # playwright.config.ts are outside tsconfig's include, so a type error in

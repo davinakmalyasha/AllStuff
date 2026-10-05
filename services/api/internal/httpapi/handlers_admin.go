@@ -202,6 +202,6 @@ func (s *Server) handleAdminDocFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", item.Mime)
 	w.Header().Set("Content-Disposition", "inline; filename=\""+sanitizeCDName(target.FileName)+"\"")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
 	_, _ = w.Write(blob)
 }

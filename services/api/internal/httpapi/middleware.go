@@ -250,6 +250,15 @@ func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
+		// X-Frame-Options is the legacy mechanism and is still the only one some
+		// user agents honour, but `frame-ancestors` is the CSP directive that
+		// actually supersedes it. Both are sent: neither alone covers everything.
+		//
+		// This matters because the SPA's index.html also carries a CSP, delivered
+		// via <meta> - where `frame-ancestors` is IGNORED by spec. That is why the
+		// header here is the only thing providing clickjacking protection for the
+		// web surface, and why the meta tag must not be relied on for it.
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		if s.deps.Config.CookieSecure {

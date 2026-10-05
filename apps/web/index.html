@@ -6,12 +6,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" id="meta-theme-color" />
     <!-- Backstop CSP: the app has no raw-HTML sinks today; this bounds the
-         blast radius of future regressions. Map tiles + media are the only
-         cross-origin image needs; Vite injects module scripts from 'self'
-         and Tailwind requires inline style attributes. -->
+         blast radius of future regressions. Map tiles are the only cross-origin
+         image needs; Vite injects module scripts from 'self' and Tailwind
+         requires inline style attributes.
+
+         Two things that LOOK like they belong here and deliberately do not:
+
+         - `frame-ancestors` is IGNORED when CSP is delivered via <meta>. It was
+           here and provided no clickjacking protection whatsoever, which is worse
+           than absent because it reads as if it does. Protection is delivered as
+           real headers by the API's withSecurityHeaders (X-Frame-Options plus
+           frame-ancestors), which is the only mechanism that works.
+
+         - `'unsafe-inline'` for scripts. The theme FOUC guard used to be an
+           inline <script> here, which this policy blocked - so the guard silently
+           never ran and dark-mode users got a white flash on every load. It now
+           lives in /theme-init.js and is served from 'self'.
+
+         `/api/v1/media` was also listed in img-src, which is not a valid source
+         expression: a path is not an origin. The browser rejected it and logged a
+         console error. Same-origin media is already covered by 'self'. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org /api/v1/media; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; object-src 'none'"
     />
     <title>BizVerse — Every business. One place.</title>
     <meta name="description" content="Every business in the world, in one place. Find, compare, and contact any business." />
@@ -20,18 +37,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="/" />
     <meta property="og:site_name" content="BizVerse" />
-    <script>
-      // FOUC guard: apply theme before first paint. Default is LIGHT (white).
-      ;(function () {
-        try {
-          var stored = localStorage.getItem('bv.theme')
-          var dark = stored ? stored === 'dark' : false
-          document.documentElement.classList.toggle('dark', dark)
-          var meta = document.getElementById('meta-theme-color')
-          if (meta) meta.setAttribute('content', dark ? '#0a0a0a' : '#ffffff')
-        } catch (e) {}
-      })()
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

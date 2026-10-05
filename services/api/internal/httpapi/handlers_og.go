@@ -49,7 +49,7 @@ func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
 	// SVG executes scripts when navigated to directly — lock it down so an
 	// injected payload (or a future escaping bug) can never touch the API
 	// origin or read cookies.
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write([]byte(svg))
 }
