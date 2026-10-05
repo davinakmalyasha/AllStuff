@@ -98,11 +98,37 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     )
 );
 
--- The hot lookup is "subscription for this business" — one row per business,
--- so this is effectively a business_id lookup. Keeping the explicit index
--- rather than relying on the UNIQUE constraints above (which lead with
--- stripe ids) avoids a sequential scan on the owner dashboard.
-CREATE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions (business_id);
+-- The hot lookup is "subscription for this business" -- one row per business.
+--
+-- That index is created by 0035, not here, and it is UNIQUE. This file
+-- originally declared:
+--
+--   CREATE INDEX IF NOT EXISTS idx_subscriptions_business
+--       ON subscriptions (business_id);
+--
+-- which is the same access path but not unique, so `UpsertSubscription`'s
+-- `ON CONFLICT (business_id)` raised SQLSTATE 42P10 on every paid write. See
+-- 0034 for the full account, and for why the idempotency ledger then swallowed
+-- the failure so no paid subscription could ever be recorded.
+--
+-- Two consequences of removing the statement here rather than only correcting
+-- 0035:
+--
+--   1. A fresh install ends up with exactly one index. Leaving both would keep a
+--      unique index and a byte-equivalent plain btree on the same single column,
+--      which is pure write amplification on the one row a Stripe webhook
+--      updates.
+--
+--   2. The chain is replay-clean. A migration that CREATEs an index a later
+--      migration DROPs cannot be replayed, for the reason documented for 0015 in
+--      migrate_replay_integration_test.go: re-running this file recreates the
+--      dropped index, while 0035's marker is already recorded so its drop never
+--      re-runs, and the schema silently diverges. Removing the statement is safe
+--      for already-migrated environments, which already hold the index and are
+--      cleaned up by 0035's drop.
+--
+-- 0028 is post-baseline (the frozen baseline ends at 0027), which is what makes
+-- the edit legitimate. See REGISTRY.md rule 1.
 -- Reconciliation job: find rows whose current_period_end has passed while
 -- still marked active (i.e. the webhook never arrived).
 CREATE INDEX IF NOT EXISTS idx_subscriptions_period_end ON subscriptions (current_period_end)
