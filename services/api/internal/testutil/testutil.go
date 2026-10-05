@@ -4,7 +4,7 @@
 // ---------------
 // Until now the repository layer had no tests at all: 2,972 lines of SQL across
 // thirteen files, zero test files, 0% coverage. CI provisioned a PostgreSQL
-// service, applied all 31 migrations, loaded the seed â€” and then ran a test
+// service, applied all 31 migrations, loaded the seed — and then ran a test
 // suite in which nothing opened a connection. Every step of that setup was
 // ceremony.
 //
@@ -17,7 +17,7 @@
 //
 // WHY NO NEW DEPENDENCY
 // ---------------------
-// The backend has three direct dependencies on purpose â€” JWT, TOTP, Argon2id,
+// The backend has three direct dependencies on purpose — JWT, TOTP, Argon2id,
 // the Redis RESP client, Stripe, Web Push and the Prometheus exposition are all
 // hand-rolled. Adding testcontainers-go (itself a dozen transitive deps) to get
 // a database would undercut that. CI already provisions PostgreSQL as a service
@@ -48,7 +48,7 @@
 //     Pool().Begin() will panic.
 //   - `Repos.Exec` / `Repos.QueryRow` delegate to that nil pool, so calling them
 //     panics too. This is easy to miss because it looks like an ordinary
-//     statement helper â€” the scheduler's claimPeriod calls repos.Exec, so
+//     statement helper — the scheduler's claimPeriod calls repos.Exec, so
 //     `internal/jobs` tests must use PoolRepos instead.
 //
 // Use H.PoolRepos() for those paths. The trade is real: pool-bound tests lose
@@ -78,7 +78,7 @@ import (
 // adminDSN returns the DSN this package may create and drop databases on.
 //
 // It must point at a database that EXISTS and that the caller is willing to have
-// sibling databases created and destroyed next to it â€” `postgres`, normally.
+// sibling databases created and destroyed next to it — `postgres`, normally.
 // Pointing this at a database holding data will not corrupt it directly, but
 // every test database is created with it as its parent and the naming is
 // deterministic enough to be careless with.
@@ -346,7 +346,7 @@ func (h *H) ExecPool(t *testing.T, sql string, args ...any) {
 // construction (or since the last ResetQueryCount).
 //
 // It exists to assert query SHAPE rather than results. A performance fix such as
-// the two-phase search rewrite â€” or its regression back into per-row hydration â€”
+// the two-phase search rewrite — or its regression back into per-row hydration —
 // returns exactly the same rows either way, so no result assertion can see it.
 // Counting statements can.
 //
@@ -374,7 +374,7 @@ func (h *H) PoolRepos() *repo.Repos { return repo.New(h.Pool) }
 // POISONS it: the transaction enters the aborted state and every subsequent
 // command fails with 25P02 "current transaction is aborted", regardless of
 // what it is. So a test that asserts "this insert must violate the unique
-// constraint" passes its first assertion and then cannot run anything else â€”
+// constraint" passes its first assertion and then cannot run anything else —
 // including the assertions that would tell you whether the error was the right
 // kind.
 //
@@ -383,7 +383,7 @@ func (h *H) PoolRepos() *repo.Repos { return repo.New(h.Pool) }
 //
 // The returned error is the one fn produced, so the caller can assert on its
 // SQLSTATE. That distinction matters: a test that only checked "an error
-// happened" would also pass when the statement failed for an unrelated reason â€”
+// happened" would also pass when the statement failed for an unrelated reason —
 // a missing NOT NULL, a dropped column, a typo in the fixture.
 func (h *H) ExpectError(t *testing.T, what string, fn func() error) error {
 	t.Helper()

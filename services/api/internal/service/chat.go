@@ -355,7 +355,7 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 	}
 
 	// chat_start event once per user/day (PRD §3 weights).
-	key := userID + ":business:" + derefString(t.BusinessID) + ":chat_start:" + time.Now().Format("2006-01-02")
+	key := userID + ":business:" + derefString(t.BusinessID) + ":chat_start:" + eventDay()
 	_, _ = c.repos.Engagement.InsertEvent(ctx, userID, "business", derefString(t.BusinessID), "chat_start", 8, key)
 
 	// Notify other participants (skipping thread-muted ones, PRD §5.5.1).

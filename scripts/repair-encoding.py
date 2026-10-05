@@ -1,3 +1,4 @@
+import os
 """Verify and apply mojibake repairs for the runs the 3e4d259 pass documented as
 unrepairable ("roughly fifteen two- and three-character runs whose reversal does
 not decode, mostly icons in JSX").
@@ -155,10 +156,26 @@ def show(s):
 
 
 def main():
-    files = sorted(
-        set(glob.glob("apps/web/src/**/*.ts", recursive=True))
-        | set(glob.glob("apps/web/src/**/*.tsx", recursive=True))
-    )
+    # Default to the whole repository, not just the SPA.
+    #
+    # Scope matters here. The first version of this script walked
+    # apps/web/src only, because that is where the original 3e4d259 damage was.
+    # Then the same class reappeared in Go files, caused by a scripted edit that
+    # read a UTF-8 file as cp1252 and wrote it back - which is precisely the
+    # corruption this script exists to reverse, introduced by tooling that was
+    # supposed to be fixing it. A repair script scoped to one directory is a
+    # repair script that will miss the next one.
+    roots = [a for a in sys.argv[1:] if not a.startswith("--")] or ["."]
+
+    files = []
+    for root in roots:
+        for ext in ("*.go", "*.ts", "*.tsx", "*.js", "*.mjs", "*.md",
+                    "*.json", "*.yml", "*.yaml", "*.sql", "*.css", "*.html"):
+            files.extend(glob.glob(os.path.join(root, "**", ext), recursive=True))
+    skip = ("node_modules", "dist", ".git", "coverage", "test-results",
+            "playwright-report", ".playwright-mcp", ".gocache", ".pgdata", "data")
+    files = sorted(f for f in set(files)
+                   if not any(part in skip for part in f.split(os.sep)))
     repairs, manual, correct = [], [], []
     for path in files:
         for line_no, col, run in find_runs(path):
