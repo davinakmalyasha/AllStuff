@@ -205,12 +205,33 @@ DECLARE
     v_count   int;
     r         record;
 BEGIN
-    -- Row counts are deterministic: if the synthetic seed did not load, every
-    -- plan above is meaningless and the file should say so rather than printing
-    -- confident nonsense.
+    -- If the synthetic seed did not load, every plan above is meaningless and the
+    -- file should say so rather than printing confident nonsense. So this asserts
+    -- a FLOOR, not an equality.
+    --
+    -- It used to assert `= 5000`, which is wrong rather than merely brittle. CI
+    -- runs scripts/seed.sql BEFORE this file (it seeds two verified Jakarta
+    -- businesses, which is what makes the demo usable), so the real count is 5002
+    -- and the assertion could never pass in CI. It had never been executed there,
+    -- because until the branch rename no push had ever triggered a run.
+    --
+    -- A floor is the property that matters: the fixture's own 5000 rows must be
+    -- present for the planner's selectivity estimates to mean anything. Rows that
+    -- were already in the table are equally legitimate - they change selectivity
+    -- slightly, which is why the plans below tolerate several valid answers.
     SELECT count(*) INTO v_count FROM businesses;
-    IF v_count <> 5000 THEN
-        RAISE EXCEPTION 'fixture FAIL: expected 5000 businesses, got %', v_count;
+    IF v_count < 5000 THEN
+        RAISE EXCEPTION
+            'fixture FAIL: expected AT LEAST 5000 businesses for the plans above to be meaningful, got %',
+            v_count;
+    END IF;
+    IF v_count <> 5002 THEN
+        -- Not a failure: a warning, because a different total means the demo seed
+        -- changed and the selectivity assumptions baked into these thresholds
+        -- should be re-checked against the new distribution.
+        RAISE NOTICE
+            'note: % businesses present, not 5002. The demo seed has changed; if a plan assertion below starts failing, re-tune its selectivity thresholds against the new distribution.',
+            v_count;
     END IF;
 
     -- Every index below must exist and be valid. `pg_index.indisvalid` is the
