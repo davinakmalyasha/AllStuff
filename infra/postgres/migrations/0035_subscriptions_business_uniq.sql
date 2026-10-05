@@ -33,6 +33,32 @@
 --
 -- Idempotent: DROP ... IF EXISTS then CREATE. A replay costs one concurrent
 -- index build; skipping it costs the index, and with it all of billing.
+--
+-- WHY THERE IS NO COMMENT ON INDEX HERE
+-- -------------------------------------
+-- The obvious thing to add is a COMMENT ON INDEX recording why this index
+-- exists, and it is the exact statement that broke this migration's first
+-- applied run. Migrate() partitions a file's statements into transactional and
+-- autocommit buckets and executes ALL the transactional ones FIRST, then the
+-- autocommit ones - because CONCURRENTLY cannot run inside a transaction
+-- (db/migrate.go:111-134). So:
+--
+--   txStmts   = [COMMENT ON INDEX subscriptions_business_uniq ...]
+--   concStmts = [DROP INDEX CONCURRENTLY x2, CREATE UNIQUE INDEX CONCURRENTLY ...]
+--
+-- and the comment ran before the index existed:
+--
+--   0035_subscriptions_business_uniq.sql: ERROR: relation
+--   "subscriptions_business_uniq" does not exist (SQLSTATE 42P01)
+--
+-- The rule is: a migration that creates an object CONCURRENTLY cannot then
+-- reference it from a transactional statement in the same file. This file's
+-- header is the documentation instead - it is read by anyone who needs to know
+-- why the index is UNIQUE, which is the audience a COMMENT would have served.
+--
+-- TestNoConcurrentObjectIsReferencedByATransactionalStatement in
+-- internal/db now enforces that, for every migration, so the next one to try it
+-- fails its lint instead of its apply.
 
 -- ---------------------------------------------------------------------------
 -- Both names are dropped, for two different reasons.
@@ -58,9 +84,3 @@ DROP INDEX CONCURRENTLY IF EXISTS subscriptions_business_uniq;
 
 CREATE UNIQUE INDEX CONCURRENTLY subscriptions_business_uniq
     ON subscriptions (business_id);
-
--- GetSubscriptionForBusiness has no LIMIT, and it only ever became correct by
--- the uniqueness this file adds. A note here so the next reader does not
--- "optimise" it by adding a LIMIT: there is provably at most one row.
-COMMENT ON INDEX subscriptions_business_uniq IS
-    'One subscription row per business. Required by repo/billing.go UpsertSubscription, which uses ON CONFLICT (business_id); without UNIQUE that upsert raises 42P10. See 0034 for why this was missed.';
