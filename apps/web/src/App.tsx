@@ -41,6 +41,7 @@ const PublicCollectionPage = lazy(() => import('@/features/me/PublicCollectionPa
 const MapPage = lazy(() => import('@/features/map/MapPage').then((m) => ({ default: m.MapPage })))
 const ComparePage = lazy(() => import('@/features/compare/ComparePage').then((m) => ({ default: m.ComparePage })))
 const LoginPage = lazy(() => import('@/features/auth/LoginPage').then((m) => ({ default: m.LoginPage })))
+const TwoFactorPage = lazy(() => import('@/features/auth/TwoFactorPage').then((m) => ({ default: m.TwoFactorPage })))
 const RegisterPage = lazy(() => import('@/features/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })))
 const VerifyEmailPage = lazy(() => import('@/features/auth/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })))
 const ForgotPasswordPage = lazy(() => import('@/features/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })))
@@ -176,6 +177,18 @@ const router = createBrowserRouter([
         element: (
           <GuestOnly>
             <Lazy><LoginPage /></Lazy>
+          </GuestOnly>
+        ),
+      },
+      {
+        // Landing page for a second factor reached by the OAuth callback. It
+        // exists because the callback now honours the 2FA gate instead of
+        // minting a session outright; without this route a Google sign-in for a
+        // 2FA account would redirect to a 404.
+        path: '2fa',
+        element: (
+          <GuestOnly>
+            <Lazy><TwoFactorPage /></Lazy>
           </GuestOnly>
         ),
       },

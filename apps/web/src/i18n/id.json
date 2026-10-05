@@ -104,7 +104,13 @@
     "googleSignup": "Daftar dengan Google",
     "twoFaHint": "Masukkan kode 6 digit dari aplikasi autentikator Anda, atau kode pemulihan.",
     "twoFaCode": "Kode autentikasi",
-    "passwordMismatch": "Kata sandi tidak cocok."
+    "passwordMismatch": "Kata sandi tidak cocok.",
+    "twoFaTitle": "Autentikasi dua faktor",
+    "twoFaSub": "Masukkan kode 6 digit dari aplikasi autentikator Anda.",
+    "twoFaCancel": "Gunakan akun lain",
+    "twoFaExpired": "Tautan masuk tersebut sudah kedaluwarsa",
+    "twoFaExpiredBody": " Demi keamanan, permintaan kode hanya berlaku beberapa menit. Masuk lagi untuk mendapat yang baru.",
+    "verifying": "Memverifikasi"
   },
   "chat": {
     "closedBanner": "Percakapan ini ditutup oleh bisnis. Pesan baru dinonaktifkan.",

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { safeInternalPath } from '@/lib/url'
 import { AuthShell, AuthFooterLink, useForm } from './AuthShell'
+import { TwoFactorForm } from './TwoFactorForm'
 import { GoogleButton } from '@/components/ui/GoogleButton'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -29,7 +30,7 @@ export function LoginPage() {
   // only accept a same-origin result. That is immune to the classes above rather
   // than enumerating them.
   const next = useMemo(() => safeInternalPath(params.get('next'), '/me'), [params])
-  const { values, set } = useForm({ email: '', password: '', code: '' })
+  const { values, set } = useForm({ email: '', password: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState('')
   const [pending, setPending] = useState(false)
@@ -44,21 +45,7 @@ export function LoginPage() {
     setPendingDeletion(false)
     setPending(true)
     try {
-      if (twoFaChallenge) {
-        await verify2FA(twoFaChallenge, values.code.trim())
-      } else {
-        await login(values.email, values.password)
-      }
-      // Do NOT navigate yet. `login` resolves normally when the account has 2FA
-      // enrolled — it stores a challenge and returns — so navigating here fired
-      // a redirect while still unauthenticated: RequireAuth bounced to
-      // /login?next=/me, OVERWRITING the original ?next. A 2FA user deep-linking
-      // to /dashboard/billing was therefore sent to /me and lost their
-      // destination.
-      //
-      // Gate on the store instead: the user is present only once a real session
-      // cookie has been issued.
-      if (useAuth.getState().user) navigate(next, { replace: true })
+      await login(values.email, values.password)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'account_pending_deletion') {
         setPendingDeletion(true)
@@ -98,29 +85,24 @@ export function LoginPage() {
     >
       <div className="space-y-4">
         {twoFaChallenge ? (
-          <form onSubmit={submit} className="space-y-4" noValidate>
-            {pendingDeletion ? deletionNotice : general && (
-              <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
-                {general}
-              </p>
-            )}
-            <p className="text-sm text-ink3">
-              {t('auth.twoFaHint')}
-            </p>
-            <Input
-              label={t('auth.twoFaCode')}
-              inputMode="text"
-              autoComplete="one-time-code"
-              autoFocus
-              required
-              value={values.code}
-              onChange={set('code')}
-              error={errors.code}
-            />
-            <Button type="submit" fullWidth disabled={pending} className="mt-2">
-              {pending ? <Spinner /> : t('auth.signIn')}
-            </Button>
-          </form>
+          // Shared with /2fa so the two ways of arriving at a second factor
+          // cannot drift. The only route-specific part is where to go on
+          // success, which is why `onVerified` is a prop.
+          <TwoFactorForm
+            onSubmit={(code) => verify2FA(twoFaChallenge, code)}
+            onVerified={() => {
+              // Do NOT navigate on submit. `login` resolves normally when the
+              // account has 2FA enrolled — it stores a challenge and returns —
+              // so navigating there fired a redirect while still
+              // unauthenticated: RequireAuth bounced to /login?next=/me,
+              // OVERWRITING the original ?next. A 2FA user deep-linking to
+              // /dashboard/billing was sent to /me and lost their destination.
+              //
+              // Gate on the store instead: the user is present only once a real
+              // session cookie has been issued.
+              if (useAuth.getState().user) navigate(next, { replace: true })
+            }}
+          />
         ) : (
           <>
             <GoogleButton label={t('auth.googleContinue')} />

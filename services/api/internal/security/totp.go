@@ -21,6 +21,22 @@ func GenerateTOTPSecret() (string, error) {
 	return strings.ToUpper(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)), nil
 }
 
+// TOTPCode is the generate half of the pair ValidateTOTP is the check half of.
+//
+// RFC 6238 is a public standard, so a caller that legitimately needs to mint a
+// code - an authenticator app, or a test that must exercise a path guarded by
+// ValidateTOTP - should not have to reimplement HMAC-SHA1 truncation and get the
+// dynamic-truncation offset subtly wrong. Reimplementing it in a test is worse
+// than useless: it can pass against an implementation that is itself broken,
+// because both sides would share the same mistake.
+//
+// It is deliberately NOT a way to weaken validation. Nothing in the request path
+// calls this; it produces a code from a secret the caller already holds, which is
+// the same authority an authenticator app has.
+func TOTPCode(secret string, at time.Time) (string, error) {
+	return totpCode(secret, at)
+}
+
 func totpCode(secret string, at time.Time) (string, error) {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
 	if err != nil {

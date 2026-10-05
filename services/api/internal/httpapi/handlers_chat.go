@@ -517,6 +517,20 @@ func (s *Server) handleQuickReplyDelete(w http.ResponseWriter, r *http.Request) 
 
 // ---- push subscriptions ----
 
+// handleVapidKey exposes the public VAPID key for client push subscriptions.
+//
+// It lives here, next to the subscribe/unsubscribe handlers it exists to serve,
+// rather than in handlers_oauth.go where it used to sit. A file named for OAuth
+// containing a Web Push key endpoint is the kind of thing that makes a reader
+// distrust the surrounding layout.
+func (s *Server) handleVapidKey(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Config.VAPID == nil {
+		fail(w, domain.ErrValidation.WithField("_", "Push is not configured."))
+		return
+	}
+	ok(w, map[string]any{"public_key": s.deps.Config.VAPID.PublicKey})
+}
+
 func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {

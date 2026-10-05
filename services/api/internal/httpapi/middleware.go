@@ -569,7 +569,7 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if user.Status == domain.UserStatusBanned {
+		if s.degradedBy(user, time.Now()) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -577,6 +577,46 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// degradedBy reports whether a user may not act, given their moderation state.
+//
+// It used to be `user.Status == domain.UserStatusBanned`, which enforced only
+// half of what moderation does. `checkUserStatus` (service/auth.go) handles both
+// statuses correctly and is what Login and Refresh consult - but it is not on
+// the request path, so a suspended user's unexpired 15-minute access token
+// carried full read/write access to every route: posting, DMing, reviewing, and
+// for a suspended admin, /admin/*. Moderation took effect only once the access
+// token aged out on its own, which is not what an operator suspending someone
+// means.
+//
+// A suspension can carry an expiry. `admin.UserAction` sets suspended_until to
+// now()+7d, and `HideContent` sets it NULL for an indefinite one, so NULL means
+// "no expiry" rather than "expired" - a NULL check here would un-suspend
+// everyone.
+//
+// The two checks are deliberately equivalent to checkUserStatus. They are in
+// different packages and cannot share a function, so
+// TestDegradedByAgreesWithCheckUserStatus pins the behaviour from the httpapi
+// side, and the reasoning lives in one comment rather than two.
+//
+// Like checkUserStatus, this is an ALLOW list. A status this function does not
+// recognise is refused, so a migration that introduces a new moderation state
+// produces a loud failure rather than a silent hole where the state has no
+// effect on the request path - which is exactly how `suspended` went unenforced
+// for as long as it did.
+func (s *Server) degradedBy(user *domain.User, now time.Time) bool {
+	switch user.Status {
+	case domain.UserStatusActive:
+		return false
+	case domain.UserStatusBanned:
+		return true
+	case domain.UserStatusSuspended:
+		// No recorded expiry is an indefinite suspension.
+		return user.SuspendedUntil == nil || now.Before(*user.SuspendedUntil)
+	default:
+		return true
+	}
 }
 
 func (s *Server) authenticate(r *http.Request) (*domain.Claims, error) {

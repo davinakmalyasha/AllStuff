@@ -192,15 +192,9 @@ func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (
 	}
 
 	// 2FA gate: issue a short-lived challenge token instead of a session (PRD §5.9.1).
-	st, err := a.repos.TFA.Get(ctx, user.ID)
-	if err != nil {
+	if challenge, gated, err := a.twoFAChallenge(ctx, user); err != nil {
 		return nil, nil, err
-	}
-	if st != nil && st.EnabledAt != nil {
-		challenge, _, err := security.IssueToken(a.cfg.JWTSecret, security.Token2FAChallenge, user, 5*time.Minute)
-		if err != nil {
-			return nil, nil, err
-		}
+	} else if gated {
 		return user, &TokenPair{RefreshToken: challenge}, domain.Err2FARequired
 	}
 
@@ -211,6 +205,35 @@ func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (
 	a.maybeNewDeviceAlert(ctx, user, ip, ua)
 	a.logger.Info("login", "user", user.ID)
 	return user, tokens, nil
+}
+
+// twoFAChallenge is the single gate in front of session issuance.
+//
+// It exists as one function because it previously lived inline in Login, and
+// IssueSessionForUser - the path the OAuth callback takes - called
+// createSession directly. That made a Google login first-factor-equivalent but
+// NOT two-factor-equivalent: an account with TOTP enrolled could be taken over
+// by anyone who could also drive a Google login, because the enrolled second
+// factor was never asked for. A password-only compromise of a 2FA account was
+// sufficient.
+//
+// Every path that mints a session must go through here: Login,
+// IssueSessionForUser (OAuth), and anything added later. Returning a challenge
+// rather than an error is deliberate - a 2FA challenge is a SUCCESSFUL first
+// factor, so callers must not charge it against a failure budget.
+func (a *Auth) twoFAChallenge(ctx context.Context, user *domain.User) (challenge string, gated bool, err error) {
+	st, err := a.repos.TFA.Get(ctx, user.ID)
+	if err != nil {
+		return "", false, err
+	}
+	if st == nil || st.EnabledAt == nil {
+		return "", false, nil
+	}
+	tok, _, err := security.IssueToken(a.cfg.JWTSecret, security.Token2FAChallenge, user, twoFAChallengeTTL)
+	if err != nil {
+		return "", false, err
+	}
+	return tok, true, nil
 }
 
 // maybeNewDeviceAlert emails the user when a login arrives from an IP with
@@ -396,11 +419,24 @@ func (a *Auth) IssueAccessToken(user *domain.User) (string, error) {
 	return tok, err
 }
 
-// IssueSessionForUser creates a session for an already-authenticated user
-// (used by OAuth flows and 2FA completion).
+// IssueSessionForUser creates a session for an already-authenticated user.
+//
+// Used by the OAuth callback and by 2FA completion. The 2FA challenge it returns
+// in TokenPair.RefreshToken is NOT a session token: the caller must not set
+// session cookies from it and must instead route the user to complete the second
+// factor. domain.Err2FARequired is returned alongside it, exactly as Login does,
+// so there is one contract rather than two.
 func (a *Auth) IssueSessionForUser(ctx context.Context, user *domain.User, ua string) (*TokenPair, error) {
 	if err := a.checkUserStatus(user); err != nil {
 		return nil, err
+	}
+	// An OAuth login is first-factor-equivalent, so it must clear the same bar a
+	// password does: an enrolled second factor is still required. See
+	// twoFAChallenge for what this cost when it did not.
+	if challenge, gated, err := a.twoFAChallenge(ctx, user); err != nil {
+		return nil, err
+	} else if gated {
+		return &TokenPair{RefreshToken: challenge}, domain.Err2FARequired
 	}
 	return a.createSession(ctx, user, &clientMeta{UA: ua})
 }
@@ -482,8 +518,60 @@ func (a *Auth) ResendVerification(ctx context.Context, email string) {
 
 // ---- 2FA (PRD §5.9.1) ----
 
+// stepUp verifies the account password before an operation that changes how the
+// account is authenticated.
+//
+// OWASP ASVS 3.3.1 and 2.5 both require re-authentication before a security
+// setting changes. Without it, any 15-minute access token was enough to rewrite
+// MFA state - which is the whole risk 2FA exists to bound. An access token can
+// come from XSS, a shared or kiosk browser, a logged-out tab that still holds
+// one, a Referer, or a proxy log, and none of those should be able to silently
+// remove the second factor and leave the account reachable by password alone.
+//
+// A TOTP code is deliberately NOT accepted as the step-up credential for
+// Enroll2FA. Enrollment happens before a factor exists, so requiring one would
+// make the feature impossible; and for Disable2FA the caller already supplies a
+// fresh TOTP code, which is itself a second factor. What is missing in both
+// cases is the PASSWORD, which is the credential an attacker with only a stolen
+// token does not have.
+func (a *Auth) stepUp(ctx context.Context, userID, password string) error {
+	if password == "" {
+		return domain.ErrValidation.WithField("current_password", "Confirm your password to continue.")
+	}
+	u, err := a.repos.Users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return domain.ErrNotFound
+	}
+	ok, err := security.VerifyPassword(password, u.PasswordHash)
+	if err != nil || !ok {
+		// One message for "no such user" and "wrong password" so this cannot
+		// become an account-existence oracle.
+		return domain.ErrInvalidCreds
+	}
+	return nil
+}
+
 // Enroll2FA generates a TOTP secret for the user (not yet enabled).
-func (a *Auth) Enroll2FA(ctx context.Context, userID string) (secret, otpauthURL string, err error) {
+//
+// currentPassword is a step-up credential, not a session check - see stepUp.
+func (a *Auth) Enroll2FA(ctx context.Context, userID, currentPassword string) (secret, otpauthURL string, err error) {
+	if err := a.stepUp(ctx, userID, currentPassword); err != nil {
+		return "", "", err
+	}
+	// Re-enrolling over an ENABLED factor would silently replace a working
+	// authenticator with an attacker-chosen secret, and it did so with nothing
+	// more than a valid access token. Disable first, explicitly.
+	st, err := a.repos.TFA.Get(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+	if st != nil && st.EnabledAt != nil {
+		return "", "", domain.ErrValidation.WithField("_",
+			"2FA is already enabled. Disable it before enrolling a new authenticator.")
+	}
 	secret, err = security.GenerateTOTPSecret()
 	if err != nil {
 		return "", "", err
@@ -544,12 +632,25 @@ func (a *Auth) Confirm2FA(ctx context.Context, userID, code string) ([]string, e
 	return codes, nil
 }
 
-func (a *Auth) Disable2FA(ctx context.Context, userID, code string) error {
+// Disable2FA turns off the second factor.
+//
+// currentPassword is a step-up credential - see stepUp. The TOTP code is
+// required too, and both are needed: the code proves possession of the current
+// authenticator, the password proves the caller is the account owner rather than
+// someone holding a leaked token and a code they observed.
+//
+// The enabled-state guard below used to test only `st == nil`, which meant a
+// PENDING, never-confirmed enrollment could be "disabled" - a no-op that
+// reported success. It now tests the same predicate Confirm2FA will later set.
+func (a *Auth) Disable2FA(ctx context.Context, userID, code, currentPassword string) error {
+	if err := a.stepUp(ctx, userID, currentPassword); err != nil {
+		return err
+	}
 	st, err := a.repos.TFA.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
-	if st == nil {
+	if st == nil || st.EnabledAt == nil {
 		return domain.ErrValidation.WithField("_", "2FA is not enabled.")
 	}
 	secret, serr := a.openSecret(st.SecretEncrypted)
@@ -580,6 +681,16 @@ func (a *Auth) TFAStatus(ctx context.Context, userID string) (map[string]any, er
 // full ±1 verification window (90s) with generous headroom, so pruning can never
 // re-admit a code that is still inside its validity window.
 const usedTOTPStepTTL = 10 * time.Minute
+
+// twoFAChallengeTTL is how long a first-factor success stays redeemable for a
+// second factor.
+//
+// It is deliberately half usedTOTPStepTTL. A challenge should not outlive the
+// window in which the code it is redeemed with could still validate, or an
+// attacker who intercepted the challenge could spend it against a code captured
+// much later. The relationship is asserted by TestChallengeTTLDoesNotOutliveThe
+// ReplayWindow so the two cannot drift apart silently.
+const twoFAChallengeTTL = 5 * time.Minute
 
 // validateFreshTOTP verifies a code and then claims its timestep, so the same
 // code cannot mint a second session inside its validity window.
@@ -1159,7 +1270,14 @@ func (a *Auth) ChangeEmail(ctx context.Context, userID, password, newEmail, totp
 }
 
 // RegenerateRecoveryCodes issues 10 fresh codes (old ones invalidated).
-func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code string) ([]string, error) {
+//
+// currentPassword is a step-up credential - see stepUp. Regenerating destroys the
+// previous set, so it must not be reachable with a leaked token alone: that would
+// be a denial-of-service against the account's ability to recover.
+func (a *Auth) RegenerateRecoveryCodes(ctx context.Context, userID, code, currentPassword string) ([]string, error) {
+	if err := a.stepUp(ctx, userID, currentPassword); err != nil {
+		return nil, err
+	}
 	st, err := a.repos.TFA.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -1258,7 +1376,20 @@ func (a *Auth) DeleteSavedSearch(ctx context.Context, userID, id string) error {
 }
 
 func (a *Auth) checkUserStatus(u *domain.User) error {
+	// An ALLOW list, not a deny list. The previous shape was a switch over the
+	// two moderated statuses with `return nil` as the default, which means any
+	// status added by a future migration would be ALLOWED until someone
+	// remembered to add a case here and in httpapi.degradedBy. For an
+	// access-control decision the default has to be the safe one: an
+	// unrecognised state is refused, and a migration that introduces one gets a
+	// loud failure instead of a silent hole.
+	//
+	// The cost is that adding a status requires editing this function. That is
+	// the intended trade - it is a two-line change with a test, rather than a
+	// security control that stops working because nobody updated it.
 	switch u.Status {
+	case domain.UserStatusActive:
+		return nil
 	case domain.UserStatusBanned:
 		return domain.ErrAccountBanned
 	case domain.UserStatusSuspended:
@@ -1268,8 +1399,9 @@ func (a *Auth) checkUserStatus(u *domain.User) error {
 			return nil // suspension expired
 		}
 		return domain.ErrAccountSuspended
+	default:
+		return domain.ErrValidation.WithField("status", "Account status is not recognised.")
 	}
-	return nil
 }
 
 func htmlEscape(s string) string {

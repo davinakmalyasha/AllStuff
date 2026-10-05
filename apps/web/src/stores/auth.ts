@@ -20,6 +20,11 @@ interface AuthState {
   }) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   verify2FA: (challenge: string, code: string) => Promise<void>
+  // Adopt a challenge that arrived out of band, which today means the OAuth
+  // callback redirecting to /2fa#challenge=... . It is a setter rather than a
+  // second submit path so there is one place that owns the pending challenge:
+  // login() and this must not be able to disagree about what is outstanding.
+  setTwoFaChallenge: (challenge: string | null) => void
   logout: () => Promise<void>
   fetchMe: () => Promise<void>
   verifyEmail: (token: string) => Promise<void>
@@ -60,6 +65,8 @@ export const useAuth = create<AuthState>((set) => ({
     })
     set({ user, twoFaChallenge: null })
   },
+
+  setTwoFaChallenge: (challenge) => set({ twoFaChallenge: challenge }),
 
   logout: async () => {
     try {

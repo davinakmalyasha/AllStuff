@@ -57,6 +57,13 @@ export function SecurityPage() {
   const [emailPassword, setEmailPassword] = useState('')
   const [regenCode, setRegenCode] = useState('')
   const [regenCodes, setRegenCodes] = useState<string[] | null>(null)
+  // Step-up credentials for the MFA-mutating operations. Changing how the
+  // account is authenticated requires the password as well as the TOTP code: an
+  // access token alone must not be able to remove the second factor, because a
+  // leaked token can come from XSS, a shared browser, or a stale tab - none of
+  // which should be able to downgrade the account to password-only.
+  const [enrollPassword, setEnrollPassword] = useState('')
+  const [mfaPassword, setMfaPassword] = useState('')
 
   const changePassword = useMutation({
     mutationFn: () => api('/me/password', { method: 'POST', body: { current_password: currentPassword, new_password: newPassword } }),
@@ -77,10 +84,15 @@ export function SecurityPage() {
   })
 
   const regen = useMutation({
-    mutationFn: () => api<{ recovery_codes: string[] }>('/me/security/2fa/recovery-codes', { method: 'POST', body: { code: regenCode } }),
+    mutationFn: () =>
+      api<{ recovery_codes: string[] }>('/me/security/2fa/recovery-codes', {
+        method: 'POST',
+        body: { code: regenCode, current_password: mfaPassword },
+      }),
     onSuccess: (r) => {
       setRegenCodes(r.recovery_codes)
       setRegenCode('')
+      setMfaPassword('')
     },
   })
 
@@ -94,7 +106,11 @@ export function SecurityPage() {
   })
 
   const enroll = useMutation({
-    mutationFn: () => api<{ secret: string; otpauth_url: string }>('/me/security/2fa', { method: 'POST' }),
+    mutationFn: () =>
+      api<{ secret: string; otpauth_url: string }>('/me/security/2fa', {
+        method: 'POST',
+        body: { current_password: enrollPassword },
+      }),
     onSuccess: (r) => {
       setSecret(r.secret)
       setOtpauth(r.otpauth_url)
@@ -105,13 +121,16 @@ export function SecurityPage() {
     mutationFn: () => api<{ enabled: boolean; recovery_codes: string[] }>('/me/security/2fa/confirm', { method: 'POST', body: { code } }),
     onSuccess: (r) => {
       setRecovery(r.recovery_codes)
+      setEnrollPassword('')
       qc.invalidateQueries({ queryKey: ['2fa-status'] })
     },
   })
   const disable = useMutation({
-    mutationFn: () => api('/me/security/2fa', { method: 'DELETE', body: { code: disableCode } }),
+    mutationFn: () =>
+      api('/me/security/2fa', { method: 'DELETE', body: { code: disableCode, current_password: mfaPassword } }),
     onSuccess: () => {
       setDisableCode('')
+      setMfaPassword('')
       qc.invalidateQueries({ queryKey: ['2fa-status'] })
     },
   })
@@ -233,11 +252,31 @@ export function SecurityPage() {
           {status?.enabled ? (
             <span className="rounded-full bg-surface2 px-2.5 py-1 text-xs text-ink2">Enabled</span>
           ) : (
-            <Button size="sm" onClick={() => void enroll.mutateAsync()} disabled={enroll.isPending}>
-              <Smartphone className="h-4 w-4" /> Enable
-            </Button>
+            // Step-up happens HERE, at the point of intent, rather than in a
+            // modal after the click. The user is about to change how their
+            // account is authenticated; asking for the password in the same
+            // breath as the decision is one fewer thing to remember, and it
+            // means a failed attempt never leaves a half-entered secret behind.
+            <div className="flex items-end gap-2">
+              <Input
+                label="Password"
+                type="password"
+                autoComplete="current-password"
+                value={enrollPassword}
+                onChange={(e) => setEnrollPassword(e.target.value)}
+              />
+              <Button
+                size="sm"
+                onClick={() => void enroll.mutateAsync()}
+                disabled={enrollPassword.length === 0 || enroll.isPending}
+              >
+                <Smartphone className="h-4 w-4" /> Enable
+              </Button>
+            </div>
           )}
         </div>
+
+        {enroll.error && <p className="text-sm text-red-600 dark:text-red-400">{(enroll.error as Error).message}</p>}
 
         {step === 'enrolled' && !status?.enabled && (
           <div className="space-y-3 border-t border-border pt-4">
@@ -264,18 +303,53 @@ export function SecurityPage() {
         )}
 
         {status?.enabled && (
-          <div className="flex items-end gap-2 border-t border-border pt-4">
-            <Input label="Current code to disable" value={disableCode} onChange={(e) => setDisableCode(e.target.value)} placeholder="000000" />
-            <Button variant="danger" onClick={() => void disable.mutateAsync()} disabled={disableCode.length !== 6 || disable.isPending}>Disable</Button>
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="mono-label mb-2">Turn off two-factor authentication</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <Input
+                label="Current code"
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value)}
+                placeholder="000000"
+              />
+              <Input
+                label="Password"
+                type="password"
+                autoComplete="current-password"
+                value={mfaPassword}
+                onChange={(e) => setMfaPassword(e.target.value)}
+              />
+              <Button
+                variant="danger"
+                onClick={() => void disable.mutateAsync()}
+                disabled={disableCode.length !== 6 || mfaPassword.length === 0 || disable.isPending}
+              >
+                Disable
+              </Button>
+            </div>
+            {disable.error && <p className="text-sm text-red-600 dark:text-red-400">{(disable.error as Error).message}</p>}
           </div>
         )}
 
         {status?.enabled && (
           <div className="border-t border-border pt-4">
             <p className="mono-label mb-2">Recovery codes</p>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2">
               <Input label="Current code" value={regenCode} onChange={(e) => setRegenCode(e.target.value)} placeholder="000000" />
-              <Button variant="secondary" onClick={() => void regen.mutateAsync()} disabled={regenCode.length !== 6 || regen.isPending}>Regenerate</Button>
+              <Input
+                label="Password"
+                type="password"
+                autoComplete="current-password"
+                value={mfaPassword}
+                onChange={(e) => setMfaPassword(e.target.value)}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => void regen.mutateAsync()}
+                disabled={regenCode.length !== 6 || mfaPassword.length === 0 || regen.isPending}
+              >
+                Regenerate
+              </Button>
             </div>
             {regen.error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{(regen.error as Error).message}</p>}
             {regenCodes && (

@@ -31,7 +31,16 @@ func (s *Server) handle2FAEnroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
-	secret, otpauth, err := s.deps.Auth.Enroll2FA(r.Context(), user.ID)
+	// Step-up: a valid access token is not sufficient to change how the account
+	// is authenticated. See service.Auth.stepUp.
+	var in struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	secret, otpauth, err := s.deps.Auth.Enroll2FA(r.Context(), user.ID, in.CurrentPassword)
 	if err != nil {
 		fail(w, err)
 		return
@@ -67,13 +76,14 @@ func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Code string `json:"code"`
+		Code            string `json:"code"`
+		CurrentPassword string `json:"current_password"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
 		return
 	}
-	if err := s.deps.Auth.Disable2FA(r.Context(), user.ID, in.Code); err != nil {
+	if err := s.deps.Auth.Disable2FA(r.Context(), user.ID, in.Code, in.CurrentPassword); err != nil {
 		fail(w, err)
 		return
 	}
@@ -284,13 +294,17 @@ func (s *Server) handleRegenerateRecovery(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var in struct {
-		Code string `json:"code"`
+		Code            string `json:"code"`
+		CurrentPassword string `json:"current_password"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
 		return
 	}
-	codes, err := s.deps.Auth.RegenerateRecoveryCodes(r.Context(), user.ID, in.Code)
+	// Regenerating invalidates every existing recovery code, so it is a step-up
+	// operation like the rest of the MFA surface: a stolen access token must not
+	// be able to lock the owner out of their own second factor.
+	codes, err := s.deps.Auth.RegenerateRecoveryCodes(r.Context(), user.ID, in.Code, in.CurrentPassword)
 	if err != nil {
 		fail(w, err)
 		return

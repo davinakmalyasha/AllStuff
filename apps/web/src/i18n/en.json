@@ -104,7 +104,13 @@
     "googleSignup": "Sign up with Google",
     "twoFaHint": "Enter the 6-digit code from your authenticator app, or a recovery code.",
     "twoFaCode": "Authentication code",
-    "passwordMismatch": "Passwords do not match."
+    "passwordMismatch": "Passwords do not match.",
+    "twoFaTitle": "Two-factor authentication",
+    "twoFaSub": "Enter the 6-digit code from your authenticator app.",
+    "twoFaCancel": "Use a different account",
+    "twoFaExpired": "That sign-in link has expired",
+    "twoFaExpiredBody": "For your security the code request is only valid for a few minutes. Sign in again to get a new one.",
+    "verifying": "Verifying"
   },
   "chat": {
     "closedBanner": "This conversation was closed by the business. New messages are disabled.",
