@@ -19,6 +19,26 @@ type Engagement struct {
 	notifier *Notifier
 }
 
+// eventDay is the "today" component of an engagement_events.dedupe_key.
+//
+// UTC, always, and that is load-bearing rather than cosmetic.
+//
+// The key lands in a GLOBAL UNIQUE index (0001_initial.sql: `dedupe_key text
+// NOT NULL UNIQUE`). A server-LOCAL day boundary means two replicas in different
+// zones - or one TZ change at deploy - mint two different keys for the same
+// user/target/signal/day, and because the index is global rather than scoped to
+// a user, BOTH are accepted. The anti-gaming cap of one signal per user per
+// target per day is then silently doubled, and trending.Compute's score
+// double-counts the signal.
+//
+// jobs.go already uses `time.Now().UTC()` for its ISO-week period keys, so the
+// two subsystems that both mint period keys agreed on this already; only the
+// engagement path was local.
+//
+// The five call sites were each open-coding the same fmt.Sprintf, which is how
+// four of them were missed in the first place.
+func eventDay() string { return time.Now().UTC().Format("2006-01-02") }
+
 func NewEngagement(repos *repo.Repos, notifier *Notifier) *Engagement {
 	return &Engagement{repos: repos, notifier: notifier}
 }
@@ -51,7 +71,7 @@ func (s *Engagement) ToggleLike(ctx context.Context, userID, targetType, targetI
 		return false, err
 	}
 	if on {
-		key := fmt.Sprintf("%s:%s:%s:like:%s", userID, targetType, targetID, time.Now().Format("2006-01-02"))
+		key := fmt.Sprintf("%s:%s:%s:like:%s", userID, targetType, targetID, eventDay())
 		_, _ = s.repos.Engagement.InsertEvent(ctx, userID, targetType, targetID, "like", wLike, key)
 	}
 	return on, nil
@@ -72,7 +92,7 @@ func (s *Engagement) ToggleRecommend(ctx context.Context, userID, businessID str
 		if err := s.repos.Engagement.SetRecommend(ctx, userID, businessID, true); err != nil {
 			return false, err
 		}
-		key := fmt.Sprintf("%s:business:%s:recommend:%s", userID, businessID, time.Now().Format("2006-01-02"))
+		key := fmt.Sprintf("%s:business:%s:recommend:%s", userID, businessID, eventDay())
 		_, _ = s.repos.Engagement.InsertEvent(ctx, userID, "business", businessID, "recommend", wRecommend, key)
 		return true, nil
 	}
@@ -107,7 +127,7 @@ func (s *Engagement) SaveTo(ctx context.Context, userID, collectionID, targetTyp
 	if err := s.repos.Engagement.AddItem(ctx, collectionID, targetType, targetID, note); err != nil {
 		return err
 	}
-	key := fmt.Sprintf("%s:%s:%s:collection_save:%s", userID, targetType, targetID, time.Now().Format("2006-01-02"))
+	key := fmt.Sprintf("%s:%s:%s:collection_save:%s", userID, targetType, targetID, eventDay())
 	_, _ = s.repos.Engagement.InsertEvent(ctx, userID, targetType, targetID, "collection_save", wSave, key)
 	return nil
 }
@@ -265,7 +285,7 @@ func (s *Engagement) CreateComment(ctx context.Context, userID, businessID, pare
 			"comment_id": c.ID, "business_id": businessID, "business_slug": b.Slug, "by": userID,
 		})
 	}
-	key := fmt.Sprintf("%s:business:%s:comment:%s", userID, businessID, time.Now().Format("2006-01-02"))
+	key := fmt.Sprintf("%s:business:%s:comment:%s", userID, businessID, eventDay())
 	_, _ = s.repos.Engagement.InsertEvent(ctx, userID, "business", businessID, "comment", wComment, key)
 	return c, nil
 }
@@ -391,7 +411,7 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 		return nil, err
 	}
 	// review event feeds trending
-	key := fmt.Sprintf("%s:business:%s:review:%s", userID, businessID, time.Now().Format("2006-01-02"))
+	key := fmt.Sprintf("%s:business:%s:review:%s", userID, businessID, eventDay())
 	_, _ = s.repos.Engagement.InsertEvent(ctx, userID, "business", businessID, "review", wReview, key)
 	// notify owner (product reviews get their own type, PRD §5.7)
 	if b.OwnerID != userID {

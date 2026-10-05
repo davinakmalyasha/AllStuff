@@ -87,13 +87,13 @@ func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period 
 			(SELECT count(*) FROM reviews r WHERE r.business_id=$1 AND r.deleted_at IS NULL),
 			(SELECT count(*) FROM collection_items ci WHERE ci.target_type='business' AND ci.target_id=$1),
 			(SELECT count(*) FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id WHERE t.business_id=$1 AND m.created_at >= $2),
-			(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id=$1 AND r.deleted_at IS NULL)`,
+			(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id=$1 AND r.deleted_at IS NULL AND r.status = 'visible')`,
 		businessID, since).Scan(&out.Views, &out.Likes, &out.Recommends, &out.Comments,
 		&out.Reviews, &out.Saves, &out.ChatMessages, &out.RatingAvg)
 
-	// Daily view series (fills in as M3 events land).
+	// Daily view series. Bucketing is UTC on both sides - see dayBucketExpr.
 	rows, err := a.repos.Query(ctx, `
-		SELECT to_char(date_trunc('day', occurred_at), 'YYYY-MM-DD') AS day, count(*)
+		SELECT `+dayBucketExpr+` AS day, count(*)
 		FROM engagement_events
 		WHERE target_type='business' AND target_id=$1 AND signal='view' AND occurred_at >= $2
 		GROUP BY 1 ORDER BY 1`, businessID, since)
@@ -107,7 +107,9 @@ func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period 
 		}
 	}
 	if len(out.Series) < days {
-		out.Series = fillSeries(out.Series, days)
+		// The clock is passed in rather than read inside fillSeries so the UTC
+		// contract is testable from a fixed instant.
+		out.Series = fillSeries(out.Series, days, time.Now())
 	}
 
 	// Top products by engagement — scoped to THIS business's products.
@@ -173,18 +175,51 @@ func sinceFor(period string) (time.Time, int) {
 	case "all":
 		days = 365
 	}
-	return time.Now().AddDate(0, 0, -days), days
+	// UTC, deliberately. See dayBucketExpr for why the two sides of a day
+	// boundary must agree, and why "agree on UTC" is the only choice that is
+	// correct regardless of where the API host happens to run.
+	return time.Now().UTC().AddDate(0, 0, -days), days
 }
 
 func rank(p ProductCount) int { return p.Views + p.Likes*3 }
 
-func fillSeries(series []DailyCount, days int) []DailyCount {
-	byDay := map[string]int{}
+// dayBucketExpr is the SQL half of the owner-facing daily view series.
+//
+// `date_trunc('day', <timestamptz>)` truncates in the POSTGRES SESSION TimeZone,
+// which is the server's setting and is not set anywhere in this codebase - so in
+// practice it is whatever the cluster was initialised with, normally UTC. The Go
+// half of the same series formats keys in the PROCESS's local zone. Those are
+// two different days, and they only agree when both are UTC.
+//
+// When they disagree the failure is total and silent. The seed data is Jakarta
+// (UTC+7), so with Postgres at UTC every SQL key was one day behind every Go key:
+// `fillSeries` looked up day strings that never appeared in the result, found
+// nothing, and rendered thirty zeros - while `AnalyticsResult.Views` on the same
+// page showed the correct total. Nothing errored, nothing logged, and
+// fillSeries exists precisely to prevent gaps.
+//
+// AT TIME ZONE 'UTC' pins the truncation explicitly instead of inheriting a
+// session setting nobody controls. Bucketing by the BUSINESS's timezone would
+// arguably be more correct - a Jakarta shop's "views today" means Jakarta's day -
+// but that is a product decision about what the number means, it needs the
+// businesses join, and it is not a bug fix. UTC on both sides is the honest
+// minimal fix: both halves now agree, and the choice is visible.
+const dayBucketExpr = `to_char(date_trunc('day', occurred_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`
+
+// fillSeries expands a sparse result set into a dense run of days, zero-filling
+// the gaps.
+//
+// now is a parameter so the UTC contract is testable: a test can pass an instant
+// whose LOCAL representation differs from its UTC one and assert the keys come
+// out UTC. Reading the clock inside the function made the zone impossible to
+// pin down from a test.
+func fillSeries(series []DailyCount, days int, now time.Time) []DailyCount {
+	byDay := make(map[string]int, len(series))
 	for _, d := range series {
 		byDay[d.Day] = d.Count
 	}
 	out := make([]DailyCount, 0, days)
-	start := time.Now().AddDate(0, 0, -days+1)
+	start := now.UTC().AddDate(0, 0, -days+1)
 	for i := 0; i < days; i++ {
 		day := start.AddDate(0, 0, i).Format("2006-01-02")
 		out = append(out, DailyCount{Day: day, Count: byDay[day]})
