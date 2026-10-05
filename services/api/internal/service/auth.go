@@ -152,7 +152,7 @@ func (a *Auth) Register(ctx context.Context, in RegisterInput) (*domain.User, *T
 	}
 	user.ProfileLinks = map[string]any{}
 
-	tokens, err := a.createSession(ctx, user, nil)
+	tokens, err := a.createSession(ctx, user, nil, "register")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -182,10 +182,22 @@ func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (
 				return nil, nil, domain.ErrAccountPendingDeletion
 			}
 		}
+		// `login_fail` is in the event vocabulary from 0001 and was never written.
+		// It is the half of the history that matters for the question the Security
+		// page exists to answer: someone hammering an account leaves a trail of
+		// failures next to a successful sign-in from an address they do not use.
+		//
+		// user_id is NULL when the address is unknown, which the column allows and
+		// which is deliberate - the attempt is still worth recording, and
+		// LoginHistory filters by user so an unknown address simply does not appear
+		// on anyone's page. Recording only successes would show a user a history
+		// that looks untouched by an attacker who never guessed the password.
+		a.recordAuthEvent(ctx, "", "login_fail", ip, ua)
 		return nil, nil, domain.ErrInvalidCreds
 	}
 	ok, err := security.VerifyPassword(in.Password, user.PasswordHash)
 	if err != nil || !ok {
+		a.recordAuthEvent(ctx, user.ID, "login_fail", ip, ua)
 		return nil, nil, domain.ErrInvalidCreds
 	}
 	if err := a.checkUserStatus(user); err != nil {
@@ -199,7 +211,7 @@ func (a *Auth) Login(ctx context.Context, in LoginInput, ip net.IP, ua string) (
 		return user, &TokenPair{RefreshToken: challenge}, domain.Err2FARequired
 	}
 
-	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua})
+	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua}, "login")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -310,17 +322,42 @@ func (a *Auth) Refresh(ctx context.Context, refreshToken string, ip net.IP, ua s
 		return nil, nil, err
 	}
 	// Rotation: revoke old, issue new (PRD §5.9.1).
+	//
+	// Touch BEFORE revoking. `last_seen_at` was written exactly once - at INSERT -
+	// and SessionRepo.Touch had no callers at all, so on every session
+	// `last_seen_at == created_at`. A rotation mints a NEW session row and revokes
+	// the old one, which means "when was this token last used?" was unanswerable:
+	// the column could only ever report when the token was born. Touching here, on
+	// the row that is about to be retired, records the last moment the token was
+	// actually presented.
+	//
+	// Best-effort and deliberately not fatal: a failed timestamp must not stop a
+	// legitimate refresh.
+	if err := a.repos.Sessions.Touch(ctx, sess.ID); err != nil {
+		slog.Warn("session touch failed", "session_id", sess.ID, "err", err)
+	}
 	if err := a.repos.Sessions.Revoke(ctx, sess.ID); err != nil {
 		return nil, nil, err
 	}
-	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua})
+	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua}, "")
 	if err != nil {
 		return nil, nil, err
 	}
 	return user, tokens, nil
 }
 
-func (a *Auth) Logout(ctx context.Context, sessionID string) error {
+// Logout revokes a session and records it.
+//
+// The event is the point: "signed out" is the single most useful entry in a
+// sign-in history, because the interesting question about a stolen session is
+// whether the thief remembered to end it. Without this, a hijacker's last action
+// leaves no trace - the session simply stops being valid.
+func (a *Auth) Logout(ctx context.Context, sessionID, userID, ip, ua string) error {
+	if userID != "" {
+		// net.ParseIP("") is nil, which is what we want: an unparseable or absent
+		// address stores NULL rather than a half-valid inet literal.
+		a.recordAuthEvent(ctx, userID, "logout", net.ParseIP(ip), ua)
+	}
 	return a.repos.Sessions.Revoke(ctx, sessionID)
 }
 
@@ -439,10 +476,55 @@ func (a *Auth) IssueSessionForUser(ctx context.Context, user *domain.User, ua st
 	} else if gated {
 		return &TokenPair{RefreshToken: challenge}, domain.Err2FARequired
 	}
-	return a.createSession(ctx, user, &clientMeta{UA: ua})
+	return a.createSession(ctx, user, &clientMeta{UA: ua}, "login")
 }
 
-func (a *Auth) createSession(ctx context.Context, user *domain.User, meta *clientMeta) (*TokenPair, error) {
+// recordAuthEvent appends to the security history the user's own Security page
+// reads back (LoginHistory).
+//
+// The table existed, with `ip` and `user_agent` columns, and LoginHistory has
+// always selected them - but the only two writes in the codebase were the 2FA
+// toggles, and those passed neither column. So the history a user is shown when
+// asking "was this me?" was permanently empty of sign-ins, and the IP columns
+// could never hold a value. It read as a working feature because the query was
+// correct; it was the writes that were missing.
+//
+// Best-effort by design: a failure to append to an audit trail must not fail the
+// sign-in that succeeded. The error is logged rather than discarded, because the
+// alternative is a security control that is quietly absent.
+func (a *Auth) recordAuthEvent(ctx context.Context, userID, event string, ip net.IP, ua string) {
+	var ipStr, uaStr, idArg *string
+	// An unknown address on a failed sign-in has no user to attribute it to, and
+	// auth_events.user_id is nullable precisely for that. Passing "" instead would
+	// be a uuid parse error, which would abort the surrounding transaction and take
+	// the sign-in down with it.
+	if userID != "" {
+		id := userID
+		idArg = &id
+	}
+	if ip != nil {
+		s := ip.String()
+		ipStr = &s
+	}
+	if ua != "" {
+		s := ua
+		uaStr = &s
+	}
+	if _, err := a.repos.Exec(ctx,
+		`INSERT INTO auth_events (id, user_id, event, ip, user_agent) VALUES ($1, $2, $3, $4, $5)`,
+		util.NewUUID(), idArg, event, ipStr, uaStr); err != nil {
+		slog.Warn("auth_events append failed", "user_id", userID, "event", event, "err", err)
+	}
+}
+
+// createSession issues a session and records WHY it was issued.
+//
+// The event is a parameter rather than hardcoded because this is called from five
+// places that mean genuinely different things - a registration, a password
+// login, a token rotation, an OAuth login, a 2FA completion. Logging all of them
+// as "login" would make the history useless for the one question it exists to
+// answer, which is whether an unfamiliar entry is the user's own doing.
+func (a *Auth) createSession(ctx context.Context, user *domain.User, meta *clientMeta, event string) (*TokenPair, error) {
 	refresh := make([]byte, 32)
 	if _, err := rand.Read(refresh); err != nil {
 		return nil, err
@@ -471,6 +553,17 @@ func (a *Auth) createSession(ctx context.Context, user *domain.User, meta *clien
 	}
 	if err := a.repos.Sessions.Create(ctx, sess); err != nil {
 		return nil, err
+	}
+
+	// Recorded here rather than in each caller: createSession is the one place
+	// that knows a session genuinely came into existence, and meta already holds
+	// the IP and user agent.
+	if event != "" {
+		if meta != nil {
+			a.recordAuthEvent(ctx, user.ID, event, meta.IP, meta.UA)
+		} else {
+			a.recordAuthEvent(ctx, user.ID, event, nil, "")
+		}
 	}
 
 	access, err := a.IssueAccessToken(user)
@@ -779,7 +872,7 @@ func (a *Auth) finishLogin(ctx context.Context, user *domain.User, ip net.IP, ua
 	if err := a.checkUserStatus(user); err != nil {
 		return nil, nil, err
 	}
-	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua})
+	tokens, err := a.createSession(ctx, user, &clientMeta{IP: ip, UA: ua}, "login")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -942,7 +1035,7 @@ func (a *Auth) RestoreAccount(ctx context.Context, email, password string, ip ne
 	if err := a.checkUserStatus(fresh); err != nil {
 		return nil, nil, err
 	}
-	tokens, err := a.createSession(ctx, fresh, &clientMeta{IP: ip, UA: ua})
+	tokens, err := a.createSession(ctx, fresh, &clientMeta{IP: ip, UA: ua}, "password_reset")
 	if err != nil {
 		return nil, nil, err
 	}

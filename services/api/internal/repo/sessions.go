@@ -12,7 +12,28 @@ import (
 // SessionRepo — refresh-token registry (PRD §5.9.1, §7.4).
 type SessionRepo struct{ pool pooler }
 
-const sessionColumns = `id, user_id, token_hash, ip, user_agent, created_at, last_seen_at, revoked_at`
+// `host(ip)`, not `ip`.
+//
+// The column is `inet` and pgx cannot scan `inet` into a *string in binary
+// format, so selecting the raw column made EVERY read of a session fail with
+// "cannot scan inet (OID 869) into **string". Nothing reported this, because all
+// four call sites treat a lookup failure as "no such session":
+//
+//   - Auth.Refresh        -> refresh always fails, so sessions die at token
+//     expiry instead of rotating
+//   - handleLogout       -> the revoke is skipped and the error discarded with
+//     `_ =`, so the cookies clear and the user believes they
+//     signed out while the refresh token stays valid
+//   - the Security page's session list and revoke-others -> both empty
+//
+// A user-visible sign-out that does not invalidate anything is the worst of these,
+// and E2E never caught any of them because it never waits out a 15-minute access
+// token.
+//
+// host() renders the address without the netmask, which is also the form the
+// new-device alert compares against, so the stored and displayed spellings agree.
+// It returns NULL for NULL, so the pointer semantics are preserved.
+const sessionColumns = `id, user_id, token_hash, host(ip) AS ip, user_agent, created_at, last_seen_at, revoked_at`
 
 func scanSession(row pgx.Row) (*domain.Session, error) {
 	var s domain.Session

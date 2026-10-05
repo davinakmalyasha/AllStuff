@@ -156,7 +156,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if ck, err := r.Cookie(cookieRefresh); err == nil {
 		sess, err := s.deps.Repos.Sessions.GetByTokenHash(r.Context(), hashToken(ck.Value))
 		if err == nil && sess != nil {
-			_ = s.deps.Auth.Logout(r.Context(), sess.ID)
+			_ = s.deps.Auth.Logout(r.Context(), sess.ID, sess.UserID, s.clientIP(r), r.UserAgent())
 		}
 	}
 	s.clearSessionCookies(w)

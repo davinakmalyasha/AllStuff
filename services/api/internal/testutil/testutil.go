@@ -423,6 +423,16 @@ func (h *H) Exec(t *testing.T, sql string, args ...any) {
 }
 
 // QueryRow runs a single-row query directly.
+// Query runs a SELECT inside the test's transaction and hands the rows back for
+// scanning. QueryRow covers the single-row case; this is for the rest.
+//
+// It binds to the same transaction as Repos, so it sees uncommitted fixture rows -
+// which h.Pool would not, since those live only inside that transaction.
+func (h *H) Query(t *testing.T, sql string, args ...any) (pgx.Rows, error) {
+	t.Helper()
+	return h.tx.Query(context.Background(), sql, args...)
+}
+
 func (h *H) QueryRow(t *testing.T, sql string, args ...any) pgx.Row {
 	t.Helper()
 	return h.tx.QueryRow(context.Background(), sql, args...)
