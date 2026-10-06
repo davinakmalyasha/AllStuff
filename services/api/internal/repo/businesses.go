@@ -443,6 +443,17 @@ func (r *BusinessRepo) ListDocuments(ctx context.Context, businessID string) ([]
 // The role matters: "viewer" invites are read-only and must never gain
 // management rights over the listing.
 //
+// The grant is read from `accepted_user_id`, set when the invite was accepted, NOT
+// by joining business_invites.email back to users.email. An email is not an
+// identity, and POST /api/v1/me/email lets a holder change theirs. Resolving the
+// holder through the address therefore silently revoked every co-owner grant the
+// moment its holder changed their email, while the owner still saw them listed as an
+// accepted collaborator - verified against a database, not reasoned about. Migration
+// 0049 binds the grant at acceptance time; see it for the backfill.
+//
+// Comparing a uuid column also removes the join from a predicate evaluated on every
+// authorisation decision.
+//
 // The owner branch stopped filtering `deleted_at IS NULL` in 0032. A retired
 // listing has no owner-side escape hatch: `Reopen` only reopens from `paused`,
 // so `closed` is terminal, and denying management would leave the row
@@ -459,25 +470,27 @@ func (r *BusinessRepo) CanManageBusiness(ctx context.Context, userID, businessID
 			SELECT 1 FROM businesses b WHERE b.id = $2 AND b.owner_id = $1
 			UNION ALL
 			SELECT 1 FROM business_invites i
-			JOIN users u ON u.email = i.email
 			WHERE i.business_id = $2 AND i.accepted_at IS NOT NULL AND i.revoked_at IS NULL
 			  AND i.role = 'co_owner'
-			  AND u.id = $1
+			  AND i.accepted_user_id = $1
 		)`, userID, businessID).Scan(&can)
 	return can, err
 }
 
 // IsBusinessViewer reports whether the user holds an accepted viewer invite
 // (read-only collaborator access to the dashboard).
+//
+// Read from accepted_user_id for the same reason as CanManageBusiness: a viewer
+// invite resolved through an email address was lost the moment its holder changed
+// theirs.
 func (r *BusinessRepo) IsBusinessViewer(ctx context.Context, userID, businessID string) (bool, error) {
 	var can bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM business_invites i
-			JOIN users u ON u.email = i.email
 			WHERE i.business_id = $2 AND i.accepted_at IS NOT NULL AND i.revoked_at IS NULL
 			  AND i.role = 'viewer'
-			  AND u.id = $1
+			  AND i.accepted_user_id = $1
 		)`, userID, businessID).Scan(&can)
 	return can, err
 }
@@ -495,6 +508,14 @@ type BusinessInvite struct {
 	AcceptedAt *time.Time `json:"accepted_at"`
 	ExpiresAt  time.Time  `json:"expires_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
+	// AcceptedUserID is who actually holds the grant. Null until accepted, and
+	// permanently null for an invite whose address matches no account - which
+	// conferred nothing before migration 0049 and confers nothing after it.
+	//
+	// Email stays the address that was INVITED. It is a record of what was sent,
+	// not of who holds the grant: those diverge the moment a holder changes their
+	// own address, which is exactly the bug 0049 fixes.
+	AcceptedUserID *string `json:"accepted_user_id"`
 }
 
 func (r *BusinessRepo) CreateInvite(ctx context.Context, invitedBy, businessID, email, role, token string) error {
@@ -506,7 +527,7 @@ func (r *BusinessRepo) CreateInvite(ctx context.Context, invitedBy, businessID, 
 
 func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*BusinessInvite, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at
+		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at, accepted_user_id
 		FROM business_invites WHERE business_id = $1 ORDER BY created_at DESC`, businessID)
 	if err != nil {
 		return nil, err
@@ -516,7 +537,7 @@ func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*B
 	for rows.Next() {
 		var i BusinessInvite
 		if err := rows.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.InvitedBy, &i.CreatedAt,
-			&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt); err != nil {
+			&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt, &i.AcceptedUserID); err != nil {
 			return nil, err
 		}
 		out = append(out, &i)
@@ -574,11 +595,11 @@ func (r *BusinessRepo) RevokeInvite(ctx context.Context, businessID, inviteID st
 
 func (r *BusinessRepo) GetInviteByToken(ctx context.Context, token string) (*BusinessInvite, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at
+		SELECT id, business_id, email, role, token, invited_by, created_at, accepted_at, expires_at, revoked_at, accepted_user_id
 		FROM business_invites WHERE token = $1`, token)
 	var i BusinessInvite
 	if err := row.Scan(&i.ID, &i.BusinessID, &i.Email, &i.Role, &i.Token, &i.InvitedBy, &i.CreatedAt,
-		&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt); err != nil {
+		&i.AcceptedAt, &i.ExpiresAt, &i.RevokedAt, &i.AcceptedUserID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -587,11 +608,35 @@ func (r *BusinessRepo) GetInviteByToken(ctx context.Context, token string) (*Bus
 	return &i, nil
 }
 
-func (r *BusinessRepo) AcceptInvite(ctx context.Context, inviteID string) error {
+// AcceptInvite binds the grant to the accepting user.
+//
+// userID is written to accepted_user_id in the SAME statement that sets
+// accepted_at, so an invite can never be accepted without a holder. That single
+// atomicity is what makes the grant durable: authorisation reads accepted_user_id,
+// so a row accepted without one would confer nothing while looking accepted to the
+// owner.
+//
+// The address is deliberately left alone. It is the address that was INVITED, and it
+// stays on the row as a record of what was sent - overwriting it with the holder's
+// current address would be wrong, since that address is exactly the thing a holder
+// can change.
+func (r *BusinessRepo) AcceptInvite(ctx context.Context, inviteID, userID string) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE business_invites SET accepted_at = now() WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
-		  AND expires_at > now()`, inviteID)
+		UPDATE business_invites
+		   SET accepted_at = now(), accepted_user_id = $2
+		 WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
+		   AND expires_at > now()`, inviteID, userID)
 	return err
+}
+
+// AcceptedRows reports how many rows an accept actually changed, so the caller can
+// distinguish "accepted" from "already accepted / expired / revoked".
+func (r *BusinessRepo) AcceptedRows(ctx context.Context, inviteID string) (int64, error) {
+	var n int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM business_invites WHERE id = $1 AND accepted_at IS NOT NULL AND accepted_user_id IS NOT NULL`,
+		inviteID).Scan(&n)
+	return n, err
 }
 
 func (r *BusinessRepo) IncResubmitCount(ctx context.Context, businessID string) error {

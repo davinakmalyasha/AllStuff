@@ -196,7 +196,25 @@ func (s *Invites) Accept(ctx context.Context, userID, token string) error {
 	if b == nil || b.Status == domain.BusinessSuspended {
 		return domain.ErrValidation.WithField("_", "This business is no longer accepting invitations.")
 	}
-	return s.repos.Businesses.AcceptInvite(ctx, inv.ID)
+	// userID is passed so the grant is bound to the ACCOUNT, not re-resolved from
+	// the address later. The email check above is still correct and still needed -
+	// it proves this person is the one the invite was sent to - but it is a check on
+	// WHO IS ACCEPTING, not the storage of who holds the grant afterwards. Someone
+	// who accepts and later changes their email keeps their access.
+	if err := s.repos.Businesses.AcceptInvite(ctx, inv.ID, user.ID); err != nil {
+		return err
+	}
+	// A concurrent acceptance makes this UPDATE match nothing. Report that as the
+	// already-used token it is, rather than returning success for a row that was
+	// not modified.
+	rows, err := s.repos.Businesses.AcceptedRows(ctx, inv.ID)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrTokenInvalid
+	}
+	return nil
 }
 
 // ---- KPI analytics (PRD §5.8.6) ----

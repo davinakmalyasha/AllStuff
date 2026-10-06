@@ -243,10 +243,12 @@ func TestOwnerAndCoOwnerCanManage(t *testing.T) {
 	if err := h.Repos.Businesses.CreateInvite(ctx, owner.ID, b.ID, viewer.Email, "viewer", util.NewUUID()); err != nil {
 		t.Fatalf("create viewer invite: %v", err)
 	}
-	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, coOwner.Email)); err != nil {
+	// userID is passed because AcceptInvite binds the grant to the account; see the
+	// repo method and migration 0049.
+	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, coOwner.Email), coOwner.ID); err != nil {
 		t.Fatalf("accept co_owner invite: %v", err)
 	}
-	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, viewer.Email)); err != nil {
+	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, viewer.Email), viewer.ID); err != nil {
 		t.Fatalf("accept viewer invite: %v", err)
 	}
 
