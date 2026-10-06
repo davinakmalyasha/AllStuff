@@ -196,6 +196,80 @@ func (r *ProductRepo) SKUTaken(ctx context.Context, sku, businessID, excludeID s
 
 // ---- options & variants ----
 
+// OptionsByProducts fetches options for many products in one round trip, keyed by
+// product id.
+//
+// The data-export path called ListOptions once per product inside a loop, so a user
+// with N products across M businesses issued 2N+1 queries. Options are requested
+// for a set of products, which is a single IN query, so the fan-out was avoidable
+// rather than inherent.
+//
+// The key is always populated for every requested id, including empty slices, so
+// callers can index without a presence check. An empty input short-circuits without
+// touching the database, because an empty IN list is a syntax error rather than an
+// empty result.
+func (r *ProductRepo) OptionsByProducts(ctx context.Context, productIDs []string) (map[string][]*domain.ProductOption, error) {
+	out := make(map[string][]*domain.ProductOption, len(productIDs))
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(productIDs))
+	placeholders := make([]string, len(productIDs))
+	for i, id := range productIDs {
+		out[id] = nil
+		args[i] = id
+		placeholders[i] = "$" + util.Itoa(i+1)
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, product_id, name, values, sort_order FROM product_options
+		WHERE product_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY product_id, sort_order`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o domain.ProductOption
+		if err := rows.Scan(&o.ID, &o.ProductID, &o.Name, &o.Values, &o.SortOrder); err != nil {
+			return nil, err
+		}
+		out[o.ProductID] = append(out[o.ProductID], &o)
+	}
+	return out, rows.Err()
+}
+
+// VariantsByProducts is the same batching for variants; see OptionsByProducts.
+func (r *ProductRepo) VariantsByProducts(ctx context.Context, productIDs []string) (map[string][]*domain.ProductVariant, error) {
+	out := make(map[string][]*domain.ProductVariant, len(productIDs))
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(productIDs))
+	placeholders := make([]string, len(productIDs))
+	for i, id := range productIDs {
+		out[id] = nil
+		args[i] = id
+		placeholders[i] = "$" + util.Itoa(i+1)
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, product_id, name, sku, options, price, currency, stock_qty, in_stock, image_id, sort_order
+		FROM product_variants WHERE product_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY product_id, sort_order`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v domain.ProductVariant
+		if err := rows.Scan(&v.ID, &v.ProductID, &v.Name, &v.SKU, &v.Options, &v.Price,
+			&v.Currency, &v.StockQty, &v.InStock, &v.ImageID, &v.SortOrder); err != nil {
+			return nil, err
+		}
+		out[v.ProductID] = append(out[v.ProductID], &v)
+	}
+	return out, rows.Err()
+}
+
 func (r *ProductRepo) ListOptions(ctx context.Context, productID string) ([]*domain.ProductOption, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, product_id, name, values, sort_order FROM product_options

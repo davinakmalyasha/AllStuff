@@ -1088,15 +1088,39 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 		return nil, err
 	}
 	businesses, _ := a.repos.Businesses.ListByOwner(ctx, userID)
-	products := []any{}
+	// Collect every product id first, then fetch options and variants for all of
+	// them in two queries. This was a ListOptions plus a ListVariants call PER
+	// PRODUCT inside the loop, so exporting an account with 40 products issued 81
+	// queries. GDPR-style export endpoints are hit by data-subject requests that
+	// arrive in batches, so a slow export is a slow queue.
+	productIDs := []string{}
+	productsByBiz := make(map[string][]*domain.Product, len(businesses))
 	for _, b := range businesses {
 		list, err := a.repos.Products.ListByBusiness(ctx, b.ID)
-		if err == nil {
-			for _, p := range list {
-				options, _ := a.repos.Products.ListOptions(ctx, p.ID)
-				variants, _ := a.repos.Products.ListVariants(ctx, p.ID)
-				products = append(products, map[string]any{"product": p, "options": options, "variants": variants})
-			}
+		if err != nil {
+			continue
+		}
+		productsByBiz[b.ID] = list
+		for _, p := range list {
+			productIDs = append(productIDs, p.ID)
+		}
+	}
+	optionsByProduct, err := a.repos.Products.OptionsByProducts(ctx, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	variantsByProduct, err := a.repos.Products.VariantsByProducts(ctx, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	products := []any{}
+	for _, b := range businesses {
+		for _, p := range productsByBiz[b.ID] {
+			products = append(products, map[string]any{
+				"product":  p,
+				"options":  optionsByProduct[p.ID],
+				"variants": variantsByProduct[p.ID],
+			})
 		}
 	}
 	collections, _ := a.repos.Engagement.ListCollections(ctx, userID)

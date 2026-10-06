@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -467,6 +468,48 @@ func (r *ChatRepo) IsBlocked(ctx context.Context, a, b string) (bool, error) {
 		SELECT EXISTS(SELECT 1 FROM blocks WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1))`,
 		a, b).Scan(&exists)
 	return exists, err
+}
+
+// AnyBlocked reports whether the sender is blocked to or by ANY of the given
+// peers, in one round trip.
+//
+// This replaces a ParticipantIDs query plus one IsBlocked query PER PARTICIPANT,
+// executed on every message send - the hottest path in the product. Direct threads
+// have two participants so it cost three queries, but a group thread costs one per
+// member, so the cost grew with the size of the conversation.
+//
+// The blocked-partner id is returned rather than just a bool because the caller
+// only needs to know that SOMEONE is blocked: it refuses the whole send either way.
+// Returning the id would imply the caller can distinguish which peer caused it,
+// which it cannot without another query and has no use for.
+//
+// The NOT IN list is built from parameters, never string-concatenated, so the peer
+// ids stay untrusted data.
+func (r *ChatRepo) AnyBlocked(ctx context.Context, userID string, peers []string) (bool, error) {
+	if len(peers) == 0 {
+		return false, nil
+	}
+	args := make([]any, 0, len(peers)+1)
+	args = append(args, userID)
+	placeholders := make([]string, 0, len(peers))
+	for i, p := range peers {
+		if p == userID {
+			continue
+		}
+		args = append(args, p)
+		placeholders = append(placeholders, "$"+util.Itoa(i+2))
+	}
+	if len(placeholders) == 0 {
+		return false, nil
+	}
+	var blocked bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM blocks
+			 WHERE (blocker_id = $1 AND blocked_id IN (`+strings.Join(placeholders, ",")+`))
+			    OR (blocked_id  = $1 AND blocker_id IN (`+strings.Join(placeholders, ",")+`))
+		)`, args...).Scan(&blocked)
+	return blocked, err
 }
 
 func (r *ChatRepo) BlockList(ctx context.Context, userID string) ([]string, error) {

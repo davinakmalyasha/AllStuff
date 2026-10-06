@@ -203,22 +203,21 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 	}
 
 	// Blocks both ways, enforced in ANY thread type (PRD §5.5.4).
+	//
+	// One query for the whole peer set. This was ParticipantIDs followed by an
+	// IsBlocked call PER PARTICIPANT, on every single send: three round trips for a
+	// direct thread, and one more per member as a group grows.
 	{
 		participants, err := c.repos.Chat.ParticipantIDs(ctx, threadID)
 		if err != nil {
 			return nil, err
 		}
-		for _, pid := range participants {
-			if pid == userID {
-				continue
-			}
-			blocked, err := c.repos.Chat.IsBlocked(ctx, userID, pid)
-			if err != nil {
-				return nil, err
-			}
-			if blocked {
-				return nil, domain.ErrValidation.WithField("_", "Messaging is unavailable with this user.")
-			}
+		blocked, err := c.repos.Chat.AnyBlocked(ctx, userID, participants)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			return nil, domain.ErrValidation.WithField("_", "Messaging is unavailable with this user.")
 		}
 	}
 
