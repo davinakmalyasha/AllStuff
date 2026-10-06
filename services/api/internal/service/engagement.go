@@ -492,11 +492,21 @@ func (s *Engagement) ownerOfReview(ctx context.Context, ownerID, reviewID string
 	if rw == nil {
 		return nil, domain.ErrNotFound
 	}
-	b, err := s.repos.Businesses.GetByID(ctx, rw.BusinessID)
-	if err != nil || b == nil {
-		return nil, domain.ErrNotFound
+	if _, err := s.repos.Businesses.GetByID(ctx, rw.BusinessID); err != nil {
+		return nil, err
 	}
-	if b.OwnerID != ownerID {
+	// The nil-business case is handled by GetByID's own contract - a soft-deleted
+	// listing returns no row - so this is a not-found either way.
+	// CO-OWNER PARITY, as in isOwner and products.own. This is an AUTHORIZATION
+	// gate, not a notification-dedup check: it decides who may delete a review. A
+	// co-owner moderating their own listing's reviews is exactly the case the
+	// collaborator role exists for, and owner-only here made the co-owner invite
+	// half-real in a second way.
+	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, rw.BusinessID)
+	if err != nil {
+		return nil, err
+	}
+	if !can {
 		return nil, domain.ErrForbidden
 	}
 	return rw, nil
@@ -622,18 +632,32 @@ func (s *Engagement) targetExists(ctx context.Context, targetType, targetID stri
 	return nil
 }
 
+// isOwner decides whether an engagement reply may be attributed to the business
+// itself rather than to the individual user.
+//
+// CO-OWNER PARITY, the same defect products.own already fixed. This compared
+// `b.OwnerID == userID`, i.e. owner-only, while every other business-scoped path
+// - businesses.owned, analytics, chat quick replies, community, the catalog - goes
+// through CanManageBusiness. The observable effect was that a co-owner could edit
+// the storefront, read analytics and post announcements, and then have their reply
+// published under their own name because the "reply as the business" affordance
+// silently did not apply to them.
+//
+// Products.own carries the longer version of this note; this is the same bug in a
+// second place, which is why it is worth stating that the rule is the PREDICATE and
+// not "compare the owner_id column".
 func (s *Engagement) isOwner(ctx context.Context, userID, targetType, targetID string) bool {
 	if targetType == "business" {
-		b, err := s.repos.Businesses.GetByID(ctx, targetID)
-		return err == nil && b != nil && b.OwnerID == userID
+		can, err := s.repos.Businesses.CanManageBusiness(ctx, userID, targetID)
+		return err == nil && can
 	}
 	if targetType == "product" {
 		p, err := s.repos.Products.GetByID(ctx, targetID)
 		if err != nil || p == nil {
 			return false
 		}
-		b, err := s.repos.Businesses.GetByID(ctx, p.BusinessID)
-		return err == nil && b != nil && b.OwnerID == userID
+		can, err := s.repos.Businesses.CanManageBusiness(ctx, userID, p.BusinessID)
+		return err == nil && can
 	}
 	return false
 }

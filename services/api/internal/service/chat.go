@@ -98,7 +98,22 @@ func (c *Chat) GetOrCreateBusiness(ctx context.Context, userID, businessID strin
 	if err != nil || b == nil {
 		return nil, domain.ErrNotFound
 	}
-	if b.OwnerID == userID {
+	// Anyone who can MANAGE the listing must be blocked here, not just its owner.
+	//
+	// This compared `b.OwnerID == userID`, which is false for a co-owner. So a
+	// co-owner could message their own business, and because the participant added
+	// below is likewise `b.OwnerID`, the resulting thread contained the real owner
+	// and the customer while the co-owner who opened it was not a participant in
+	// their own conversation - invisible to the initiator, and a thread the owner
+	// never asked for.
+	//
+	// CanManageBusiness covers the owner and accepted co-owners alike, and does so
+	// through accepted_user_id so it survives an email change (migration 0049).
+	canManage, err := c.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if canManage {
 		return nil, domain.ErrValidation.WithField("_", "You can't message your own business.")
 	}
 	existing, err := c.repos.Chat.FindBusinessThread(ctx, businessID, userID)
@@ -253,8 +268,14 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 
 	role := "user"
 	if t.Type == "business" {
-		b, err := c.repos.Businesses.GetByID(ctx, derefString(t.BusinessID))
-		if err == nil && b != nil && b.OwnerID == userID {
+		// CO-OWNER PARITY, as in engagement.isOwner and products.own. This decides
+		// whether the message is attributed to the BUSINESS or to the individual, and
+		// the customer sees that distinction - it is why an owner's reply carries a
+		// business badge. Comparing the owner_id column meant a co-owner's replies
+		// were labelled as coming from themselves, so a collaborator running the
+		// listing's inbox could not speak for it.
+		canManage, merr := c.repos.Businesses.CanManageBusiness(ctx, userID, derefString(t.BusinessID))
+		if merr == nil && canManage {
 			role = "owner"
 		}
 	}

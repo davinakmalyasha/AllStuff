@@ -87,7 +87,15 @@ func (s *Community) Follow(ctx context.Context, userID, businessID string, on bo
 	if err != nil || b == nil {
 		return domain.ErrNotFound
 	}
-	if b.OwnerID == userID {
+	// A co-owner must not follow their own listing either. Same defect as
+	// Chat.GetOrCreateBusiness: the guard compared the owner_id column, which is
+	// false for a collaborator, so a co-owner could inflate their own follower
+	// count - and follower counts feed the trending scores.
+	canManage, err := s.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
+	if err != nil {
+		return err
+	}
+	if canManage {
 		return domain.ErrValidation.WithField("_", "You can't follow your own business.")
 	}
 	return s.repos.Community.SetFollow(ctx, userID, businessID, on)
