@@ -509,12 +509,25 @@ func (r *ChatRepo) AnyBlocked(ctx context.Context, userID string, peers []string
 	if len(placeholders) == 0 {
 		return false, nil
 	}
+	// The ::uuid casts are on the PLACEHOLDER, not the column, and that is not a
+	// detail. Postgres lowers `x IN (a, b)` to `x = ANY(ARRAY[a, b])`, so it must
+	// type the array elements BEFORE it can compare them against x. Casting the
+	// column therefore does not help - the array still has to be built from
+	// untyped parameters, and Postgres refuses with 42P18 rather than guessing.
+	// Every placeholder carries its own cast, exactly as service/search.go does for
+	// the same reason.
+	typed := make([]string, len(placeholders))
+	for i, ph := range placeholders {
+		typed[i] = ph + "::uuid"
+	}
+	list := strings.Join(typed, ",")
+
 	var blocked bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM blocks
-			 WHERE (blocker_id = $1 AND blocked_id::uuid IN (`+strings.Join(placeholders, ",")+`))
-			    OR (blocked_id  = $1 AND blocker_id::uuid IN (`+strings.Join(placeholders, ",")+`))
+			 WHERE (blocker_id = $1 AND blocked_id IN (`+list+`))
+			    OR (blocked_id  = $1 AND blocker_id IN (`+list+`))
 		)`, args...).Scan(&blocked)
 	return blocked, err
 }

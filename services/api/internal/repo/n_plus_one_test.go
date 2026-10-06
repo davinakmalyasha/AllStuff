@@ -33,10 +33,11 @@ func TestBlockCheckOnSendIsOneQueryRegardlessOfThreadSize(t *testing.T) {
 	sender := testutil.User(t, h)
 
 	var threadID string
-	if err := h.QueryRow(t, `
-		INSERT INTO chat_threads (id, business_id, type, status)
-		 VALUES ($1,$2,'business','open') RETURNING id`,
-		util.NewUUID(), biz.ID).Scan(&threadID); err != nil {
+	h.ExecPool(t, `INSERT INTO chat_threads (id, business_id, type, status)
+	               VALUES ($1,$2,'business','open')`, util.NewUUID(), biz.ID)
+	if err := h.QueryRow(t,
+		`SELECT id FROM chat_threads WHERE business_id = $1 ORDER BY created_at DESC LIMIT 1`,
+		biz.ID).Scan(&threadID); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
 
@@ -47,7 +48,7 @@ func TestBlockCheckOnSendIsOneQueryRegardlessOfThreadSize(t *testing.T) {
 		pool = append(pool, testutil.User(t, h).ID)
 	}
 	for i := range pool[:15] {
-		h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
+		h.ExecPool(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
 		            SELECT gen_random_uuid(), $1, u.id, 'user' FROM users u
 		             WHERE u.id = $2`, threadID, pool[i])
 	}
@@ -55,12 +56,12 @@ func TestBlockCheckOnSendIsOneQueryRegardlessOfThreadSize(t *testing.T) {
 	// Sizes 2, 5 and 10 participants. The sender is included in every set so the
 	// self-exclusion path is exercised.
 	for i, n := range []int{2, 5, 10} {
-		h.Exec(t, `DELETE FROM chat_participants WHERE thread_id = $1`, threadID)
+		h.ExecPool(t, `DELETE FROM chat_participants WHERE thread_id = $1`, threadID)
 		for j := range i + 1 {
-			h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
+			h.ExecPool(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
 			            VALUES (gen_random_uuid(), $1, $2, 'user')`, threadID, pool[j])
 		}
-		h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
+		h.ExecPool(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
 		            VALUES (gen_random_uuid(), $1, $2, 'user')`, threadID, sender.ID)
 
 		peers, err := h.Repos.Chat.ParticipantIDs(ctx, threadID)
