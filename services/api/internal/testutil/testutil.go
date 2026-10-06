@@ -422,7 +422,6 @@ func (h *H) Exec(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// QueryRow runs a single-row query directly.
 // Query runs a SELECT inside the test's transaction and hands the rows back for
 // scanning. QueryRow covers the single-row case; this is for the rest.
 //
@@ -433,6 +432,7 @@ func (h *H) Query(t *testing.T, sql string, args ...any) (pgx.Rows, error) {
 	return h.tx.Query(context.Background(), sql, args...)
 }
 
+// QueryRow runs a single-row query directly.
 func (h *H) QueryRow(t *testing.T, sql string, args ...any) pgx.Row {
 	t.Helper()
 	return h.tx.QueryRow(context.Background(), sql, args...)

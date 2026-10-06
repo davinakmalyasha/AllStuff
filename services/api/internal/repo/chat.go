@@ -282,10 +282,50 @@ func (r *ChatRepo) TouchLastMessage(ctx context.Context, threadID string) error 
 	return err
 }
 
+// SetLastRead advances a participant's read marker and credits the messages it
+// passes.
+//
+// `chat_messages.read_count` was declared, selected, serialised to clients as
+// `read_count`, and never written - so every message reported zero reads
+// forever, including to the sender. The surrounding machinery was all present:
+// this marker, ChatRepo.LastRead, the POST /threads/{id}/read handler and its
+// receipt.read broadcast. Only the increment was missing.
+//
+// One statement, deliberately. The marker and the counts have to move together:
+// if the marker committed and the counts did not, the user would never be
+// re-credited for those messages, because GREATEST makes the operation
+// permanently idempotent from the marker's point of view. Two statements in a
+// transaction would work; one statement cannot drift.
+//
+// `prev` reads the pre-update value from the same snapshot, so the credited range
+// is exactly the span the marker crossed this call. Re-sending the same
+// last_read_message_id - which the frontend does on every render - advances
+// nothing, so `id > prev.old_id` matches nothing and no count is double-increased.
+//
+// A participant's OWN messages are never credited to them: read_count answers "how
+// many other people have seen this", and counting your own message as read by
+// yourself would report 1 on a message the sender is looking at.
 func (r *ChatRepo) SetLastRead(ctx context.Context, threadID, userID string, msgID int64) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE chat_participants SET last_read_message_id = GREATEST(coalesce(last_read_message_id, 0), $3)
-		WHERE thread_id=$1 AND user_id=$2`, threadID, userID, msgID)
+		WITH prev AS (
+			SELECT coalesce(last_read_message_id, 0) AS old_id
+			  FROM chat_participants
+			 WHERE thread_id = $1 AND user_id = $2
+		),
+		advanced AS (
+			UPDATE chat_participants
+			   SET last_read_message_id = GREATEST(coalesce(last_read_message_id, 0), $3)
+			 WHERE thread_id = $1 AND user_id = $2
+			RETURNING last_read_message_id
+		)
+		UPDATE chat_messages m
+		   SET read_count = m.read_count + 1
+		  FROM prev, advanced a
+		 WHERE m.thread_id = $1
+		   AND m.id > prev.old_id
+		   AND m.id <= a.last_read_message_id
+		   AND m.sender_id IS DISTINCT FROM $2`,
+		threadID, userID, msgID)
 	return err
 }
 
