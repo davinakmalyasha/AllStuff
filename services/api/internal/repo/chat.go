@@ -499,12 +499,17 @@ func (r *ChatRepo) AnyBlocked(ctx context.Context, userID string, peers []string
 	args := make([]any, 0, len(peers)+1)
 	args = append(args, userID)
 	placeholders := make([]string, 0, len(peers))
-	for i, p := range peers {
+	for _, p := range peers {
 		if p == userID {
 			continue
 		}
 		args = append(args, p)
-		placeholders = append(placeholders, "$"+util.Itoa(i+2))
+		// Numbered from len(args), NOT from the loop index. A `continue` skips the
+		// argument without renumbering, so indexing by the loop position left $2
+		// unbound whenever the sender happened to be the first peer - which Postgres
+		// reports as "could not determine data type of parameter $2", a message that
+		// points at type inference rather than at the arithmetic that caused it.
+		placeholders = append(placeholders, "$"+util.Itoa(len(args)))
 	}
 	if len(placeholders) == 0 {
 		return false, nil
