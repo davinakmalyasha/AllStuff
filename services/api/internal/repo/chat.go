@@ -483,8 +483,15 @@ func (r *ChatRepo) IsBlocked(ctx context.Context, a, b string) (bool, error) {
 // Returning the id would imply the caller can distinguish which peer caused it,
 // which it cannot without another query and has no use for.
 //
-// The NOT IN list is built from parameters, never string-concatenated, so the peer
-// ids stay untrusted data.
+// The blocked-partner list is built from parameters, never string-concatenated, so
+// the peer ids stay untrusted data.
+//
+// The ::uuid casts are REQUIRED and are not decoration. An untyped parameter inside
+// an IN list has no inferable type - the list is a set of unknowns - so Postgres
+// raises 42P18 "could not determine data type of parameter $2" and the query fails at
+// runtime rather than at build time. service/search.go carries the same warning for
+// the same reason. The casts are on the COLUMN side so they bind the parameter list
+// to the column's uuid type regardless of how many peers there are.
 func (r *ChatRepo) AnyBlocked(ctx context.Context, userID string, peers []string) (bool, error) {
 	if len(peers) == 0 {
 		return false, nil
@@ -506,8 +513,8 @@ func (r *ChatRepo) AnyBlocked(ctx context.Context, userID string, peers []string
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM blocks
-			 WHERE (blocker_id = $1 AND blocked_id IN (`+strings.Join(placeholders, ",")+`))
-			    OR (blocked_id  = $1 AND blocker_id IN (`+strings.Join(placeholders, ",")+`))
+			 WHERE (blocker_id = $1 AND blocked_id::uuid IN (`+strings.Join(placeholders, ",")+`))
+			    OR (blocked_id  = $1 AND blocker_id::uuid IN (`+strings.Join(placeholders, ",")+`))
 		)`, args...).Scan(&blocked)
 	return blocked, err
 }

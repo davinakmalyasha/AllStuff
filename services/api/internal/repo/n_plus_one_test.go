@@ -40,13 +40,26 @@ func TestBlockCheckOnSendIsOneQueryRegardlessOfThreadSize(t *testing.T) {
 		t.Fatalf("create thread: %v", err)
 	}
 
-	// Sizes 2, 5 and 10 participants. The sender is included in every set so the
-	// self-exclusion path is exercised.
-	for _, n := range []int{2, 5, 10} {
-		h.Exec(t, `DELETE FROM chat_participants WHERE thread_id = $1`, threadID)
+	// Peers are drawn from a pool that does not overlap the thread, so no iteration
+	// can collide with a participant inserted by an earlier one.
+	pool := make([]string, 0, 16)
+	for range cap(pool) {
+		pool = append(pool, testutil.User(t, h).ID)
+	}
+	for i := range pool[:15] {
 		h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
 		            SELECT gen_random_uuid(), $1, u.id, 'user' FROM users u
-		             ORDER BY u.id LIMIT $2`, threadID, n-1)
+		             WHERE u.id = $2`, threadID, pool[i])
+	}
+
+	// Sizes 2, 5 and 10 participants. The sender is included in every set so the
+	// self-exclusion path is exercised.
+	for i, n := range []int{2, 5, 10} {
+		h.Exec(t, `DELETE FROM chat_participants WHERE thread_id = $1`, threadID)
+		for j := range i + 1 {
+			h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
+			            VALUES (gen_random_uuid(), $1, $2, 'user')`, threadID, pool[j])
+		}
 		h.Exec(t, `INSERT INTO chat_participants (id, thread_id, user_id, role)
 		            VALUES (gen_random_uuid(), $1, $2, 'user')`, threadID, sender.ID)
 
@@ -82,6 +95,18 @@ func TestAnyBlockedMatchesThePerPeerLoopItReplaces(t *testing.T) {
 	a := testutil.User(t, h)
 	b := testutil.User(t, h)
 	c := testutil.User(t, h)
+	stranger := testutil.User(t, h)
+
+	// Explicit uuid casts on every parameter. Postgres cannot infer a type for an
+	// untyped parameter in an INSERT, and reports it only when that statement
+	// happens to run - so the first three cases would pass and the fourth would
+	// abort the shared transaction, failing every case after it. That is how the
+	// original version of this table failed: the setup errors looked like failures
+	// of the code under test.
+	block := func(x, y string) {
+		h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id)
+		           VALUES (gen_random_uuid(), $1::uuid, $2::uuid)`, x, y)
+	}
 
 	cases := []struct {
 		name  string
@@ -90,18 +115,10 @@ func TestAnyBlockedMatchesThePerPeerLoopItReplaces(t *testing.T) {
 		want  bool
 	}{
 		{"no blocks", func() {}, []string{b.ID, c.ID}, false},
-		{"a blocked b", func() {
-			h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (gen_random_uuid(),$1,$2)`, a.ID, b.ID)
-		}, []string{b.ID, c.ID}, true},
-		{"b blocked a (reverse direction)", func() {
-			h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (gen_random_uuid(),$1,$2)`, b.ID, a.ID)
-		}, []string{b.ID, c.ID}, true},
-		{"only an unrelated peer blocked", func() {
-			h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (gen_random_uuid(),$1,$2)`, b.ID, c.ID)
-		}, []string{a.ID, c.ID}, false},
-		{"sender self-excluded from their own list", func() {
-			h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (gen_random_uuid(),$1,$2)`, a.ID, a.ID)
-		}, []string{a.ID, b.ID}, false},
+		{"a blocked b", func() { block(a.ID, b.ID) }, []string{b.ID, c.ID}, true},
+		{"b blocked a (reverse direction)", func() { block(b.ID, a.ID) }, []string{b.ID, c.ID}, true},
+		{"only an unrelated peer is blocked", func() { block(b.ID, c.ID) }, []string{a.ID, stranger.ID}, false},
+		{"sender self-excluded from their own list", func() {}, []string{a.ID, b.ID}, false},
 	}
 
 	for _, tc := range cases {
