@@ -236,16 +236,32 @@ func scanMessage(row pgx.Row) (*domain.ChatMessage, error) {
 	return &m, nil
 }
 
-func (r *ChatRepo) MessagesByThread(ctx context.Context, threadID string, before int64, limit int) ([]*domain.ChatMessage, error) {
-	// Withdrawn messages ("delete for everyone") never come back on refetch
-	// or export — every reader path funnels through this query.
-	query := `SELECT ` + messageCols + ` FROM chat_messages WHERE thread_id = $1 AND deleted_for <> 'everyone'`
-	args := []any{threadID}
+// MessagesByThread returns the thread as ONE participant sees it.
+//
+// Two kinds of hiding, and they need different filters:
+//
+//   - 'everyone' lives on the shared row, so it is excluded here.
+//   - per-participant hides live in chat_message_hides and are scoped to
+//     $viewer. Without the NOT EXISTS a message hidden with "delete for me" comes
+//     straight back on refetch, which is the whole complaint that motivated
+//     0048.
+//
+// viewer is required rather than optional precisely because omitting it here would
+// mean "hide from nobody". An empty string matches no user, so a caller that forgot
+// to pass the viewer sees everything rather than silently nothing.
+func (r *ChatRepo) MessagesByThread(ctx context.Context, threadID, viewer string, before int64, limit int) ([]*domain.ChatMessage, error) {
+	query := `SELECT ` + messageCols + `
+		FROM chat_messages m
+		WHERE m.thread_id = $1
+		  AND m.deleted_for <> 'everyone'
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h
+		                   WHERE h.message_id = m.id AND h.user_id = $2)`
+	args := []any{threadID, viewer}
 	if before > 0 {
-		query += ` AND id < $2`
+		query += ` AND m.id < $3`
 		args = append(args, before)
 	}
-	query += ` ORDER BY id DESC LIMIT $` + util.Itoa(len(args)+1)
+	query += ` ORDER BY m.id DESC LIMIT $` + util.Itoa(len(args)+1)
 	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -270,10 +286,55 @@ func (r *ChatRepo) UpdateMessageText(ctx context.Context, id int64, text string,
 	return err
 }
 
-func (r *ChatRepo) DeleteMessage(ctx context.Context, id int64, scope string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE chat_messages SET deleted_for=$2, deleted_at=now() WHERE id=$1`, id, scope)
-	return err
+// DeleteMessage hides a message for one participant or for everyone.
+//
+// `deleted_for` is a single column on the shared row, which cannot express
+// "hidden from A but not from B": 'me' hides the message from EVERY reader, so the
+// author removing their own message also made it vanish for the other party. Every
+// read path filters on `deleted_for <> 'everyone'`, so the author kept a message
+// that no longer existed for anyone.
+//
+// A per-participant scope therefore lives in chat_message_hides, and 'me' is
+// resolved against it. 'everyone' stays on the shared row, since that one is
+// genuinely global and every reader must see it.
+//
+// The participants are read in the same transaction as the hide insert so a
+// concurrent departure cannot leave a row pointing at a thread nobody is in.
+func (r *ChatRepo) DeleteMessage(ctx context.Context, id int64, scope string, actorID string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if scope == "me" {
+		var threadID string
+		if err := tx.QueryRow(ctx,
+			`SELECT thread_id FROM chat_messages WHERE id=$1`, id).Scan(&threadID); err != nil {
+			return err
+		}
+		// ON CONFLICT DO NOTHING: deleting twice must not raise, and the hide is
+		// idempotent by nature.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chat_message_hides (message_id, thread_id, user_id)
+			SELECT m.id, m.thread_id, p.user_id
+			  FROM chat_messages m
+			  JOIN chat_participants p ON p.thread_id = m.thread_id
+			 WHERE m.id = $1 AND p.user_id = $2
+			ON CONFLICT (message_id, user_id) DO NOTHING`, id, actorID); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE chat_messages SET deleted_for='everyone', deleted_at=now() WHERE id=$1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *ChatRepo) TouchLastMessage(ctx context.Context, threadID string) error {
@@ -464,12 +525,13 @@ func (r *ChatRepo) DeleteQuickReply(ctx context.Context, businessID, id string) 
 // ---- search & gallery ----
 
 // SearchMessages searches one thread.
-func (r *ChatRepo) SearchMessages(ctx context.Context, threadID, q string, limit int) ([]*domain.ChatMessage, error) {
+func (r *ChatRepo) SearchMessages(ctx context.Context, threadID, viewer, q string, limit int) ([]*domain.ChatMessage, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT `+messageCols+` FROM chat_messages
-		WHERE thread_id=$1 AND deleted_for <> 'everyone'
-		  AND to_tsvector('simple', coalesce(body,'')) @@ plainto_tsquery('simple', $2)
-		ORDER BY id DESC LIMIT $3`, threadID, q, limit)
+		SELECT `+messageCols+` FROM chat_messages m
+		WHERE m.thread_id=$1 AND m.deleted_for <> 'everyone'
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id AND h.user_id = $2)
+		  AND to_tsvector('simple', coalesce(m.body,'')) @@ plainto_tsquery('simple', $3)
+		ORDER BY m.id DESC LIMIT $4`, threadID, viewer, q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +553,7 @@ func (r *ChatRepo) SearchAllMessages(ctx context.Context, userID, q string, limi
 		SELECT `+messageCols+` FROM chat_messages m
 		JOIN chat_participants cp ON cp.thread_id = m.thread_id AND cp.user_id = $1 AND cp.left_at IS NULL
 		WHERE m.deleted_for <> 'everyone'
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id AND h.user_id = $1)
 		  AND to_tsvector('simple', coalesce(m.body,'')) @@ plainto_tsquery('simple', $2)
 		ORDER BY m.id DESC LIMIT $3`, userID, q, limit)
 	if err != nil {
@@ -508,11 +571,12 @@ func (r *ChatRepo) SearchAllMessages(ctx context.Context, userID, q string, limi
 	return out, rows.Err()
 }
 
-func (r *ChatRepo) MediaInThread(ctx context.Context, threadID string, limit int) ([]*domain.ChatMessage, error) {
+func (r *ChatRepo) MediaInThread(ctx context.Context, threadID, viewer string, limit int) ([]*domain.ChatMessage, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT `+messageCols+` FROM chat_messages
-		WHERE thread_id=$1 AND type IN ('image','file','audio','video') AND deleted_for <> 'everyone'
-		ORDER BY id DESC LIMIT $2`, threadID, limit)
+		SELECT `+messageCols+` FROM chat_messages m
+		WHERE m.thread_id=$1 AND m.type IN ('image','file','audio','video') AND m.deleted_for <> 'everyone'
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id AND h.user_id = $2)
+		ORDER BY m.id DESC LIMIT $3`, threadID, viewer, limit)
 	if err != nil {
 		return nil, err
 	}

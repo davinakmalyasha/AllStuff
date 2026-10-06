@@ -14,12 +14,13 @@ succeed, so a failure in that window replays the file.
 filename, so a number that has never been applied carries no migration history.
 This is why the reserved list below was renumbered rather than worked around.
 
-`0032`, `0033` and `0047` are the exceptions and the reason for this note: all
-three were reserved, then actually written — `0032` for the slug-release fix,
+`0032`, `0033`, `0047` and `0048` are the exceptions and the reason for this note: all
+four were reserved, then actually written — `0032` for the slug-release fix,
 `0033` for the pagination total-order fix, `0047` for the `user_2fa.enabled_at`
-default — and everything above them shifted by one each time.
+default, `0048` for per-participant message hiding — and everything above them
+shifted by one each time.
 Remediation migrations will keep eating into this list, so treat a reservation as
-a plan rather than a claim. Anything at `0048`+ is still free; `0032`–`0047` are
+a plan rather than a claim. Anything at `0049`+ is still free; `0032`–`0048` are
 now spoken for.
 
 ---
@@ -169,6 +170,7 @@ feature that adds or paginations a listing.
 |---|---|---|
 | `0044` | `0044_booking.sql` | Capacity-based appointments with `btree_gist` + `EXCLUDE USING gist` for double-booking. **No `booking_slots` table and no `booking_services` table** — slots are derived from (location hours × availability × duration × existing appointments × blackouts), and a second catalogue means two admin UIs and a migration story for every existing service. Requires `products.duration_minutes` first. Table stakes: every competitor has it, and none of them differentiate on it. |
 | `0045` | `0045_staff_offers.sql` | Per-staff scheduling and commissions. Vertical SaaS, not platform. Only worth building once `0044` proves the availability engine. |
+| `0048` | `0048_chat_message_hides.sql` | `0001` | `chat_message_hides(message_id, thread_id, user_id)` so "delete for me" hides from the actor alone. The single `chat_messages.deleted_for` column could not express it: `me` is not `everyone`, so every read path (all of which filter `deleted_for <> 'everyone'`) kept serving the message to the other party while the author still saw it. Migrates existing `me` rows into per-author hides and clears the shared column. |
 | `0046` | `0046_business_hours.sql` | Per-department / per-service hours replacing the `hours` jsonb. Only meaningful per-location, so it belongs after `0043`, and per-staff only after `0045`. |
 | `0047` | `0047_user_2fa_enabled_at.sql` | `0001` | `user_2fa.enabled_at` loses `NOT NULL DEFAULT now()`, which marked **every** inserted factor enabled the instant it was written. `UpsertSecret` only cleared the flag on its ON CONFLICT branch, so a first enrollment inherited the default and a re-enrollment did not - the pending/enabled distinction existed nowhere in the database. `Confirm2FA` refuses an already-enabled factor, so first-time enrollment could never be confirmed; abandoning enrollment left 2FA genuinely active with an unconfirmed secret. Repair clears `enabled_at` only where `recovery_codes_hash` is empty, which identifies unconfirmed factors exactly and never disables a confirmed one. Found by the 2FA integration tests, which had never executed because `TEST_DATABASE_URL` was unset wherever they were added. |
 

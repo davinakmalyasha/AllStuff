@@ -825,8 +825,15 @@ func (c *Chat) Delete(ctx context.Context, userID string, messageID int64, scope
 			return nil, domain.ErrValidation.WithField("_", "This message was already read. Delete for yourself only.")
 		}
 	}
-	if err := c.repos.Chat.DeleteMessage(ctx, messageID, scope); err != nil {
+	if err := c.repos.Chat.DeleteMessage(ctx, messageID, scope, userID); err != nil {
 		return nil, err
+	}
+	// A per-participant hide leaves the row readable - the message is gone for the
+	// actor and intact for everyone else. Returning it here would re-insert the
+	// very message just hidden, so a "delete for me" would appear to do nothing
+	// until the next fetch. 'everyone' still mutates the row and is worth echoing.
+	if scope == "me" {
+		return nil, nil
 	}
 	return c.repos.Chat.MessageByID(ctx, messageID)
 }
@@ -1072,14 +1079,14 @@ func (c *Chat) Messages(ctx context.Context, userID, threadID string, before int
 	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
 		return nil, err
 	}
-	return c.repos.Chat.MessagesByThread(ctx, threadID, before, limit)
+	return c.repos.Chat.MessagesByThread(ctx, threadID, userID, before, limit)
 }
 
 func (c *Chat) SearchThread(ctx context.Context, userID, threadID, q string, limit int) ([]*domain.ChatMessage, error) {
 	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
 		return nil, err
 	}
-	return c.repos.Chat.SearchMessages(ctx, threadID, q, limit)
+	return c.repos.Chat.SearchMessages(ctx, threadID, userID, q, limit)
 }
 
 // SearchAllMessages searches the user's threads (PRD §5.5.2).
@@ -1091,7 +1098,7 @@ func (c *Chat) Gallery(ctx context.Context, userID, threadID string, limit int) 
 	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
 		return nil, err
 	}
-	return c.repos.Chat.MediaInThread(ctx, threadID, limit)
+	return c.repos.Chat.MediaInThread(ctx, threadID, userID, limit)
 }
 
 // Export builds the full thread JSON for the user (PRD §5.5.2).
@@ -1099,7 +1106,7 @@ func (c *Chat) Export(ctx context.Context, userID, threadID string) ([]byte, err
 	if _, err := c.checkAccess(ctx, threadID, userID); err != nil {
 		return nil, err
 	}
-	msgs, err := c.repos.Chat.MessagesByThread(ctx, threadID, 0, 100000)
+	msgs, err := c.repos.Chat.MessagesByThread(ctx, threadID, userID, 0, 100000)
 	if err != nil {
 		return nil, err
 	}

@@ -107,18 +107,30 @@ func TestNonIdempotentMigrationsExplainThemselves(t *testing.T) {
 // Group layout is documented per rule. Index: 1=UNIQUE 2=CONCURRENTLY
 // 3=IF NOT EXISTS 4=name.
 var (
-	reCreateTable   = regexp.MustCompile(`(?is)^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
+	reCreateTable = regexp.MustCompile(`(?is)^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
+	// Drop-then-build is the recoverable shape for ANY index, not only concurrent
+	// ones: a plain CREATE INDEX can also be interrupted (lock timeout, disk full,
+	// a cancelled statement) and leave an INVALID index, which every later replay
+	// silently skips because IF NOT EXISTS compares names only and never checks
+	// pg_index.indisvalid.
+	//
+	// The concurrent-only form of reDropIndex is why 0048's index was reported as
+	// "not replay-safe" even though it had the preceding DROP the rule asks for -
+	// the drop-scan did not match a non-CONCURRENTLY DROP, so `dropped[name]` stayed
+	// false and the rule fell through to its unguarded case. The fix belongs in the
+	// pattern rather than in the migration: 0048's DROP INDEX is correct, and
+	// weakening the migration to IF NOT EXISTS would have made it permanently
+	// unrecoverable from an interrupted build.
+	reDropIndex     = regexp.MustCompile(`(?is)\bDROP\s+INDEX\s+(CONCURRENTLY\s+)?(IF\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
 	reCreateIndex   = regexp.MustCompile(`(?is)^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)`)
 	reCreateType    = regexp.MustCompile(`(?is)^\s*CREATE\s+TYPE\s+([A-Za-z0-9_."]+)`)
 	reCreateTrigger = regexp.MustCompile(`(?is)^\s*CREATE\s+TRIGGER\s+([A-Za-z0-9_]+)`)
 	reAddColumn     = regexp.MustCompile(`(?is)\bALTER\s+TABLE\s+([A-Za-z0-9_."]+)\s+ADD\s+COLUMN\s+(IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)`)
 	reAddConstraint = regexp.MustCompile(`(?is)\bADD\s+CONSTRAINT\s+([A-Za-z0-9_]+)`)
-	reDropIndex     = regexp.MustCompile(`(?is)\bDROP\s+INDEX\s+CONCURRENTLY\s+(IF\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
 	reInsert        = regexp.MustCompile(`(?is)^\s*INSERT\s+INTO\s+([A-Za-z0-9_."]+)`)
 	// INDEX is deliberately absent: a plain DROP INDEX is covered by
-	// reDropIndexAny below, which understands the CONCURRENTLY variant too.
+	// reDropIndex below, which understands the CONCURRENTLY variant too.
 	reUnguardedDrop  = regexp.MustCompile(`(?is)^\s*DROP\s+(TABLE|TRIGGER|TYPE|VIEW)\s+(IF\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
-	reDropIndexAny   = regexp.MustCompile(`(?is)^\s*DROP\s+INDEX\s+(CONCURRENTLY\s+)?(IF\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
 	reDropConstraint = regexp.MustCompile(`(?is)\bDROP\s+CONSTRAINT\s+IF\s+EXISTS\s+([A-Za-z0-9_]+)`)
 )
 
@@ -134,6 +146,15 @@ var (
 //   - CREATE INDEX CONCURRENTLY IF NOT EXISTS (0029 had five, 0031 has 26), which
 //     silently skips a rebuild of an INVALID index forever
 //
+// concurrentWord keeps the two index rules' messages in step, so a message cannot
+// say CONCURRENTLY about a statement that is not.
+func concurrentWord(concurrent bool) string {
+	if concurrent {
+		return " CONCURRENTLY"
+	}
+	return ""
+}
+
 // It is prefix matching, not SQL parsing, and it says so: DO blocks are
 // reported as opaque rather than silently assumed clean.
 func TestMigrationsDeclareTheirIdempotencyContract(t *testing.T) {
@@ -149,11 +170,14 @@ func TestMigrationsDeclareTheirIdempotencyContract(t *testing.T) {
 				m.Version, m.Header.OpaqueDOBlocks)
 		}
 
-		// Every concurrently-built index this file creates must be preceded by
-		// a DROP of the same name, or a failed build is skipped forever.
+		// Every index this file creates must be preceded by a DROP of the same name,
+		// or a failed build is skipped forever. Group 1 is the optional CONCURRENTLY
+		// and group 2 the optional IF EXISTS, so the NAME is group 3 - the concurrent-
+		// only pattern this originally used put the name in group 2 and silently
+		// recorded the wrong key for every non-concurrent drop.
 		dropped := map[string]bool{}
 		for _, d := range reDropIndex.FindAllStringSubmatch(m.Body, -1) {
-			dropped[strings.Trim(d[2], `"`)] = true
+			dropped[strings.Trim(d[3], `"`)] = true
 		}
 		// Constraints this file adds must have their drop in the same file.
 		dropsConstraint := map[string]bool{}
@@ -174,17 +198,23 @@ func TestMigrationsDeclareTheirIdempotencyContract(t *testing.T) {
 				guarded := strings.TrimSpace(mm[3]) != ""
 				name := mm[4]
 				switch {
-				case concurrent && dropped[name]:
-					// Drop-then-build is the correct shape: a failed build is
-					// removed on the next replay and rebuilt from clean.
+				case dropped[name]:
+					// Drop-then-build is the correct shape for a concurrent index AND
+					// for a plain one: in both cases a failed build is removed on the
+					// next replay and rebuilt from clean. The old condition required
+					// `concurrent &&`, so a non-concurrent index that DID have the
+					// correct preceding DROP was reported as unsafe — which teaches
+					// authors to "fix" a correct migration by swapping the DROP for
+					// IF NOT EXISTS, the one change that makes an interrupted build
+					// permanently unrecoverable.
 					// IF NOT EXISTS here is not merely redundant — it is
 					// actively misleading, because it reads as "this is safe to
 					// skip" when the DROP above is what makes it safe.
 					if guarded {
-						where("CREATE INDEX CONCURRENTLY " + name + " has both a preceding " +
-							"DROP INDEX CONCURRENTLY IF EXISTS and its own IF NOT EXISTS. Keep the DROP " +
-							"(it is what makes a failed build recoverable) and drop the IF NOT EXISTS, " +
-							"which reads as though skipping were the intended behaviour")
+						where("CREATE INDEX" + concurrentWord(concurrent) + " " + name + " has both a preceding " +
+							"DROP INDEX" + concurrentWord(concurrent) + " IF EXISTS and its own IF NOT EXISTS. " +
+							"Keep the DROP (it is what makes a failed build recoverable) and drop the " +
+							"IF NOT EXISTS, which reads as though skipping were the intended behaviour")
 					}
 				case concurrent:
 					where("CREATE INDEX CONCURRENTLY " + name + " has no preceding " +
@@ -210,7 +240,7 @@ func TestMigrationsDeclareTheirIdempotencyContract(t *testing.T) {
 				where("DROP " + strings.ToUpper(mm[1]) + " " + mm[3] + " without IF EXISTS is not replay-safe")
 			}
 			// Groups: 1=CONCURRENTLY 2=IF EXISTS 3=name
-			if mm := reDropIndexAny.FindStringSubmatch(stmt); mm != nil && mm[2] == "" {
+			if mm := reDropIndex.FindStringSubmatch(stmt); mm != nil && mm[2] == "" {
 				where("DROP INDEX " + strings.TrimSpace(mm[1]) + mm[3] +
 					" without IF EXISTS is not replay-safe: on a fresh database the index does not exist yet, " +
 					"and a bare DROP aborts the whole file with 42704")
