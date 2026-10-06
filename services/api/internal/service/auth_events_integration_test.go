@@ -1,3 +1,17 @@
+//go:build !race
+
+// Same tag as auth_2fa_integration_test.go, and for the same reason.
+//
+// This file depends on that file's unexported helpers - fixtureCtx, newTestAuth,
+// userWithPassword, testPassword - which means the two cannot be compiled
+// separately. Under `-race` the tagged file is excluded; without the same tag
+// here, the build fails with "undefined: fixtureCtx" and a cascade of "too many
+// errors" that buries the real cause. CI reported the cascade and nothing else.
+//
+// The tag exists because these tests clone a database per test and re-migrate
+// each clone, far too slow to run under the race detector as well as without it,
+// so it cannot simply be dropped. buildtag_lint_test.go makes forgetting it a
+// named failure instead of a mysterious one.
 package service
 
 import (
