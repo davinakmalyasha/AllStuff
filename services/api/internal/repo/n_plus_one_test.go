@@ -89,43 +89,82 @@ func TestBlockCheckOnSendIsOneQueryRegardlessOfThreadSize(t *testing.T) {
 
 // The batching must preserve the SEMANTICS of the loop it replaced, which checked
 // both directions: "I blocked them" and "they blocked me".
+//
+// Fresh users per subtest.
+//
+// The first version of this table shared one `a`, `b` and `c` across every case, so
+// the blocks inserted by "a blocked b" were still present when "sender self-excluded"
+// ran - and that case asserts FALSE. It failed with "AnyBlocked = true, want false",
+// which reads like a broken query and is actually a leaked fixture.
+//
+// Isolation matters more here than it looks: this is a table of about a boolean
+// about set membership, so a shared fixture silently changes the expected answers of
+// every case after the first that writes a row.
 func TestAnyBlockedMatchesThePerPeerLoopItReplaces(t *testing.T) {
-	h := testutil.New(t)
-	ctx := context.Background()
-
-	a := testutil.User(t, h)
-	b := testutil.User(t, h)
-	c := testutil.User(t, h)
-	stranger := testutil.User(t, h)
-
 	// Explicit uuid casts on every parameter. Postgres cannot infer a type for an
 	// untyped parameter in an INSERT, and reports it only when that statement
-	// happens to run - so the first three cases would pass and the fourth would
-	// abort the shared transaction, failing every case after it. That is how the
-	// original version of this table failed: the setup errors looked like failures
-	// of the code under test.
-	block := func(x, y string) {
+	// happens to run - so the early cases would pass and a later one would abort
+	// the shared transaction, failing every case after it.
+	block := func(t *testing.T, h *testutil.H, x, y string) {
+		t.Helper()
 		h.Exec(t, `INSERT INTO blocks (id, blocker_id, blocked_id)
 		           VALUES (gen_random_uuid(), $1::uuid, $2::uuid)`, x, y)
 	}
 
 	cases := []struct {
 		name  string
-		setup func()
-		peers []string
+		setup func(t *testing.T, h *testutil.H, a, b, c, stranger string)
+		peers func(a, b, c, stranger string) []string
 		want  bool
 	}{
-		{"no blocks", func() {}, []string{b.ID, c.ID}, false},
-		{"a blocked b", func() { block(a.ID, b.ID) }, []string{b.ID, c.ID}, true},
-		{"b blocked a (reverse direction)", func() { block(b.ID, a.ID) }, []string{b.ID, c.ID}, true},
-		{"only an unrelated peer is blocked", func() { block(b.ID, c.ID) }, []string{a.ID, stranger.ID}, false},
-		{"sender self-excluded from their own list", func() {}, []string{a.ID, b.ID}, false},
+		{
+			name:  "no blocks",
+			setup: func(*testing.T, *testutil.H, string, string, string, string) {},
+			peers: func(_, b, c, _ string) []string { return []string{b, c} },
+			want:  false,
+		},
+		{
+			name:  "a blocked b",
+			setup: func(t *testing.T, h *testutil.H, a, b, _, _ string) { block(t, h, a, b) },
+			peers: func(_, b, c, _ string) []string { return []string{b, c} },
+			want:  true,
+		},
+		{
+			name:  "b blocked a (reverse direction)",
+			setup: func(t *testing.T, h *testutil.H, a, b, _, _ string) { block(t, h, b, a) },
+			peers: func(_, b, c, _ string) []string { return []string{b, c} },
+			want:  true,
+		},
+		{
+			// The regression this whole refactor risks: batching a loop into one
+			// query can quietly widen the match. b blocking c must not implicate a.
+			name:  "only an unrelated peer is blocked",
+			setup: func(t *testing.T, h *testutil.H, _, b, c, _ string) { block(t, h, b, c) },
+			peers: func(a, _, _, stranger string) []string { return []string{a, stranger} },
+			want:  false,
+		},
+		{
+			// The sender is in their own peer list; the loop skipped them inline and
+			// the batched form must not start matching a self-block.
+			name:  "sender self-excluded from their own list",
+			setup: func(*testing.T, *testutil.H, string, string, string, string) {},
+			peers: func(a, b, _, _ string) []string { return []string{a, b} },
+			want:  false,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setup()
-			got, err := h.Repos.Chat.AnyBlocked(ctx, a.ID, tc.peers)
+			h := testutil.New(t)
+			ctx := context.Background()
+			a := testutil.User(t, h)
+			b := testutil.User(t, h)
+			c := testutil.User(t, h)
+			stranger := testutil.User(t, h)
+
+			tc.setup(t, h, a.ID, b.ID, c.ID, stranger.ID)
+
+			got, err := h.Repos.Chat.AnyBlocked(ctx, a.ID, tc.peers(a.ID, b.ID, c.ID, stranger.ID))
 			if err != nil {
 				t.Fatalf("AnyBlocked: %v", err)
 			}
