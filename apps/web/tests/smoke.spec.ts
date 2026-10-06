@@ -209,11 +209,27 @@ test('category page shows its trending leaderboard', async ({ page }) => {
 })
 
 test('unauthenticated write is rejected, not silently accepted', async ({ page }) => {
-  // Negative-path coverage the previous suite had none of: a POST to an
-  // engagement endpoint with no session must fail, and must not leave the user
-  // believing it succeeded.
-  // The page has no cookie or storage access to read a CSRF token from.
+  // Negative-path coverage the previous suite had none of: a PUT to an engagement
+  // endpoint with no session must fail, and must not leave the user believing it
+  // succeeded.
   await page.goto('/')
+
+  // Fetch the CSRF cookie explicitly rather than reading whatever the SPA happens to
+  // have obtained.
+  //
+  // The page must be loaded first - on about:blank document.cookie throws
+  // SecurityError - but loading it is not sufficient. The SPA fetches /auth/csrf
+  // lazily, during its own first mutating request, so after goto('/') the cookie may
+  // not exist yet. The test then sent an empty X-CSRF-Token and the server correctly
+  // answered 403 csrf_invalid - a real rejection, and the CSRF guard doing its job,
+  // but not the 401 this test is about.
+  //
+  // So the assertion that matters is that the write is refused for want of a
+  // session, which means the CSRF layer has to be satisfied first. Otherwise the
+  // test proves the CSRF guard works and says nothing about authentication.
+  const issued = await page.request.get('/api/v1/auth/csrf')
+  expect(issued.ok(), 'the CSRF endpoint must issue a token to an anonymous visitor').toBeTruthy()
+
   const result = await page.evaluate(async () => {
     const csrf = document.cookie.match(/bv_csrf=([^;]+)/)?.[1] ?? ''
     const res = await fetch('/api/v1/likes/business/00000000-0000-4000-8000-000000000000', {
@@ -221,7 +237,9 @@ test('unauthenticated write is rejected, not silently accepted', async ({ page }
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) },
       body: '{}',
     })
-    return { status: res.status }
+    return { status: res.status, tokenPresent: csrf !== '' }
   })
+
+  expect(result.tokenPresent, 'no CSRF cookie was set, so this run proved nothing').toBe(true)
   expect(result.status, 'an unauthenticated engagement write must not succeed').toBe(401)
 })
