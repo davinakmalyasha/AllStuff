@@ -62,18 +62,35 @@ export default defineConfig({
       reuseExistingServer: !isCI,
       timeout: 120_000,
       cwd: '../../services/api',
-      env: {
+env: {
         PORT: apiPort,
         // Every browser request reaches the API through the Vite proxy, so they
         // all share one client IP. Lifting the *global* per-IP bucket is
-        // required. The per-account auth tier is not lifted, which is what the
-        // 120s waits in smoke.spec.ts were compensating for — E2E_ACCOUNT_*
-        // below is the proper fix.
+        // required.
         RATELIMIT_GLOBAL: '5000',
-        // Test-only escape hatch for the per-account auth and 2FA buckets, read
-        // by internal/config. It is refused outside APP_ENV=test, so a
-        // production deployment cannot be started with it set.
-        E2E_ACCOUNT_THROTTLE_BYPASS: process.env.E2E_ACCOUNT_THROTTLE_BYPASS ?? '',
+        // APP_ENV=test plus the per-account bypass, set HERE rather than left to
+        // the caller.
+        //
+        // Both halves are required. internal/httpapi gates the bypass on
+        // APP_ENV=test, and config.Validate refuses to boot outside it, so
+        // setting only the bypass is a loud boot failure and setting only
+        // APP_ENV leaves the throttle armed. Neither was set: the bypass read
+        // `process.env.E2E_ACCOUNT_THROTTLE_BYPASS ?? ''`, which nothing in the
+        // repository ever set, so it resolved to '' and the per-account 10-per-15
+        // minutes bucket stayed live for the whole suite.
+        //
+        // That is what made register/land-on-/me fail. The suite registers several
+        // accounts in one run from one shared proxy IP, trips the bucket, and the
+        // next registration is refused for 15 minutes - which surfaces as "landed on
+        // /login instead of /me", with no rate-limit error anywhere in the test
+        // output. The specs had previously papered over it with 120-second expect
+        // timeouts; those were removed as part of a cleanup that assumed this
+        // hatch was already working.
+        //
+        // The hatch stays narrow by construction: per-ACCOUNT buckets only, never
+        // the per-IP tiers, and refused outside APP_ENV=test.
+        APP_ENV: 'test',
+        E2E_ACCOUNT_THROTTLE_BYPASS: '1',
       },
     },
   ],

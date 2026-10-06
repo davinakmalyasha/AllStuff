@@ -61,9 +61,26 @@ test('direct chat message raises a live notification for the recipient', async (
   // Opening the link marks it read (verify via API).
   await pageB.getByText('New message').first().click()
   await pageB.waitForURL(/\/me\/messages\//)
-  const notifs = await pageB.request.get('/api/v1/notifications?limit=5')
-  const { unread } = (await notifs.json()) as { unread: number }
-  expect(unread).toBe(0)
+
+  // Polled, not sampled once.
+  //
+  // The click handler fires the mark-read POST with `void markRead.mutateAsync(...)`
+  // and the router navigates at the same time, so waitForURL resolves as soon as
+  // the client-side route changes - which says nothing about whether the POST has
+  // landed. Reading /notifications immediately after therefore races the write, and
+  // reports unread=1 for a notification that is a moment later correctly read.
+  //
+  // That is not hypothetical: this assertion failed on the first attempt of a run
+  // and passed on the retry, which is the signature of a race rather than a bug.
+  // expect.poll states the property that actually matters - the count settles at
+  // zero - without asserting how quickly.
+  await expect
+    .poll(async () => {
+      const notifs = await pageB.request.get('/api/v1/notifications?limit=5')
+      const { unread } = (await notifs.json()) as { unread: number }
+      return unread
+    }, { timeout: 15_000, message: 'the notification should be marked read after opening its deep link' })
+    .toBe(0)
 
   await a.close()
   await b.close()
