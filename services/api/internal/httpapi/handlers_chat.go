@@ -201,6 +201,18 @@ func (s *Server) handleMessageDelete(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// `scope=me` returns NO message: the row still exists and the other
+	// participants still have it, so there is nothing to broadcast. Broadcasting a
+	// tombstone would delete it for everyone - the exact bug 0048 exists to fix - and
+	// dereferencing the nil result panicked the handler on every "delete for me".
+	//
+	// So a private delete is a per-viewer response and nothing more. The client's
+	// own list already drops the message on refetch, because MessagesByThread filters
+	// on chat_message_hides for the requesting user.
+	if msg == nil {
+		noContent(w)
+		return
+	}
 	s.broadcastThread(r.Context(), msg.ThreadID, Frame{Type: "message.deleted", Payload: map[string]any{
 		"message_id": msg.ID, "deleted_for": msg.DeletedFor,
 	}})
