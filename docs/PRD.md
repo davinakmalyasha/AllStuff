@@ -591,11 +591,12 @@ Conventions: `id` UUIDv7 PK everywhere; `created_at`/`updated_at` on all tables;
 
 **media** — `id`, `uploader_id`, `kind` enum (logo|cover|gallery|product|avatar|chat_image|chat_file|chat_audio|chat_video|document_verification), `original_name`, `mime` (validated by magic bytes), `size`, `width`, `height`, `duration_ms`, `path` (random-named, CDN-ready), `variants` JSONB (images: thumb/medium/large WebP/AVIF; audio: mp3/m4a; video: mp4 + poster frame), `virus_scan_status` enum (pending|clean|infected|error), `created_at`. No delete cascade — content refs preserved.
 
-**trend_snapshots** — `id`, `window` enum (24h|7d|30d), `business_id`, `score` numeric, `velocity` numeric, `rank_global`, `rank_category`, `rank_city`, `is_booming`, `is_rising`, `taken_at`. Indexes: (window, taken_at, rank_global). Materialized snapshot per recompute job (§5.6.3); enables leaderboard history.
+**trend_snapshots** — `id`, `period` enum (24h|7d|30d) — *named `period`, not `window`: `window` is a SQL keyword and would need quoting everywhere* — `business_id`, `score` numeric, `velocity` numeric, `rank_global`, `rank_category`, `rank_city`, `is_booming`, `is_rising`, `taken_at`. Indexes: (window, taken_at, rank_global). Materialized snapshot per recompute job (§5.6.3); enables leaderboard history.
 
 **sessions** (refresh-token registry) — `id`, `user_id`, `token_hash` (sha256), `ip`, `user_agent`, `created_at`, `last_seen_at`, `revoked_at`. Indexes: user_id, token_hash.
 
-**user_2fa** — `id`, `user_id` unique, `totp_secret_encrypted`, `enabled_at`, `recovery_codes_hash` JSONB (10 hashed, single-use), `last_used_at`.
+**user_2fa** — `id`, `user_id` unique, `totp_secret_encrypted`, `enabled_at` **nullable, no default**, `recovery_codes_hash` JSONB (10 hashed, single-use), `last_used_at`.
+> `enabled_at` carries **no column default on purpose**. It is written only by the confirm step, which is what makes a pending enrollment distinguishable from an enabled one; the two states are what the whole enrollment flow is built on. Do not add `DEFAULT now()`.
 
 **push_subscriptions** — `id`, `user_id`, `endpoint`, `keys` JSONB, `user_agent`, `created_at`, `last_seen_at`. Unique endpoint.
 
@@ -609,7 +610,8 @@ Conventions: `id` UUIDv7 PK everywhere; `created_at`/`updated_at` on all tables;
 
 **auth_events** (audit) — `id`, `user_id`, `event` enum (login|login_fail|register|password_reset|logout|ban|suspend|unban|2fa_enable|2fa_disable|session_revoke|document_view), `ip`, `user_agent`, `created_at`.
 
-**business_invites** — `id`, `business_id`, `email`, `role` enum (co_owner|viewer), `token`, `invited_by`, `accepted_at`, `expires_at` (7 days), `revoked_at`.
+**business_invites** — `id`, `business_id`, `email`, `role` enum (co_owner|viewer), `token`, `invited_by`, `accepted_at`, `accepted_user_id`, `expires_at` (7 days), `revoked_at`.
+> An accepted grant is authorised via **`accepted_user_id`**, never by re-resolving `email` against `users`. `email` is the address that was *invited* and is retained as a record of what was sent; it is not the holder's identity, and holders may change their own address. Unique on (business_id, accepted_user_id, role) where the grant is accepted.
 
 ### 7.5 Relationships summary
 

@@ -321,7 +321,7 @@ because it is the kind of thing that looks like a bug in staging and is not.
 | C→S | `subscribe` | `{thread_ids[]}` | capped at 50, each id membership-checked, non-members silently dropped |
 | S→C | `message.new` | full message | at-least-once; dedupe by `client_msg_id` / message id |
 | S→C | `message.edited` | full message | also reused for async link-preview enrichment |
-| S→C | `message.deleted` | `{message_id, deleted_for}` | tombstone |
+| S→C | `message.deleted` | `{message_id, deleted_for}` | tombstone, **`everyone` scope only**. A private delete is NOT broadcast — the message still exists for everyone else, so there is nothing to tombstone. |
 | S→C | `reaction.updated` | `{message_id, emoji, user_id}` | |
 | S→C | `receipt.read` | `{thread_id, user_id, last_read_message_id}` | |
 | S→C | `typing` | `{thread_id, user_id, is_typing}` | 3s expiry |
