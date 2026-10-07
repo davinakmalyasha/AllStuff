@@ -58,7 +58,7 @@ func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period 
 	}
 	// Read-only analytics access: owner OR co-owner OR accepted viewer
 	// (PRD §5.9.3). Viewers get nothing beyond this read.
-	if b.OwnerID != userID {
+	if b.OwnerID != userID { // lint:allow: not a gate - an owner fast path; the predicate below still gates
 		can, err := a.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
 		if err != nil {
 			return nil, err

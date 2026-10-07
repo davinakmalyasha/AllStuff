@@ -88,7 +88,7 @@ func (s *Engagement) ToggleRecommend(ctx context.Context, userID, businessID str
 	if err != nil || b == nil {
 		return false, domain.ErrNotFound
 	}
-	if on && b.OwnerID != userID {
+	if on && b.OwnerID != userID { // lint:allow: not authorisation - routes the event, and only the OWNER's own recommendation is suppressed
 		if err := s.repos.Engagement.SetRecommend(ctx, userID, businessID, true); err != nil {
 			return false, err
 		}
@@ -280,7 +280,7 @@ func (s *Engagement) CreateComment(ctx context.Context, userID, businessID, pare
 		}
 	}
 	// owner notified
-	if b.OwnerID != userID {
+	if b.OwnerID != userID { // lint:allow: not authorisation - a notification RECIPIENT, and only the owner is notified
 		s.notifier.Create(ctx, b.OwnerID, "comment_on_business", map[string]any{
 			"comment_id": c.ID, "business_id": businessID, "business_slug": b.Slug, "by": userID,
 		})
@@ -414,7 +414,7 @@ func (s *Engagement) CreateReview(ctx context.Context, userID, businessID string
 	key := fmt.Sprintf("%s:business:%s:review:%s", userID, businessID, eventDay())
 	_, _ = s.repos.Engagement.InsertEvent(ctx, userID, "business", businessID, "review", wReview, key)
 	// notify owner (product reviews get their own type, PRD §5.7)
-	if b.OwnerID != userID {
+	if b.OwnerID != userID { // lint:allow: not authorisation - a notification RECIPIENT, and only the owner is notified
 		ntype := "review_posted"
 		payload := map[string]any{"business_id": businessID, "business_slug": b.Slug, "by": userID, "rating": rating}
 		if productID != nil && *productID != "" {

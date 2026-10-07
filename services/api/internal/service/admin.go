@@ -85,7 +85,7 @@ func (a *Admin) Decide(ctx context.Context, adminID, businessID string, in Decid
 	}
 
 	// Notify the owner of the decision (PRD §5.7).
-	if b.OwnerID != "" {
+	if b.OwnerID != "" { // lint:allow: not authorisation - a null-check, then a notification RECIPIENT
 		payload := map[string]any{"business_id": businessID, "decision": action, "reason": reason}
 		if action == "approve" && in.Level != nil {
 			payload["level"] = string(*in.Level)
@@ -138,7 +138,7 @@ func (a *Admin) RequestDocument(ctx context.Context, adminID, businessID, kind, 
 		util.NewUUID(), adminID, businessID, note, map[string]any{"kind": kind}); err != nil {
 		return err
 	}
-	if b.OwnerID != "" {
+	if b.OwnerID != "" { // lint:allow: not authorisation - a null-check, then a notification RECIPIENT
 		a.notifier.Create(ctx, b.OwnerID, "doc_re_request", map[string]any{
 			"business_id": businessID, "kind": kind, "note": note,
 		})

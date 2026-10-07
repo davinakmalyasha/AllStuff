@@ -40,7 +40,7 @@ func (s *Community) Ask(ctx context.Context, userID, businessID, text string) (*
 		return nil, err
 	}
 	// Notify the owner.
-	if b.OwnerID != userID {
+	if b.OwnerID != userID { // lint:allow: not authorisation - suppresses notifying an owner about their own question
 		s.notifier.Create(ctx, b.OwnerID, "question_asked", map[string]any{
 			"question_id": q.ID, "business_id": businessID, "by": userID,
 		})
@@ -67,7 +67,20 @@ func (s *Community) Answer(ctx context.Context, userID, questionID, text string)
 		return nil, domain.ErrValidation.WithField("text", "Answer must be 1–1000 characters.")
 	}
 	b, _ := s.repos.Businesses.GetByID(ctx, q.BusinessID)
-	isOwner := b != nil && b.OwnerID == userID
+	// CO-OWNER PARITY, the sixth instance of this exact defect. `answers.is_owner`
+	// is a PERSISTED column that also drives `ORDER BY a.is_owner DESC`, so it
+	// decides both how an answer is labelled and whether it sorts among the
+	// business's own replies. Comparing the owner_id column meant a co-owner who
+	// ran the listing's Q&A had their answers filed as customer answers, sorted
+	// below the owner's.
+	isOwner := false
+	if b != nil {
+		canManage, cerr := s.repos.Businesses.CanManageBusiness(ctx, userID, q.BusinessID)
+		if cerr != nil {
+			return nil, cerr
+		}
+		isOwner = canManage
+	}
 	a, err := s.repos.Community.CreateAnswer(ctx, questionID, userID, text, isOwner)
 	if err != nil {
 		return nil, err

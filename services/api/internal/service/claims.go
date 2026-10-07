@@ -68,7 +68,7 @@ func (c *Claims) Submit(ctx context.Context, userID string, in ClaimInput) (*Cla
 		if err != nil || b == nil {
 			return nil, domain.ErrValidation.WithField("business_id", "Listing not found.")
 		}
-		if b.OwnerID != "" {
+		if b.OwnerID != "" { // lint:allow: not authorisation - asks whether the column is populated, not who may act
 			return nil, domain.ErrValidation.WithField("business_id", "This listing already has an owner.")
 		}
 	} else {
