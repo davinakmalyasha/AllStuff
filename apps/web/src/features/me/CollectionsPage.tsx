@@ -16,6 +16,15 @@ export function CollectionsPage() {
   const [name, setName] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CollectionDTO | null>(null)
+  // The server caps a page and reports `has_more`. Growing the page size is what
+  // "show more" does: a collection is user-growable, so the endpoint used to return
+  // every saved item in one response, and the cost of opening a collection rose with
+  // how much had been saved into it.
+  //
+  // 100 matches the server default, so an ordinary collection still arrives in one
+  // request and gains no round trip. Reset when a different collection is opened,
+  // otherwise a page size grown on a large collection would leak onto the next one.
+  const [itemLimit, setItemLimit] = useState(100)
 
   usePageMeta('My collections')
 
@@ -25,8 +34,11 @@ export function CollectionsPage() {
   })
 
   const { data: itemsData } = useQuery({
-    queryKey: ['collection-items', openId],
-    queryFn: () => api<{ items: CollectionItemDTO[] }>(`/me/collections/${openId}/items`),
+    queryKey: ['collection-items', openId, itemLimit],
+    queryFn: () =>
+      api<{ items: CollectionItemDTO[]; has_more?: boolean }>(
+        `/me/collections/${openId}/items?limit=${itemLimit}`,
+      ),
     enabled: !!openId,
   })
 
@@ -99,7 +111,7 @@ export function CollectionsPage() {
         {data?.collections.map((c) => (
           <Card key={c.id} className="p-0">
             <div className="flex items-center gap-3 p-4">
-              <button onClick={() => setOpenId(openId === c.id ? null : c.id)} className="flex-1 text-left">
+              <button onClick={() => { setOpenId(openId === c.id ? null : c.id); setItemLimit(100) }} className="flex-1 text-left">
                 <p className="text-sm font-semibold text-ink">{c.name} <span className="text-xs font-normal text-ink3">({c.item_count})</span></p>
                 <p className="text-xs text-ink3">/{c.slug}</p>
               </button>
@@ -113,6 +125,16 @@ export function CollectionsPage() {
             {openId === c.id && (
               <div className="border-t border-border px-4 py-3">
                 {!itemsData?.items.length && <p className="text-sm text-ink3">Nothing saved here yet.</p>}
+                {itemsData?.has_more && (
+                  <div className="pb-2">
+                    <Button variant="secondary" size="sm" onClick={() => setItemLimit((n) => n + 100)}>
+                      Show more
+                    </Button>
+                    <span className="ml-3 text-xs text-ink3">
+                      Showing {itemsData.items.length} of this collection
+                    </span>
+                  </div>
+                )}
                 {itemsData?.items.map((item) => (
                   <div key={item.id} className="flex items-center gap-2 py-1.5 text-sm">
                     {item.target_type === 'business' && item.target_slug ? (

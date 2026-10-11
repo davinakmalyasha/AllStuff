@@ -146,6 +146,20 @@ func (s *Server) handleCollectionDelete(w http.ResponseWriter, r *http.Request) 
 	noContent(w)
 }
 
+// Collection item paging.
+//
+// A collection is user-growable without bound, so both readers - the owner's and the
+// PUBLIC one - previously returned every saved item in a single response. The public
+// one is the sharper case: no authentication and no cap.
+//
+// The default is generous enough that an ordinary collection arrives in one request,
+// so the common case gains no round trip. The cap exists so the response size is
+// bounded by the server rather than by how much a user happened to save.
+const (
+	collectionItemsDefaultLimit = 100
+	collectionItemsMaxLimit     = 500
+)
+
 func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {
@@ -153,12 +167,25 @@ func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		items, err := s.deps.Engagement.ListItems(r.Context(), user.ID, r.PathValue("id"))
+		q := r.URL.Query()
+		limit := parsePositiveInt(q.Get("limit"), collectionItemsDefaultLimit)
+		if limit > collectionItemsMaxLimit {
+			limit = collectionItemsMaxLimit
+		}
+		offset := parseOffset(q.Get("offset"), 0)
+
+		// One extra row detects whether more exist, rather than paying for a COUNT or
+		// a second execution of the query. Same shape as the thread reader.
+		items, err := s.deps.Engagement.ListItems(r.Context(), user.ID, r.PathValue("id"), limit+1, offset)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		ok(w, map[string]any{"items": items})
+		hasMore := len(items) > limit
+		if hasMore {
+			items = items[:limit]
+		}
+		ok(w, map[string]any{"items": items, "has_more": hasMore})
 		return
 	}
 	var in struct {

@@ -193,11 +193,15 @@ func (s *Engagement) DeleteCollection(ctx context.Context, userID, id string) er
 	return s.repos.Engagement.DeleteCollection(ctx, id)
 }
 
-func (s *Engagement) ListItems(ctx context.Context, userID, collectionID string) ([]*domain.CollectionItem, error) {
+// ListItems returns a page of a collection the caller owns.
+//
+// The ownership check runs before the page is read, so a non-owner cannot use
+// pagination to probe another user's collection one page at a time.
+func (s *Engagement) ListItems(ctx context.Context, userID, collectionID string, limit, offset int) ([]*domain.CollectionItem, error) {
 	if _, err := s.repos.Engagement.GetCollection(ctx, userID, collectionID); err != nil {
 		return nil, err
 	}
-	return s.repos.Engagement.ListItems(ctx, collectionID)
+	return s.repos.Engagement.ListItems(ctx, collectionID, limit, offset)
 }
 
 func (s *Engagement) RemoveItem(ctx context.Context, userID, collectionID, itemID string) error {

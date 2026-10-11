@@ -218,8 +218,19 @@ func (r *EngagementRepo) RemoveItem(ctx context.Context, collectionID, itemID st
 	return err
 }
 
-func (r *EngagementRepo) ListItems(ctx context.Context, collectionID string) ([]*domain.CollectionItem, error) {
-	rows, err := r.pool.Query(ctx, `
+// ListItems returns a PAGE of a collection's items.
+//
+// This had no LIMIT and no OFFSET, and a collection is user-growable without bound -
+// users save businesses and products into them. So `GET /me/collections/{id}/items`
+// read, serialised and rendered every item a user had ever saved, and the cost of
+// opening a collection grew with how much the user had saved into it.
+//
+// The ORDER BY gains `i.id DESC` as its final term. `sort_order, created_at DESC` is
+// not a total order: two items saved in the same millisecond with the same sort_order
+// can be returned in either order, so an OFFSET page could show one twice and skip
+// another. The repository lint for exactly this rule is what caught it.
+func (r *EngagementRepo) ListItems(ctx context.Context, collectionID string, limit, offset int) ([]*domain.CollectionItem, error) {
+	query := `
 		SELECT i.id, i.collection_id, i.target_type, i.target_id, i.note, i.created_at,
 			coalesce(b.name, p.name, '') AS target_name,
 			coalesce(b.slug, p2.slug, '') AS target_slug,
@@ -228,7 +239,19 @@ func (r *EngagementRepo) ListItems(ctx context.Context, collectionID string) ([]
 		LEFT JOIN businesses b ON i.target_type = 'business' AND b.id = i.target_id AND b.deleted_at IS NULL
 		LEFT JOIN products p ON i.target_type = 'product' AND p.id = i.target_id AND p.deleted_at IS NULL
 		LEFT JOIN businesses p2 ON p2.id = p.business_id
-		WHERE i.collection_id = $1 ORDER BY i.sort_order, i.created_at DESC`, collectionID)
+		WHERE i.collection_id = $1
+		ORDER BY i.sort_order, i.created_at DESC, i.id DESC`
+	args := []any{collectionID}
+	if limit > 0 {
+		args = append(args, limit)
+		query += ` LIMIT $` + util.Itoa(len(args))
+	}
+	if offset > 0 {
+		args = append(args, offset)
+		query += ` OFFSET $` + util.Itoa(len(args))
+	}
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +270,16 @@ func (r *EngagementRepo) ListItems(ctx context.Context, collectionID string) ([]
 		out = append(out, &it)
 	}
 	return out, rows.Err()
+}
+
+// ListItemsAll returns every item in a collection, for the account-export path ONLY.
+//
+// Kept as a separate name rather than reached by passing limit=0 to ListItems, so that
+// the unbounded read is a deliberate choice at each call site instead of a default
+// somebody inherits. A data export genuinely needs the whole set; every user-facing
+// read does not.
+func (r *EngagementRepo) ListItemsAll(ctx context.Context, collectionID string) ([]*domain.CollectionItem, error) {
+	return r.ListItems(ctx, collectionID, 0, 0)
 }
 
 func (r *EngagementRepo) InCollections(ctx context.Context, userID, targetType, targetID string) ([]string, error) {

@@ -400,10 +400,24 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 		fail(w, domain.ErrNotFound)
 		return
 	}
-	items, err := s.deps.Repos.Engagement.ListItems(r.Context(), col.ID)
+	// Paginated, and this is the read that most needed it: the endpoint is PUBLIC, so
+	// an anonymous visitor could request every item in a shared collection with no cap
+	// at all. The owner-facing reader was already authenticated and still unbounded.
+	q := r.URL.Query()
+	limit := parsePositiveInt(q.Get("limit"), collectionItemsDefaultLimit)
+	if limit > collectionItemsMaxLimit {
+		limit = collectionItemsMaxLimit
+	}
+	offset := parseOffset(q.Get("offset"), 0)
+
+	items, err := s.deps.Repos.Engagement.ListItems(r.Context(), col.ID, limit+1, offset)
 	if err != nil {
 		fail(w, err)
 		return
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
 	}
 	owner, _ := s.deps.Repos.Users.GetByID(r.Context(), col.UserID)
 	ownerInfo := map[string]any{"name": "Deleted user", "username": ""}
@@ -412,7 +426,7 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 	}
 	ok(w, map[string]any{
 		"collection": col, "items": items,
-		"owner": ownerInfo,
+		"owner": ownerInfo, "has_more": hasMore,
 	})
 }
 

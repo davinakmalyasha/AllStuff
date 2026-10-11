@@ -1126,7 +1126,10 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 	collections, _ := a.repos.Engagement.ListCollections(ctx, userID)
 	colItems := []any{}
 	for _, c := range collections {
-		items, _ := a.repos.Engagement.ListItems(ctx, c.ID)
+		// ListItemsAll, not ListItems: an account export is one of the few reads that
+		// genuinely needs every row, and naming it separately keeps that a choice
+		// rather than a default a user-facing caller could inherit.
+		items, _ := a.repos.Engagement.ListItemsAll(ctx, c.ID)
 		colItems = append(colItems, map[string]any{"collection": c, "items": items})
 	}
 	reviews, err := a.repos.Query(ctx, `
