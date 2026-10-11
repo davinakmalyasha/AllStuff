@@ -291,7 +291,7 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		if role == "owner" {
 			return nil, domain.ErrValidation.WithField("_", "This conversation is closed.")
 		}
-		if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "open"); err != nil {
+		if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "open", userID); err != nil {
 			return nil, err
 		}
 		if _, serr := c.systemMessage(ctx, threadID, "Conversation reopened."); serr != nil {
@@ -1069,7 +1069,7 @@ func (c *Chat) CloseThread(ctx context.Context, userID, threadID string) error {
 		// Co-owner parity (PRD §5.9.3): any manager of the business may close.
 		can, cerr := c.repos.Businesses.CanManageBusiness(ctx, userID, derefString(t.BusinessID))
 		if cerr == nil && can {
-			if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "closed"); err != nil {
+			if err := c.repos.Chat.SetThreadStatus(ctx, threadID, "closed", userID); err != nil {
 				return err
 			}
 			// System notice so every participant sees why (PRD §5.5.2).

@@ -662,9 +662,36 @@ func (r *ChatRepo) MediaInThread(ctx context.Context, threadID, viewer string, l
 
 // ---- thread lifecycle ----
 
-func (r *ChatRepo) SetThreadStatus(ctx context.Context, threadID, status string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE chat_threads SET status=$2 WHERE id=$1`, threadID, status)
+// SetThreadStatus moves a thread between open and closed, recording WHO closed it
+// and WHEN.
+//
+// `chat_threads.closed_at` and `closed_by` have been in the schema since 0001 and
+// appear NOWHERE else in the Go source - this method set `status` alone. So closing a
+// thread recorded neither the actor nor the moment, on a thread whose two parties are
+// a customer and a business owner, which is exactly the situation where "who ended
+// this, and when" is the question asked afterwards.
+//
+// Reopening CLEARS both columns. A reopened thread is not a closed one, and leaving
+// stale values would make the row claim it was closed by someone at a time when it
+// was open - worse than the empty column it replaces, because it reads as a fact.
+//
+// The actor is a parameter, not inferred: this repository has no request context, and
+// deriving an audit actor from ambient state is how audit rows end up attributed to
+// nobody.
+func (r *ChatRepo) SetThreadStatus(ctx context.Context, threadID, status, actorID string) error {
+	var actor any
+	if actorID != "" {
+		actor = actorID
+	}
+	if status == "closed" {
+		_, err := r.pool.Exec(ctx, `
+			UPDATE chat_threads SET status = $2, closed_at = now(), closed_by = $3::uuid
+			 WHERE id = $1`, threadID, status, actor)
+		return err
+	}
+	_, err := r.pool.Exec(ctx, `
+		UPDATE chat_threads SET status = $2, closed_at = NULL, closed_by = NULL
+		 WHERE id = $1`, threadID, status)
 	return err
 }
 

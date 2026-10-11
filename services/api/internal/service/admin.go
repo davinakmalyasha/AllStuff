@@ -60,7 +60,9 @@ func (a *Admin) Decide(ctx context.Context, adminID, businessID string, in Decid
 		if err := a.repos.Businesses.SetVerified(ctx, businessID, level); err != nil {
 			return nil, err
 		}
-		_ = a.repos.Businesses.SetDocumentStatuses(ctx, businessID, "approved")
+		// reviewerID is recorded: an approval is what grants a trust badge, so the audit
+		// trail has to name the admin who granted it, not just the moment.
+		_ = a.repos.Businesses.SetDocumentStatuses(ctx, adminID, businessID, "approved")
 	case "reject":
 		if reason == "" {
 			return nil, domain.ErrValidation.WithField("reason", "A rejection reason is required.")
@@ -69,7 +71,7 @@ func (a *Admin) Decide(ctx context.Context, adminID, businessID string, in Decid
 		if err := a.repos.Businesses.SetRejected(ctx, businessID, reason); err != nil {
 			return nil, err
 		}
-		_ = a.repos.Businesses.SetDocumentStatuses(ctx, businessID, "rejected")
+		_ = a.repos.Businesses.SetDocumentStatuses(ctx, adminID, businessID, "rejected")
 	default:
 		return nil, domain.ErrValidation.WithField("decision", "Decision must be approve or reject.")
 	}
@@ -128,8 +130,8 @@ func (a *Admin) RequestDocument(ctx context.Context, adminID, businessID, kind, 
 		return domain.ErrValidation.WithField("kind", "Invalid document kind.")
 	}
 	if _, err := a.repos.Exec(ctx, `
-		UPDATE verification_documents SET status='rejected', review_note=$2, reviewed_at=now()
-		WHERE business_id=$1 AND kind=$3 AND status <> 'rejected'`, businessID, note, kind); err != nil {
+		UPDATE verification_documents SET status='rejected', review_note=$2, reviewed_at=now(), reviewer_id=$4::uuid
+		WHERE business_id=$1 AND kind=$3 AND status <> 'rejected'`, businessID, note, kind, adminID); err != nil {
 		return err
 	}
 	if _, err := a.repos.Exec(ctx, `

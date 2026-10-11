@@ -651,10 +651,33 @@ func (r *BusinessRepo) ResubmitCount(ctx context.Context, businessID string) (in
 	return n, err
 }
 
-func (r *BusinessRepo) SetDocumentStatuses(ctx context.Context, businessID, status string) error {
+// SetDocumentStatuses records a review decision AND WHO MADE IT.
+//
+// `reviewer_id` existed in the schema from 0001 and was never written, so every
+// approved or rejected verification document recorded WHEN it was decided and not by
+// whom. That is the same defect as auth_events.ip and sessions.last_seen_at: a column
+// that is declared, documented in the PRD, and silently empty.
+//
+// It matters more here than the omissions elsewhere. A verification decision is what
+// puts a trust badge on a listing, and the business owner is told the outcome - so
+// "which admin approved this, and on what evidence" is the first question asked when
+// a bad verification is discovered. `verification_document_views` already records
+// who LOOKED at a document; without reviewer_id the chain stops one step short of
+// who decided.
+//
+// The reviewer is a parameter rather than read from context because this repo layer
+// has no request context, and inferring an admin from ambient state is how audit
+// rows end up attributed to nobody.
+func (r *BusinessRepo) SetDocumentStatuses(ctx context.Context, reviewerID, businessID, status string) error {
+	var reviewer any
+	if reviewerID != "" {
+		reviewer = reviewerID
+	}
 	_, err := r.pool.Exec(ctx,
-		`UPDATE verification_documents SET status = $2, reviewed_at = now() WHERE business_id = $1 AND status = 'pending'`,
-		businessID, status)
+		`UPDATE verification_documents
+		    SET status = $3, reviewed_at = now(), reviewer_id = $2::uuid
+		  WHERE business_id = $1 AND status = 'pending'`,
+		businessID, reviewer, status)
 	return err
 }
 
