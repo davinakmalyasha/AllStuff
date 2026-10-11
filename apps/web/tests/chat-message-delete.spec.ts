@@ -39,8 +39,15 @@ test('a private delete hides the message from the actor and not the other party'
   const pageB = await ctxB.newPage()
 
   const usernameB = `delb${uid}`
+  // The shared `register` fixture submits the form and returns; it does NOT wait for
+  // the account to exist. smoke.spec.ts follows every call with a /me assertion for
+  // exactly this reason, and the first version of this spec skipped it - the profile
+  // lookup then raced the in-flight registration and got a 404, which reads as a
+  // missing route rather than a missing user.
   await register(pageA, { email: `da-${uid}@example.com`, username: `dela${uid}`, password: PASSWORD })
+  await expect(pageA).toHaveURL(/\/me$/)
   await register(pageB, { email: `db-${uid}@example.com`, username: usernameB, password: PASSWORD })
+  await expect(pageB).toHaveURL(/\/me$/)
 
   // B's user id, from their public profile.
   const profile = await pageA.request.get(`/api/v1/u/${usernameB}`)
@@ -119,7 +126,9 @@ test('deleting for everyone removes it from both participants', async ({ browser
 
   const usernameB = `everb${uid}`
   await register(pageA, { email: `ea-${uid}@example.com`, username: `evera${uid}`, password: PASSWORD })
+  await expect(pageA).toHaveURL(/\/me$/)
   await register(pageB, { email: `eb-${uid}@example.com`, username: usernameB, password: PASSWORD })
+  await expect(pageB).toHaveURL(/\/me$/)
 
   const profile = await pageA.request.get(`/api/v1/u/${usernameB}`)
   const { id: userBId } = (await profile.json()) as { id: string }
