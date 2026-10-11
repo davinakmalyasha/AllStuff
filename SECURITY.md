@@ -64,6 +64,39 @@ Stated here rather than discovered later:
 - **Facebook, Apple and GitHub OAuth are not implemented.** Google only, despite
   what `docs/PRD.md` §5.9.1 says. See "Documentation drift" below.
 
+## Audit-trail invariants
+
+Every item below was violated in shipped code, and each violation was silent: an audit
+column that is never written looks identical to one with nothing to report, and a
+permission check that consults the wrong column simply returns the wrong answer. They
+are listed here so a future migration or refactor can be checked against them.
+
+- **`user_2fa.enabled_at` has no column default, on purpose.** It is written only by
+  the confirm step, which is what makes a pending enrollment distinguishable from an
+  enabled one. A `DEFAULT now()` once made every enrollment active the instant it was
+  inserted, so first-time enrollment could never be confirmed and an abandoned one
+  left 2FA armed on a secret the user may never have stored.
+- **Business grants resolve by `accepted_user_id`, never by `email`.** The invited
+  address is a record of what was sent; it is not the holder's identity. Resolving the
+  holder through it meant changing your own email silently revoked every co-owner and
+  viewer grant you held - and meant that whoever later acquired the address inherited
+  the grant.
+- **Business-scoped authorization goes through `CanManageBusiness`**, not a comparison
+  against the `owner_id` column. The lint in `internal/service` enforces this and
+  requires a `lint:allow` and a reason on any exception. Comparing `owner_id` is right
+  only where the question is genuinely about the owner - a notification recipient -
+  and wrong in six places it previously appeared.
+- **These columns must be written, not merely declared:**
+  `auth_events.ip` and `auth_events.user_agent` (with `login_fail` recorded, not just
+  successes), `sessions.last_seen_at`, `chat_messages.read_count`,
+  `verification_documents.reviewer_id`, and `chat_threads.closed_at` / `closed_by`.
+  Each was documented in `docs/PRD.md`, read or selected somewhere, and populated
+  nowhere.
+- **A private message delete is not a tombstone.** "Delete for me" writes to
+  `chat_message_hides` and returns no message; only "delete for everyone" mutates the
+  shared row and broadcasts. Treating the two alike either hides a message from
+  everyone or re-inserts it into the actor's view.
+
 ## Documentation drift
 
 The docs in this repository are written to be checkable, and this section exists

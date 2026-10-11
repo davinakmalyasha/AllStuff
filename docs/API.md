@@ -38,6 +38,7 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - `PUT /businesses/{id}/storefront` · `GET /businesses/{id}/analytics?period=7d|30d|all`
 - Documents: `GET|POST /businesses/{id}/documents` · `DELETE /businesses/{id}/documents/{docId}`
 - Invites: `GET|POST /businesses/{id}/invites` (roles: `co_owner` | `viewer`; `viewer` grants read-only access to `GET /businesses/{id}/analytics` only, `co_owner` grants full management rights) · `DELETE /businesses/{id}/invites/{inviteId}` · `GET /invites/{token}` (public preview) · `POST /invites/{token}/accept` (invitee receives an email with the accept link `{PUBLIC_URL}/invite/{token}`)
+  - An accepted grant is held by the accepting **user id**. The invited `email` is retained only as a record of what was sent and is never re-resolved to decide access, so a holder who changes their own address keeps their access. Accepted grants are unique per (business, user, role). Importing `PRD.md`'s older description of invite resolution will reintroduce the bug this fixes.
 - Quick replies: `GET|POST /businesses/{id}/quick-replies` · `DELETE .../quick-replies/{replyId}`
 
 ## Products
