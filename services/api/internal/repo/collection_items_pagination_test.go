@@ -28,15 +28,22 @@ import (
 func collectionWithItems(t *testing.T, h *testutil.H, n int) (collectionID string, itemCount int) {
 	t.Helper()
 	owner := testutil.User(t, h)
-	biz := testutil.Business(t, h, testutil.BusinessOpts{Owner: owner})
 
 	colID := util.NewUUID()
 	h.Exec(t, `INSERT INTO collections (id, user_id, name, slug)
 	           VALUES ($1::uuid, $2::uuid, 'Saved', $3)`, colID, owner.ID, "saved-"+colID[:8])
 
+	// DISTINCT target ids, because `collection_items` is UNIQUE on
+	// (collection_id, target_type, target_id) - the same business cannot be saved
+	// twice. The first version of this helper generated N rows all pointing at one
+	// business and failed the constraint on every test.
+	//
+	// target_id carries no foreign key, so generated ids are valid here; the LEFT JOINs
+	// in the reader simply produce empty names, which coalesce already handles, and only
+	// the ids matter for a paging assertion. No business fixture is needed.
 	h.Exec(t, `INSERT INTO collection_items (id, collection_id, target_type, target_id)
-	           SELECT gen_random_uuid(), $1::uuid, 'business', $2::uuid
-	             FROM generate_series(1, $3)`, colID, biz.ID, n)
+	           SELECT gen_random_uuid(), $1::uuid, 'business', gen_random_uuid()
+	             FROM generate_series(1, $2)`, colID, n)
 
 	return colID, n
 }
