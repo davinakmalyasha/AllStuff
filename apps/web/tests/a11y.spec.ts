@@ -36,8 +36,22 @@ const PAGES = [
 
 const BLOCKING = new Set(['serious', 'critical'])
 
+// Audit the RESTING state.
+//
+// The first run measured several elements mid-animation: a `mono-label` reported
+// fg #929297 on white, which is exactly #6e6e75 blended 75% toward white, and a button
+// reported #515153 on #464647, the same 0.75 blend of ink over accent. Neither is a
+// state a reader ever sees - the animation is a fade-up that finishes - so auditing it
+// would have produced findings nobody could act on.
+//
+// The app honours prefers-reduced-motion (index.css), so emulating it settles the
+// animations rather than needing a sleep, and it is deterministic rather than
+// timing-dependent. Applied per page inside the test, since `test.use` does not accept
+// this option in the installed Playwright version.
+
 for (const p of PAGES) {
   test(`${p.name} has no serious accessibility violations`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto(p.path)
 
     // Wait for the SPA to render. `networkidle` is unusable here: the app holds a

@@ -13,7 +13,14 @@ export default {
         ink2: 'var(--color-ink-2)',
         ink3: 'var(--color-ink-3)',
         accent: 'var(--color-accent)',
-        accentInk: 'var(--color-accent-ink)',
+        // Kebab-case, because `accentInk` generated `.text-accentInk` - a class that
+        // appears ZERO times in the codebase, while `text-accent-ink` appears in 32
+        // files and did nothing. Tailwind uses the key verbatim; it does not convert
+        // camelCase to kebab-case. The effect was that every primary button inherited
+        // `--color-ink` and rendered dark-on-dark: 1.12:1, invisible. Not noticed
+        // because Playwright clicks by accessible name, and the accessible name is
+        // unaffected by contrast.
+        'accent-ink': 'var(--color-accent-ink)',
       },
       fontFamily: {
         sans: [
