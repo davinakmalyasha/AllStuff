@@ -1,0 +1,82 @@
+import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+
+/**
+ * Real accessibility testing, replacing an attempt that could not work.
+ *
+ * A regex pass over the JSX reported 188 unlabelled form controls, then 16
+ * "placeholder-only" ones, then zero - because it cannot see component contracts.
+ * `<Input label="Business name" …>` renders `useId()` plus `<label htmlFor={id}>`, and
+ * a scan of the `<input>` tag alone has no way to know that. It also flagged an `<img
+ * onerror>` that existed only inside a comment describing an already-fixed XSS.
+ *
+ * axe-core runs against the RENDERED accessibility tree, which is the only place any
+ * of those questions can actually be answered.
+ *
+ * Scoping, because a gate that fails on everything gets switched off:
+ *
+ *   - Only `serious` and `critical` impact fails the build. Those are the findings
+ *     that stop someone using the product. `minor` and `moderate` are printed so they
+ *     are visible and can be worked through, but they do not block unrelated work.
+ *   - `best-practice` rules are excluded. They are opinions from the axe maintainers
+ *     rather than WCAG requirements, and mixing the two makes a failure ambiguous: it
+ *     is not clear whether the product has a barrier or a style disagreement.
+ *
+ * The tag set is the WCAG A and AA success criteria, which is the level the PRD
+ * implies by targeting a public directory.
+ */
+
+const PAGES = [
+  { name: 'landing', path: '/' },
+  { name: 'login', path: '/login' },
+  { name: 'register', path: '/register' },
+  { name: 'discover', path: '/discover' },
+  { name: 'categories', path: '/categories' },
+] as const
+
+const BLOCKING = new Set(['serious', 'critical'])
+
+for (const p of PAGES) {
+  test(`${p.name} has no serious accessibility violations`, async ({ page }) => {
+    await page.goto(p.path)
+
+    // Wait for the SPA to render. `networkidle` is unusable here: the app holds a
+    // WebSocket open, so the network never goes idle and the wait would time out
+    // rather than report anything about accessibility.
+    await page.waitForFunction(() => {
+      const root = document.getElementById('root')
+      return !!root && root.children.length > 0
+    })
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze()
+
+    const blocking = results.violations.filter((v) => BLOCKING.has(v.impact ?? ''))
+    const advisory = results.violations.filter((v) => !BLOCKING.has(v.impact ?? ''))
+
+    // Printed even when empty, so a run with no findings is distinguishable from a
+    // run where the scan silently did nothing.
+    console.log(
+      `[a11y] ${p.name}: ${results.violations.length} violation type(s), ` +
+        `${results.passes.length} rule(s) passed; blocking=${blocking.length}`,
+    )
+    for (const v of advisory) {
+      console.log(`[a11y] ${p.name} advisory (${v.impact}): ${v.id} - ${v.help} [${v.nodes.length} node(s)]`)
+    }
+
+    // Asserted as structured data rather than a bare length, so the failure message
+    // names the rule, its impact and how many nodes are affected - enough to act on
+    // without opening the report.
+    expect(
+      blocking.map((v) => ({
+        id: v.id,
+        impact: v.impact,
+        help: v.help,
+        nodes: v.nodes.length,
+        sample: v.nodes[0]?.html?.slice(0, 160),
+      })),
+      `${p.name}: ${blocking.length} serious/critical accessibility violation(s)`,
+    ).toEqual([])
+  })
+}
