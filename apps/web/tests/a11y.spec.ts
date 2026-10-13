@@ -66,8 +66,8 @@ const SIGNED_IN: Target[] = [
   { name: 'me/collections', path: '/me/collections', signedIn: true },
   { name: 'me/notifications', path: '/me/notifications', signedIn: true },
   { name: 'me/security', path: '/me/security', signedIn: true },
-  { name: 'me (dark)', path: '/me', signedIn: true, dark: true },
-  { name: 'me/security (dark)', path: '/me/security', signedIn: true, dark: true },
+  { name: 'me', path: '/me', signedIn: true, dark: true },
+  { name: 'me/security', path: '/me/security', signedIn: true, dark: true },
 ]
 
 /**

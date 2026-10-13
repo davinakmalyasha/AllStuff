@@ -435,7 +435,7 @@ export function SecurityPage() {
           <p className="text-sm font-semibold text-ink">Display currency</p>
           <p className="text-xs text-ink3">Prices convert automatically across the platform.</p>
         </div>
-        <select value={display} onChange={(e) => setDisplay(e.target.value)} className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-ink">
+        <select aria-label="Display currency" value={display} onChange={(e) => setDisplay(e.target.value)} className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-ink">
           {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </Card>
