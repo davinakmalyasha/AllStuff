@@ -145,7 +145,7 @@ func (r *EngagementRepo) DefaultCollection(ctx context.Context, userID string) (
 
 func (r *EngagementRepo) ListCollections(ctx context.Context, userID string) ([]*domain.Collection, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT c.id, c.user_id, c.name, c.slug, c.is_public, c.created_at,
+		SELECT c.id, c.user_id, c.name, c.slug, c.is_public, c.cover_item_id, c.created_at,
 			(SELECT count(*) FROM collection_items i WHERE i.collection_id = c.id) AS item_count
 		FROM collections c
 		WHERE c.user_id=$1 AND c.deleted_at IS NULL
@@ -157,7 +157,7 @@ func (r *EngagementRepo) ListCollections(ctx context.Context, userID string) ([]
 	var out []*domain.Collection
 	for rows.Next() {
 		var c domain.Collection
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Name, &c.Slug, &c.IsPublic, &c.CreatedAt, &c.ItemCount); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Name, &c.Slug, &c.IsPublic, &c.CoverItemID, &c.CreatedAt, &c.ItemCount); err != nil {
 			return nil, err
 		}
 		out = append(out, &c)
@@ -168,9 +168,9 @@ func (r *EngagementRepo) ListCollections(ctx context.Context, userID string) ([]
 func (r *EngagementRepo) GetCollection(ctx context.Context, userID, id string) (*domain.Collection, error) {
 	var c domain.Collection
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, user_id, name, slug, is_public, created_at FROM collections
+		SELECT id, user_id, name, slug, is_public, cover_item_id, created_at FROM collections
 		WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, id, userID).
-		Scan(&c.ID, &c.UserID, &c.Name, &c.Slug, &c.IsPublic, &c.CreatedAt)
+		Scan(&c.ID, &c.UserID, &c.Name, &c.Slug, &c.IsPublic, &c.CoverItemID, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -180,7 +180,7 @@ func (r *EngagementRepo) GetCollection(ctx context.Context, userID, id string) (
 // allowedCollectionFields: whitelist for PATCH-style updates (mirrors the
 // businesses/products/users guards — map keys must never reach SQL unchecked).
 var allowedCollectionFields = map[string]bool{
-	"name": true, "slug": true, "is_public": true, "description": true,
+	"name": true, "slug": true, "is_public": true, "description": true, "cover_item_id": true,
 }
 
 func (r *EngagementRepo) UpdateCollection(ctx context.Context, id string, fields map[string]any) error {
@@ -233,6 +233,19 @@ func (r *EngagementRepo) CountItems(ctx context.Context, collectionID string) (i
 	err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM collection_items WHERE collection_id = $1`, collectionID).Scan(&n)
 	return n, err
+}
+
+// ItemIsInCollection reports whether an item id belongs to a collection.
+//
+// The cover is a pointer INTO a collection's items, so a naive write would let a user
+// point their cover at somebody else's item id, or at a deleted one. Validating
+// membership is what makes the reference mean what it says.
+func (r *EngagementRepo) ItemIsInCollection(ctx context.Context, itemID, collectionID string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM collection_items WHERE id = $1::uuid AND collection_id = $2::uuid)`,
+		itemID, collectionID).Scan(&ok)
+	return ok, err
 }
 
 func (r *EngagementRepo) RemoveItem(ctx context.Context, collectionID, itemID string) error {

@@ -192,7 +192,7 @@ func (s *Engagement) ListCollections(ctx context.Context, userID string) ([]*dom
 	return s.repos.Engagement.ListCollections(ctx, userID)
 }
 
-func (s *Engagement) UpdateCollection(ctx context.Context, userID, id string, name *string, isPublic *bool) (*domain.Collection, error) {
+func (s *Engagement) UpdateCollection(ctx context.Context, userID, id string, name *string, isPublic *bool, coverItemID *string) (*domain.Collection, error) {
 	if _, err := s.repos.Engagement.GetCollection(ctx, userID, id); err != nil {
 		return nil, err
 	}
@@ -206,6 +206,27 @@ func (s *Engagement) UpdateCollection(ctx context.Context, userID, id string, na
 	}
 	if isPublic != nil {
 		fields["is_public"] = *isPublic
+	}
+	if coverItemID != nil {
+		cover := strings.TrimSpace(*coverItemID)
+		if cover == "" {
+			// Explicit clear. NULL rather than an empty string, because the column is a
+			// uuid reference and "" is not a valid uuid.
+			fields["cover_item_id"] = nil
+		} else {
+			// The cover points INTO this collection's items. Without this check a user
+			// could set their cover to anyone's item id, or to one that no longer
+			// exists, and the stored value would mean nothing.
+			ok, err := s.repos.Engagement.ItemIsInCollection(ctx, cover, id)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, domain.ErrValidation.WithField("cover_item_id",
+					"That item is not in this collection.")
+			}
+			fields["cover_item_id"] = cover
+		}
 	}
 	if len(fields) == 0 {
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")

@@ -5,13 +5,16 @@ import "time"
 // ---- Engagement (PRD §7.2) ----
 
 type Collection struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	IsPublic  bool      `json:"is_public"`
-	ItemCount int       `json:"item_count"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	IsPublic  bool   `json:"is_public"`
+	ItemCount int    `json:"item_count"`
+	// CoverItemID is the item whose target image represents the collection. Nullable:
+	// a collection with no items, or one whose cover was removed, has none.
+	CoverItemID *string   `json:"cover_item_id"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type CollectionItem struct {

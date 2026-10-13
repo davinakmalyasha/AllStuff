@@ -391,11 +391,14 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 		UserID string
 		Name   string
 		Slug   string
+		// Selected here because the public page is where a cover is most useful - it is
+		// the one a shared link renders.
+		CoverItemID *string
 	}
 	err := s.deps.Repos.QueryRow(r.Context(), `
-		SELECT id, user_id, name, slug FROM collections
+		SELECT id, user_id, name, slug, cover_item_id FROM collections
 		WHERE id = $1 AND is_public = true AND deleted_at IS NULL`, r.PathValue("id")).
-		Scan(&col.ID, &col.UserID, &col.Name, &col.Slug)
+		Scan(&col.ID, &col.UserID, &col.Name, &col.Slug, &col.CoverItemID)
 	if err != nil {
 		fail(w, domain.ErrNotFound)
 		return

@@ -120,12 +120,15 @@ func (s *Server) handleCollectionUpdate(w http.ResponseWriter, r *http.Request) 
 	var in struct {
 		Name     *string `json:"name"`
 		IsPublic *bool   `json:"is_public"`
+		// A pointer so "absent" and "clear it" are distinguishable: an empty string
+		// clears the cover, omitting the key leaves it alone.
+		CoverItemID *string `json:"cover_item_id"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
 		return
 	}
-	c, err := s.deps.Engagement.UpdateCollection(r.Context(), user.ID, r.PathValue("id"), in.Name, in.IsPublic)
+	c, err := s.deps.Engagement.UpdateCollection(r.Context(), user.ID, r.PathValue("id"), in.Name, in.IsPublic, in.CoverItemID)
 	if err != nil {
 		fail(w, err)
 		return
