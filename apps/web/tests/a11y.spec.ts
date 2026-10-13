@@ -33,8 +33,6 @@ type Target = {
   path: string
   /** Emulate the stored dark preference before load. */
   dark?: boolean
-  /** Create an account and sign in first. */
-  signedIn?: boolean
 }
 
 // The public surface, in BOTH themes.
@@ -61,14 +59,7 @@ const PUBLIC: Target[] = [
 // Scoped to the account-scoped pages on purpose: the pages under /dashboard/* require
 // an active business, so they need a business fixture on top of the account one. These
 // need only an account, which keeps the suite's cost proportionate to what it checks.
-const SIGNED_IN: Target[] = [
-  { name: 'me', path: '/me', signedIn: true },
-  { name: 'me/collections', path: '/me/collections', signedIn: true },
-  { name: 'me/notifications', path: '/me/notifications', signedIn: true },
-  { name: 'me/security', path: '/me/security', signedIn: true },
-  { name: 'me', path: '/me', signedIn: true, dark: true },
-  { name: 'me/security', path: '/me/security', signedIn: true, dark: true },
-]
+const SIGNED_IN_PATHS = ['/me', '/me/collections', '/me/notifications', '/me/security'] as const
 
 /**
  * Runs axe and asserts. Failures are the assertion.
@@ -148,10 +139,20 @@ for (const target of PUBLIC) {
   })
 }
 
-for (const target of SIGNED_IN) {
-  const label = target.dark ? `${target.name} (dark)` : target.name
-  test(`${label} has no serious accessibility violations`, async ({ page }) => {
-    if (target.dark) {
+// ONE registration per theme, not one per page.
+//
+// The first version registered an account for each of the six signed-in audits, and the
+// sixth failed with the browser still sitting on /register - registration itself was
+// being refused. The suite had gone from a handful of accounts to a couple of dozen
+// across all specs, and the auth tiers are per-IP because every request reaches the API
+// through the Vite proxy and shares one address.
+//
+// Auditing four paths per account is also simply cheaper, and the session is
+// established once.
+for (const dark of [false, true]) {
+  const suffix = dark ? ' (dark)' : ''
+  test(`signed-in surfaces${suffix} have no serious accessibility violations`, async ({ page }) => {
+    if (dark) {
       await page.addInitScript(() => localStorage.setItem('bv.theme', 'dark'))
     }
     const uid = uniqueSuffix()
@@ -164,7 +165,14 @@ for (const target of SIGNED_IN) {
     // would run against the login page and report on the wrong surface.
     await expect(page).toHaveURL(/\/me$/)
 
-    await page.goto(target.path)
-    await audit(page, label)
+    // Audited in sequence in one test rather than as four. A failure stops the test at
+    // the offending path, so the console line naming it arrives first and the paths
+    // after it are not reached - a deliberate trade for two registrations instead of
+    // eight. Every audit prints which path it covered, so the output is never ambiguous
+    // about how far it got.
+    for (const path of SIGNED_IN_PATHS) {
+      await page.goto(path)
+      await audit(page, `${path}${suffix}`)
+    }
   })
 }
