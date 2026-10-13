@@ -125,6 +125,9 @@ type BusinessInput map[string]any
 // Owners may edit at any time (PRD J4.7); slugs are never regenerated here
 // (immutable, PRD §8.2) and a category switch on a verified listing sends
 // it back to review (PRD §5.4.4).
+// maxHighlightedProducts is the owner-pinned storefront cap from PRD 5.3.2.
+const maxHighlightedProducts = 3
+
 func (s *Businesses) Update(ctx context.Context, ownerID, id string, in BusinessInput) (*domain.Business, error) {
 	b, err := s.owned(ctx, ownerID, id)
 	if err != nil {
@@ -290,7 +293,52 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 		}
 		fields["special_hours"] = special
 	}
-	if len(fields) == 0 {
+	// Owner-pinned storefront products (PRD 5.3.2, max 3).
+	//
+	// Deliberately NOT placed in `fields`: that map feeds a generic UPDATE, and the
+	// column is uuid[]. pgx sends a []string as text[], so Postgres would have to infer
+	// the cast and a wrong inference is a runtime 42P18 rather than a build error. A
+	// dedicated setter carries an explicit ::uuid[].
+	var highlighted *[]string
+	if v, ok := in["highlighted_product_ids"]; ok {
+		ids, err := asStringSlice(v)
+		if err != nil {
+			return nil, domain.ErrValidation.WithField("highlighted_product_ids", "Expected a list of product ids.")
+		}
+		// Dedupe first, so a caller repeating an id is not rejected for exceeding a cap
+		// they did not actually exceed. Order is preserved: the owner pinned them in an
+		// order and the storefront renders them in it.
+		seen := make(map[string]bool, len(ids))
+		clean := make([]string, 0, len(ids))
+		for _, pid := range ids {
+			pid = strings.TrimSpace(pid)
+			if pid == "" || seen[pid] {
+				continue
+			}
+			seen[pid] = true
+			clean = append(clean, pid)
+		}
+		if len(clean) > maxHighlightedProducts {
+			return nil, domain.ErrValidation.WithField("highlighted_product_ids",
+				"You can highlight up to 3 products.")
+		}
+		// Every pinned product must be one of THIS business's, and live. A pin is a
+		// reference the storefront dereferences, so an unowned or deleted id would
+		// render as nothing or as somebody else's product.
+		for _, pid := range clean {
+			prod, perr := s.repos.Products.GetByID(ctx, pid)
+			if perr != nil {
+				return nil, perr
+			}
+			if prod == nil || prod.BusinessID != id || prod.DeletedAt != nil {
+				return nil, domain.ErrValidation.WithField("highlighted_product_ids",
+					"Every highlighted product must belong to this business.")
+			}
+		}
+		highlighted = &clean
+	}
+
+	if len(fields) == 0 && highlighted == nil {
 		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
 	}
 	// Category switches on verified listings require re-verification
@@ -322,8 +370,15 @@ func (s *Businesses) Update(ctx context.Context, ownerID, id string, in Business
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
-	} else if err := s.repos.Businesses.Update(ctx, id, fields); err != nil {
-		return nil, err
+	} else if len(fields) > 0 {
+		if err := s.repos.Businesses.Update(ctx, id, fields); err != nil {
+			return nil, err
+		}
+	}
+	if highlighted != nil {
+		if err := s.repos.Businesses.SetHighlightedProductIDs(ctx, id, *highlighted); err != nil {
+			return nil, err
+		}
 	}
 	return s.repos.Businesses.GetByID(ctx, id)
 }

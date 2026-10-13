@@ -120,6 +120,40 @@ var allowedBusinessFields = map[string]bool{
 	"last_published_at": true,
 }
 
+// HighlightedProductIDs returns the owner-pinned products for a storefront.
+//
+// A dedicated reader rather than a column on BusinessCols. That constant is shared by
+// nine queries and only three of them scan through scanBusiness, so adding a column
+// there means editing every hand-written scan in cities.go, search.go and this file -
+// a broad change to serve one field. Reading it separately keeps the blast radius to
+// this method.
+//
+// `highlighted_product_ids` has been in the schema since 0001 and was referenced
+// NOWHERE in the Go source, so the column was dead.
+func (r *BusinessRepo) HighlightedProductIDs(ctx context.Context, businessID string) ([]string, error) {
+	var ids []string
+	err := r.pool.QueryRow(ctx,
+		`SELECT coalesce(highlighted_product_ids, '{}')::text[] FROM businesses WHERE id = $1::uuid`,
+		businessID).Scan(&ids)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return ids, err
+}
+
+// SetHighlightedProductIDs replaces the pinned set.
+//
+// The ::uuid[] cast is explicit. The column is uuid[], and pgx sends a []string as
+// text[]; without a cast Postgres has to guess, and a wrong guess is a runtime 42P18
+// rather than a build error - the same hazard documented on ChatRepo.AnyBlocked and in
+// service/search.go.
+func (r *BusinessRepo) SetHighlightedProductIDs(ctx context.Context, businessID string, ids []string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE businesses SET highlighted_product_ids = $2::uuid[], updated_at = now() WHERE id = $1::uuid`,
+		businessID, ids)
+	return err
+}
+
 func (r *BusinessRepo) Update(ctx context.Context, id string, fields map[string]any) error {
 	cols := []string{"updated_at = now()"}
 	args := []any{id}

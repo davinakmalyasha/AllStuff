@@ -101,9 +101,20 @@ func (s *Server) handleBusinessPage(w http.ResponseWriter, r *http.Request) {
 		SELECT coalesce(is_booming, false), coalesce(is_rising, false)
 		FROM trend_snapshots WHERE business_id = $1 AND period = '24h'
 		ORDER BY taken_at DESC LIMIT 1`, b.ID).Scan(&booming, &rising)
+	// Owner-pinned products (PRD 5.3.2). Read separately rather than as a column on
+	// BusinessCols, which is shared by nine queries and only three centralised scans -
+	// see BusinessRepo.HighlightedProductIDs.
+	//
+	// Best-effort: a storefront that cannot read its pins should still render, and an
+	// empty list is the correct degradation.
+	highlighted, herr := s.deps.Repos.Businesses.HighlightedProductIDs(r.Context(), b.ID)
+	if herr != nil {
+		highlighted = []string{}
+	}
 	ok(w, map[string]any{
 		"business": b, "similar": filtered, "products": products, "is_owner": isOwner,
-		"trend": map[string]any{"is_booming": booming, "is_rising": rising},
+		"highlighted_product_ids": highlighted,
+		"trend":                   map[string]any{"is_booming": booming, "is_rising": rising},
 	})
 }
 
