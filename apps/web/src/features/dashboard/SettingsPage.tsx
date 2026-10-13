@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Loader2, Pause, Play, XCircle } from 'lucide-react'
-import { api, uploadMedia, type BusinessDTO, type CategoryDTO, type MediaDTO } from '@/lib/api'
+import { api, uploadMedia, type BusinessDTO, type CategoryDTO, type MediaDTO, type ProductDTO } from '@/lib/api'
 import { TIMEZONES } from '@/lib/timezones'
 import { TeamSection } from './TeamSection'
 import { AmenityEditor, SpecialHoursEditor, type SpecialHours } from './AmenityEditors'
@@ -27,7 +27,8 @@ export function SettingsPage() {
 
   const { data } = useQuery({
     queryKey: ['business', business?.id],
-    queryFn: () => api<{ business: BusinessDTO }>(`/businesses/${business!.id}`),
+    queryFn: () =>
+      api<{ business: BusinessDTO; highlighted_product_ids?: string[] }>(`/businesses/${business!.id}`),
     enabled: !!business,
   })
   const b = data?.business
@@ -36,6 +37,13 @@ export function SettingsPage() {
     queryKey: ['categories'],
     queryFn: () => api<{ categories: CategoryDTO[] }>('/categories'),
   })
+  // For the highlighted-products picker below.
+  const { data: prodData } = useQuery({
+    queryKey: ['business-products', business?.id],
+    queryFn: () => api<{ products: ProductDTO[] }>(`/businesses/${business!.id}/products`),
+    enabled: !!business,
+  })
+  const products = prodData?.products ?? []
   const leafCats: CategoryDTO[] = []
   const walk = (cs: CategoryDTO[]) => {
     for (const c of cs) {
@@ -53,12 +61,16 @@ export function SettingsPage() {
   const [logo, setLogo] = useState<MediaDTO | null>(null)
   const [cover, setCover] = useState<MediaDTO | null>(null)
   const [confirmClose, setConfirmClose] = useState(false)
+  // Owner-pinned storefront products (PRD 5.3.2, max 3). Held locally while editing
+  // and sent with the rest of the form; the server validates ownership and the cap.
+  const [pins, setPins] = useState<string[]>([])
 
   // Hydrate in an effect KEYED ON THE BUSINESS ID ONLY: the old render-phase
   // `if (b && !hydrated)` never reset when the active business changed, and a
   // later updated_at dep reset the form on every unrelated refetch (e.g.
   // pause/reopen). Re-hydration after a save is done explicitly in save().
-  const hydrate = (biz: BusinessDTO) => {
+  const hydrate = (biz: BusinessDTO, highlighted: string[]) => {
+    setPins(highlighted)
     setForm({
       name: biz.name, tagline: biz.tagline ?? '', description: biz.description,
       category_id: biz.category_id, address: biz.address, city: biz.city, country: biz.country,
@@ -82,7 +94,7 @@ export function SettingsPage() {
     setCover(null)
   }
   useEffect(() => {
-    if (b) hydrate(b)
+    if (b) hydrate(b, data?.highlighted_product_ids ?? [])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b?.id])
 
@@ -115,10 +127,15 @@ export function SettingsPage() {
       if (cover) payload.cover_url = cover.url
       if (form.amenities) payload.amenities = form.amenities
       if (form.special_hours) payload.special_hours = form.special_hours
+      // Always sent, so removing the last pin is a change rather than an omission.
+      payload.highlighted_product_ids = pins
       const updated = await api<{ business: BusinessDTO }>(`/businesses/${b.id}`, { method: 'PATCH', body: payload })
       // Explicit re-hydrate from the server copy instead of reacting to every
       // updated_at bump from unrelated mutations.
-      hydrate(updated.business)
+      // The PATCH response includes the pins, so the form re-hydrates with what the
+      // server actually stored - which is how a rejected pin list becomes visible
+      // rather than silently reverting on the next fetch.
+      hydrate(updated.business, (updated as { highlighted_product_ids?: string[] }).highlighted_product_ids ?? [])
       setFlash('Settings saved')
       setTimeout(() => setFlash(''), 2000)
       qc.invalidateQueries({ queryKey: ['business', b.id] })
@@ -224,6 +241,48 @@ export function SettingsPage() {
         <p className="mono-label">Amenities & special hours</p>
 <AmenityEditor value={(form.amenities ?? []) as string[]} onChange={(a) => setForm((f) => ({ ...f, amenities: a }))} />
 <SpecialHoursEditor value={(form.special_hours ?? {}) as SpecialHours} onChange={(s) => setForm((f) => ({ ...f, special_hours: s }))} />
+      </Card>
+
+      <Card className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <p className="mono-label">Highlighted products</p>
+          <span className="text-xs text-ink3">{pins.length}/3</span>
+        </div>
+        <p className="text-xs text-ink3">
+          Pin up to three products to the top of your public storefront.
+        </p>
+        {products.length === 0 ? (
+          <p className="text-sm text-ink3">Add a product first.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {products.map((prod) => {
+              const on = pins.includes(prod.id)
+              // Disabled rather than silently ignored: a control that does nothing when
+              // clicked is worse than one that is visibly unavailable.
+              const full = !on && pins.length >= 3
+              return (
+                <button
+                  key={prod.id}
+                  type="button"
+                  aria-pressed={on}
+                  disabled={full}
+                  onClick={() =>
+                    setPins((cur) => (on ? cur.filter((x) => x !== prod.id) : [...cur, prod.id]))
+                  }
+                  className={
+                    on
+                      ? 'rounded-lg border border-ink bg-ink px-3 py-1.5 text-sm text-bg'
+                      : full
+                        ? 'cursor-not-allowed rounded-lg border border-border px-3 py-1.5 text-sm text-ink3 opacity-50'
+                        : 'rounded-lg border border-border px-3 py-1.5 text-sm text-ink hover:border-ink'
+                  }
+                >
+                  {prod.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </Card>
 
       <Card className="space-y-3">

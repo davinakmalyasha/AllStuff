@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -44,6 +45,23 @@ func (s *Server) handleBusinessCreate(w http.ResponseWriter, r *http.Request) {
 	created(w, map[string]any{"business": b})
 }
 
+// businessWithPins composes the dashboard's business payload.
+//
+// `highlighted_product_ids` is read separately rather than selected as a column on
+// BusinessCols - that constant is shared by nine queries and only three centralised
+// scans, so adding a column there means editing every hand-written scan. See
+// BusinessRepo.HighlightedProductIDs.
+//
+// Best-effort: the dashboard must render even if the pins cannot be read, and an empty
+// list is the correct degradation.
+func (s *Server) businessWithPins(ctx context.Context, b *domain.Business) map[string]any {
+	pins, err := s.deps.Repos.Businesses.HighlightedProductIDs(ctx, b.ID)
+	if err != nil {
+		pins = []string{}
+	}
+	return map[string]any{"business": b, "highlighted_product_ids": pins}
+}
+
 func (s *Server) handleBusinessGet(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {
@@ -55,7 +73,7 @@ func (s *Server) handleBusinessGet(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	ok(w, map[string]any{"business": b})
+	ok(w, s.businessWithPins(r.Context(), b))
 }
 
 func (s *Server) handleBusinessUpdate(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +93,9 @@ func (s *Server) handleBusinessUpdate(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	ok(w, map[string]any{"business": b})
+	// Pins included: the dashboard re-hydrates from this response, so omitting them
+	// would make a just-saved pin list appear to revert until the next full fetch.
+	ok(w, s.businessWithPins(r.Context(), b))
 }
 
 func (s *Server) handleBusinessSubmit(w http.ResponseWriter, r *http.Request) {
