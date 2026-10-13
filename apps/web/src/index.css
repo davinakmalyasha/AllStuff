@@ -5,6 +5,24 @@
 /* ------------------------------------------------------------------
    BizVerse monochrome theme (PRD: monochrome, white default background,
    dark/light mode). Tokens flip via .dark on <html>.
+
+   `ink-3` is a CONTRAST-CONSTRAINED token, not a free choice of grey.
+
+   It was #a1a1aa light / #63636b dark, which measured 2.33:1 and 2.92:1 against
+   surface-2 - both far below the 4.5:1 that WCAG AA requires for normal text. It is
+   used for the "Verse" half of the wordmark, mono-labels, timestamps and hints, so
+   every one of those was a real barrier for a low-vision reader.
+
+   axe-core caught this on all five public pages as the single serious violation; a
+   regex pass over the JSX had reported zero, because contrast is not visible in
+   source.
+
+   The values below are the LIGHTEST greys that clear AA with margin against the
+   WORST background each mode uses (surface-2, not bg - a darker background lowers
+   the ratio, and surface-2 is the lightest surface in dark mode and the darkest in
+   light mode). Lightening either one needs a recomputation, not an eyeball:
+     #6e6e75 -> 4.60:1 on #f4f4f5, 5.06:1 on #ffffff
+     #83838a -> 4.61:1 on #1a1a1d, 5.26:1 on #0a0a0a
 ------------------------------------------------------------------- */
 :root {
   --color-bg: #ffffff;
@@ -13,7 +31,7 @@
   --color-border: #e4e4e7;
   --color-ink: #18181b;
   --color-ink-2: #52525b;
-  --color-ink-3: #a1a1aa;
+  --color-ink-3: #6e6e75;
   --color-accent: #09090b;
   --color-accent-ink: #fafafa;
 }
@@ -25,7 +43,7 @@
   --color-border: #27272a;
   --color-ink: #f4f4f5;
   --color-ink-2: #a1a1aa;
-  --color-ink-3: #63636b;
+  --color-ink-3: #83838a;
   --color-accent: #fafafa;
   --color-accent-ink: #0a0a0a;
 }
