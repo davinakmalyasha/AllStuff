@@ -66,15 +66,33 @@ for (const p of PAGES) {
     }
 
     // Asserted as structured data rather than a bare length, so the failure message
-    // names the rule, its impact and how many nodes are affected - enough to act on
-    // without opening the report.
+    // names the rule, its impact and how many nodes are affected.
+    //
+    // Each node carries axe's own colour math: the foreground it measured, the
+    // background it measured, and the resulting ratio. Without those a failure says
+    // "colour contrast" and leaves the reader to guess which pair is wrong - and
+    // guessing is how a suite ends up with a rule disabled instead of a colour fixed.
     expect(
       blocking.map((v) => ({
         id: v.id,
         impact: v.impact,
         help: v.help,
         nodes: v.nodes.length,
-        sample: v.nodes[0]?.html?.slice(0, 160),
+        worst: v.nodes
+          .slice(0, 3)
+          .map((n) => {
+            const d = n.any[0]?.data as
+              | { fgColor?: string; bgColor?: string; contrastRatio?: number; expectedContrastRatio?: string }
+              | undefined
+            return {
+              target: n.target.join(' '),
+              fg: d?.fgColor,
+              bg: d?.bgColor,
+              ratio: d?.contrastRatio,
+              need: d?.expectedContrastRatio,
+              html: n.html.slice(0, 120),
+            }
+          }),
       })),
       `${p.name}: ${blocking.length} serious/critical accessibility violation(s)`,
     ).toEqual([])
