@@ -137,13 +137,21 @@ func TestCollectionCoverCanBeCleared(t *testing.T) {
 		t.Fatalf("set cover: %v", err)
 	}
 
-	// Absent: leave it alone.
-	got, err := eng.UpdateCollection(ctx, owner.ID, colID, nil, nil, nil)
+	// Absent: leave it alone. Another field changes alongside it, which is both the
+	// realistic case - renaming a collection must not wipe its cover - and a
+	// requirement of this service: an update with nothing to change is rejected with
+	// "Nothing to update", existing behaviour that this test is not about. The first
+	// version passed three nils and failed on that guard rather than on the cover.
+	name := "Renamed"
+	got, err := eng.UpdateCollection(ctx, owner.ID, colID, &name, nil, nil)
 	if err != nil {
 		t.Fatalf("update without a cover: %v", err)
 	}
 	if got.CoverItemID == nil {
 		t.Error("an update that omitted cover_item_id cleared it; absent must mean untouched")
+	}
+	if got.Name != name {
+		t.Errorf("name = %q, want %q - the unrelated field did not apply", got.Name, name)
 	}
 
 	// Explicit empty: clear it.
