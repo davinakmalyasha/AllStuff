@@ -203,7 +203,11 @@ jobs:
         # workflow still shows a green step named "Dependency audit", so the
         # missing scan reads as coverage rather than as a bug.
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Pinned, not @latest. The scanner decides whether the build is green, so
+          # its version belongs in the repository: @latest makes a security gate
+          # non-reproducible, and a change in the tool becomes a change in the verdict
+          # with no diff to review. Bumping it is a deliberate commit.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./... || {
             echo "::error::govulncheck reported findings; see SECURITY.md at the repo root"
             exit 1
