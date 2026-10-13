@@ -212,6 +212,29 @@ func (r *EngagementRepo) AddItem(ctx context.Context, collectionID, targetType, 
 	return err
 }
 
+// ItemExists reports whether a target is already saved in a collection.
+//
+// Needed because AddItem is ON CONFLICT DO NOTHING, so re-saving an existing item is
+// a no-op. The per-collection cap in the service must therefore apply only when a row
+// would actually be inserted, or a user sitting at exactly the cap would be refused
+// for re-saving something already saved.
+func (r *EngagementRepo) ItemExists(ctx context.Context, collectionID, targetType, targetID string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM collection_items
+		               WHERE collection_id = $1 AND target_type = $2 AND target_id = $3)`,
+		collectionID, targetType, targetID).Scan(&exists)
+	return exists, err
+}
+
+// CountItems returns how many targets a collection holds.
+func (r *EngagementRepo) CountItems(ctx context.Context, collectionID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM collection_items WHERE collection_id = $1`, collectionID).Scan(&n)
+	return n, err
+}
+
 func (r *EngagementRepo) RemoveItem(ctx context.Context, collectionID, itemID string) error {
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM collection_items WHERE collection_id=$1 AND id=$2`, collectionID, itemID)

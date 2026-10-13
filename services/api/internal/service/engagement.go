@@ -108,6 +108,14 @@ func (s *Engagement) MyRecommends(ctx context.Context, userID, businessID string
 
 // ---- collections (PRD D3) ----
 
+// Product limits from PRD 7.2. Named rather than inlined: the 500 was missing
+// entirely while the 50 beside it was enforced, and a bare literal in one branch is
+// easy to leave out of the other.
+const (
+	maxCollectionsPerUser = 50
+	maxItemsPerCollection = 500
+)
+
 func (s *Engagement) SaveTo(ctx context.Context, userID, collectionID, targetType, targetID, note string) error {
 	if collectionID == "" {
 		c, err := s.repos.Engagement.DefaultCollection(ctx, userID)
@@ -123,6 +131,32 @@ func (s *Engagement) SaveTo(ctx context.Context, userID, collectionID, targetTyp
 	}
 	if err := s.targetExists(ctx, targetType, targetID); err != nil {
 		return err
+	}
+	// The per-collection cap from the PRD. The 50-collection limit is enforced right
+	// below in CreateCollection and this one was simply missing, which mattered more
+	// once reads became paginated: a cap on reading does not cap writing, so a
+	// collection could still grow without bound.
+	//
+	// Applied only when the item is NOT already saved. AddItem is ON CONFLICT DO
+	// NOTHING, so re-saving is a no-op, and refusing it would tell a user at the cap
+	// that they cannot save something they already have.
+	//
+	// Two concurrent saves can both pass this check and overshoot the cap slightly.
+	// That is a benign off-by-one on a soft product limit, and serialising every save
+	// behind a lock to prevent it would cost more than it is worth.
+	already, err := s.repos.Engagement.ItemExists(ctx, collectionID, targetType, targetID)
+	if err != nil {
+		return err
+	}
+	if !already {
+		n, err := s.repos.Engagement.CountItems(ctx, collectionID)
+		if err != nil {
+			return err
+		}
+		if n >= maxItemsPerCollection {
+			return domain.ErrValidation.WithField("_",
+				"This collection is full (500 items). Remove something, or save to another collection.")
+		}
 	}
 	if err := s.repos.Engagement.AddItem(ctx, collectionID, targetType, targetID, note); err != nil {
 		return err
@@ -141,7 +175,7 @@ func (s *Engagement) CreateCollection(ctx context.Context, userID, name string) 
 	if err != nil {
 		return nil, err
 	}
-	if count >= 50 {
+	if count >= maxCollectionsPerUser {
 		return nil, domain.ErrValidation.WithField("_", "Max 50 collections (PRD §7.2).")
 	}
 	return s.repos.Engagement.CreateCollection(ctx, userID, name)
