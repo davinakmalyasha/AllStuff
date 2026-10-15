@@ -82,7 +82,27 @@ const PUBLIC: Target[] = PUBLIC_PATHS.flatMap((t) => [t, { ...t, dark: true }])
 // Scoped to the account-scoped pages on purpose: the pages under /dashboard/* require
 // an active business, so they need a business fixture on top of the account one. These
 // need only an account, which keeps the suite's cost proportionate to what it checks.
-const SIGNED_IN_PATHS = ['/me', '/me/collections', '/me/notifications', '/me/security'] as const
+// Account-scoped and dashboard pages.
+//
+// The dashboard is reachable with only a registered account. `/dashboard` renders an
+// empty state and `/dashboard/register` is the business wizard, which needs no existing
+// business - and the wizard is the largest form in the product, so it is the highest-value
+// page at this level.
+//
+// The business-scoped dashboard pages (storefront, products, settings, analytics,
+// billing) DO need a business, and creating one requires a VERIFIED email. The E2E suite
+// cannot produce one: registration sends a verification link, and nothing in the test
+// environment can read it - there is no SMTP sink in CI and no test-only verify path, both
+// deliberately. That is why those pages are absent from this list rather than listed and
+// silently auditing an empty state, which would look like coverage and be nothing.
+const SIGNED_IN: Target[] = [
+  { name: '/me', path: '/me' },
+  { name: '/me/collections', path: '/me/collections' },
+  { name: '/me/notifications', path: '/me/notifications' },
+  { name: '/me/security', path: '/me/security' },
+  { name: '/dashboard', path: '/dashboard', expectText: /No businesses yet/ },
+  { name: '/dashboard/register', path: '/dashboard/register', expectText: /Business name/ },
+]
 
 /**
  * Runs axe and asserts. Failures are the assertion.
@@ -198,9 +218,13 @@ for (const dark of [false, true]) {
     // after it are not reached - a deliberate trade for two registrations instead of
     // eight. Every audit prints which path it covered, so the output is never ambiguous
     // about how far it got.
-    for (const path of SIGNED_IN_PATHS) {
-      await page.goto(path)
-      await audit(page, `${path}${suffix}`)
+    for (const target of SIGNED_IN) {
+      await page.goto(target.path)
+      if (target.expectText) {
+        // Proves the real page rendered rather than an empty or redirected state.
+        await expect(page.getByText(target.expectText).first()).toBeVisible()
+      }
+      await audit(page, `${target.name}${suffix}`)
     }
   })
 }
