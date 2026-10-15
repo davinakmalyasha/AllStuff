@@ -33,25 +33,48 @@ type Target = {
   path: string
   /** Emulate the stored dark preference before load. */
   dark?: boolean
+  /**
+   * Text that must be visible before the audit runs.
+   *
+   * For pages whose content depends on seeded data. A 404 shell is perfectly
+   * accessible, so without this a renamed seed slug would audit the error page and
+   * report success - the failure mode this suite exists to catch, arriving through the
+   * back door.
+   */
+  expectText?: RegExp
 }
 
 // The public surface, in BOTH themes.
 //
-// Dark mode is a separate colour space: `accent` and `ink` invert together, so a token
-// that passes in light mode can fail in dark. The earlier contrast fix was computed
-// against the dark surfaces and never measured, which is exactly the gap this closes.
-const PUBLIC: Target[] = [
+// Derived rather than listed twice. The first version wrote light and dark entries by
+// hand, so a path added to one list silently skipped the other; expanding them from one
+// array makes that unrepresentable.
+//
+// Dark mode is a separate colour space - `accent` and `ink` invert together - so a
+// token that passes in light mode can fail in dark.
+const PUBLIC_PATHS: Target[] = [
   { name: 'landing', path: '/' },
   { name: 'login', path: '/login' },
   { name: 'register', path: '/register' },
   { name: 'discover', path: '/discover' },
   { name: 'categories', path: '/categories' },
-  { name: 'landing', path: '/', dark: true },
-  { name: 'login', path: '/login', dark: true },
-  { name: 'register', path: '/register', dark: true },
-  { name: 'discover', path: '/discover', dark: true },
-  { name: 'categories', path: '/categories', dark: true },
+  // The storefront was the largest gap of all: it is THE product page, and it holds
+  // the engagement controls, the hours table, the catalogue and the review list.
+  { name: 'business storefront', path: '/b/rumah-kopi-senja', expectText: /Rumah Kopi Senja/ },
+  { name: 'category page', path: '/c/cafe', expectText: /Café/ },
+  { name: 'public profile', path: '/u/demoowner', expectText: /Demo Owner/ },
+  { name: 'city page', path: '/city/jakarta', expectText: /Jakarta/ },
+  { name: 'leaderboards', path: '/leaderboards' },
+  { name: 'for business', path: '/for-business' },
+  { name: 'pricing', path: '/pricing' },
+  { name: 'help', path: '/help' },
+  // Legal pages are a routine source of contrast and heading-order failures, and they
+  // are reached by every user at least once.
+  { name: 'terms', path: '/terms' },
+  { name: 'privacy', path: '/privacy' },
 ]
+
+const PUBLIC: Target[] = PUBLIC_PATHS.flatMap((t) => [t, { ...t, dark: true }])
 
 // Signed-in surfaces, which hold the densest interactive controls in the product and
 // were entirely unaudited.
@@ -135,6 +158,11 @@ for (const target of PUBLIC) {
       await page.addInitScript(() => localStorage.setItem('bv.theme', 'dark'))
     }
     await page.goto(target.path)
+    if (target.expectText) {
+      // Proves the real page rendered. Without it a seed rename would turn this into an
+      // audit of the 404 page, which passes and means nothing.
+      await expect(page.getByText(target.expectText).first()).toBeVisible()
+    }
     await audit(page, label)
   })
 }
