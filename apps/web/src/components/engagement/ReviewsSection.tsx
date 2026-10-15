@@ -170,7 +170,11 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
           )}
         </div>
         <div className="flex items-center gap-2">
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink">
+          {/* aria-label, because a <select> with only options has no accessible name -
+              it announces as "combo box" with no indication of what it sorts.
+              DiscoverPage's equivalent control already carried one; this is the same
+              pattern labelled in one place and not the other. */}
+          <select aria-label="Sort reviews" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink">
             <option value="newest">Newest</option>
             <option value="highest">Highest</option>
             <option value="helpful">Most helpful</option>

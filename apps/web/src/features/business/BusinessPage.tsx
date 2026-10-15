@@ -151,6 +151,33 @@ export function BusinessPage() {
     '--pv-accent': colors.accent ?? '#18181b',
     '--pv-muted': colors.muted ?? '#71717a',
     '--pv-font': FONTS[theme?.font ?? 'inter'],
+
+    // The storefront is a themed ISLAND, and its own tokens are not enough.
+    //
+    // Background and body colour come from the owner's palette, but the components
+    // inside - Badge, Button, the engagement bar - style themselves with the APP's
+    // tokens: `text-ink`, `bg-surface`, `border-border`. Those flip with dark mode,
+    // while the owner's palette does not. On a light owner theme (the default, which
+    // is what every business without a customised storefront has) in dark mode that
+    // produced light text on a light background: axe measured 12 nodes at 1.05:1 -
+    // effectively invisible, on the product's main page.
+    //
+    // Remapping the neutral app tokens onto the owner's palette inside this wrapper
+    // fixes the whole family in one place, instead of threading theme classes through
+    // every component that might be rendered here now or later. A themed island has to
+    // bring the tokens with it, or the same bug reappears the next time somebody adds
+    // a component.
+    //
+    // `--color-accent` is deliberately NOT remapped. Its partner `--color-accent-ink`
+    // is the app's, and the two are a contrast pair that cannot be re-derived in CSS:
+    // pointing accent at a dark owner colour while accent-ink stayed dark-mode-light
+    // would swap this bug for its mirror image on primary buttons.
+    '--color-bg': colors.bg ?? '#ffffff',
+    '--color-surface': colors.surface ?? '#fafafa',
+    '--color-surface-2': colors.surface ?? '#fafafa',
+    '--color-ink': colors.ink ?? '#18181b',
+    '--color-ink-2': colors.muted ?? '#71717a',
+    '--color-ink-3': colors.muted ?? '#71717a',
   } as React.CSSProperties
 
   const openDays = Object.entries(b.hours).filter(([, h]) => h && !h.closed)
