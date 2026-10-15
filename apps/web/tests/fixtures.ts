@@ -10,6 +10,7 @@
  * compare" error instead.
  */
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
+import { reserveAuthRequestSlot } from './auth-throttle'
 
 /** A value that is unique per run, safe in an email local part, and readable. */
 export function uniqueSuffix(): string {
@@ -33,6 +34,8 @@ export async function register(page: Page, opts: { email: string; username: stri
   const passwords = page.locator('input[type=password]')
   await passwords.nth(0).fill(opts.password)
   await passwords.nth(1).fill(opts.password)
+  // Reserve just before the submit POST so the slot reflects when it is sent.
+  await reserveAuthRequestSlot()
   await page.getByRole('button', { name: /sign up|create account/i }).click()
   return page
 }

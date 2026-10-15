@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { reserveAuthRequestSlot } from './auth-throttle'
 
 /**
  * Notifications (PRD §5.7): two users, direct chat → the recipient gets a
@@ -13,6 +14,7 @@ async function register(page: Page, email: string, name: string, username: strin
   await page.locator('input[autocomplete=username]').fill(username)
   await page.locator('#field-password').fill('secret1234')
   await page.locator('#field-confirm-password').fill('secret1234')
+  await reserveAuthRequestSlot()
   await page.locator('button[type=submit]').click()
   await expect(page).toHaveURL(/\/me$/, { timeout: 120_000 })
 }

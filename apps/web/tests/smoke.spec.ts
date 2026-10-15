@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { register, seededBusinessBySlug, twoSeededBusinesses, uniqueSuffix } from './fixtures'
+import { reserveAuthRequestSlot } from './auth-throttle'
 
 /**
  * Critical journeys (PRD §12.7).
@@ -7,12 +8,12 @@ import { register, seededBusinessBySlug, twoSeededBusinesses, uniqueSuffix } fro
  * Notes on how this differs from the previous version, because the changes are
  * about what the assertions can and cannot detect:
  *
- *  - **The 120-second waits are gone.** They existed to sit out the 5/min auth
- *    rate limit between registrations. The E2E web server now sets
- *    `APP_ENV=test` plus a narrow per-account throttle bypass, so the wait was
- *    hiding a configuration problem rather than a product one. The per-IP tiers
- *    are untouched and `RATELIMIT_GLOBAL` is still lifted, because every browser
- *    request genuinely does share the proxy's IP.
+ *  - **Auth submissions are paced across the suite.** Production’s 5/min per-IP
+ *    auth tier stays unchanged; `E2E_ACCOUNT_THROTTLE_BYPASS` only bypasses
+ *    per-account failed-auth buckets. Since one run can submit about ten
+ *    register/login requests from one proxy IP, auth submissions reserve a
+ *    suite-wide slot so a run cannot exceed it. `RATELIMIT_GLOBAL` is still
+ *    lifted, because every browser request genuinely does share that IP.
  *  - **`getByText(/result/)` is gone.** It matched "results", "0 results" and
  *    "No results", so the search test passed when search was completely broken.
  *    It now asserts that a known seeded business is in the results.
@@ -87,6 +88,9 @@ test('register, land on /me, sign out, sign back in', async ({ page }) => {
   // LoginPage renders two <form> elements — the password form and a 2FA code
   // form — but they are mutually exclusive behind a ternary, so filtering by the
   // password field is stable either way.
+  // Reserve an auth slot here too: /auth/login shares the same 5/min per-IP
+  // auth bucket as /auth/register.
+  await reserveAuthRequestSlot()
   await page
     .locator('form')
     .filter({ has: page.getByLabel(/password/i) })
