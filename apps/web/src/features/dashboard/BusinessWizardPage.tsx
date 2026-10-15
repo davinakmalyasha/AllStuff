@@ -15,7 +15,7 @@ import { TIMEZONES } from '@/lib/timezones'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { ErrorNote, PageSpinner } from '@/components/ui/Spinner'
 import { ApiError } from '@/lib/api'
 import { resetFileInput } from '@/lib/format'
 
@@ -295,7 +295,25 @@ export function BusinessWizardPage() {
     )
   }
 
-  if (!business) return <PageSpinner label="Starting your storefront draft…" />
+  // The draft could not be started, so say so instead of spinning forever.
+  //
+  // `init` already records the failure in `error`, but this guard returned the spinner
+  // first and `error` is rendered further down the tree - so the message was set and
+  // never drawn. A user whose draft creation is refused sat on "Starting your
+  // storefront draft…" indefinitely, with no explanation and nothing to act on.
+  //
+  // The common case is an unverified email: POST /businesses requires one, so a
+  // freshly registered account lands here. That is the state the accessibility suite
+  // reaches, which is how this was found.
+  if (!business) {
+    return error ? (
+      <div className="container-page py-10">
+        <ErrorNote message={error} />
+      </div>
+    ) : (
+      <PageSpinner label="Starting your storefront draft…" />
+    )
+  }
 
   const input = (key: string) => ({
     value: form[key],

@@ -84,24 +84,31 @@ const PUBLIC: Target[] = PUBLIC_PATHS.flatMap((t) => [t, { ...t, dark: true }])
 // need only an account, which keeps the suite's cost proportionate to what it checks.
 // Account-scoped and dashboard pages.
 //
-// The dashboard is reachable with only a registered account. `/dashboard` renders an
-// empty state and `/dashboard/register` is the business wizard, which needs no existing
-// business - and the wizard is the largest form in the product, so it is the highest-value
-// page at this level.
+// `/dashboard` renders an empty state for an account with no businesses, so it needs
+// only a registered user.
 //
-// The business-scoped dashboard pages (storefront, products, settings, analytics,
-// billing) DO need a business, and creating one requires a VERIFIED email. The E2E suite
-// cannot produce one: registration sends a verification link, and nothing in the test
-// environment can read it - there is no SMTP sink in CI and no test-only verify path, both
-// deliberately. That is why those pages are absent from this list rather than listed and
-// silently auditing an empty state, which would look like coverage and be nothing.
+// `/dashboard/register` is the business wizard, and it CANNOT reach its wizard state
+// here: it creates a draft business on mount, POST /businesses requires a VERIFIED
+// email, and the E2E suite cannot produce one - registration sends a verification link
+// and nothing in the test environment can read it, since CI starts no SMTP sink and
+// there is no test-only verify path.
+//
+// So what gets audited there is the wizard's FAILURE state, and the expectText below
+// asserts it is the error rather than a spinner. That makes this the regression guard
+// for a real bug: the failure message was set but the render guard returned the spinner
+// first, so an unverified user sat on "Starting your storefront draft…" forever with no
+// explanation. If that guard regresses, this line times out.
+//
+// The rest of the dashboard - storefront, products, settings, analytics, billing - has
+// the same verified-email blocker, which is why those pages are absent rather than
+// listed and silently auditing an empty state.
 const SIGNED_IN: Target[] = [
   { name: '/me', path: '/me' },
   { name: '/me/collections', path: '/me/collections' },
   { name: '/me/notifications', path: '/me/notifications' },
   { name: '/me/security', path: '/me/security' },
   { name: '/dashboard', path: '/dashboard', expectText: /No businesses yet/ },
-  { name: '/dashboard/register', path: '/dashboard/register', expectText: /Business name/ },
+  { name: '/dashboard/register', path: '/dashboard/register', expectText: /Verify your email/ },
 ]
 
 /**
