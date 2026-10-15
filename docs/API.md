@@ -8,6 +8,7 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - `POST /auth/restore` — cancel a pending account deletion during the 14-day grace (email + password)
 - Invites: `GET /invites/{token}` (public preview: `{business_name, inviter_name, role, email}`) — accept via `POST /invites/{token}/accept` below
 - `GET /auth/oauth/google` · `GET /auth/oauth/google/callback` (redirect flow)
+- CSRF: `GET /auth/csrf` — idempotent; sets the site-wide `bv_csrf` double-submit cookie that the SPA echoes back in `X-CSRF-Token` on every mutation. Public and unauthenticated, because it is what a not-yet-signed-in visitor's first write depends on.
 - `GET /me` · `PATCH /me` · `GET /me/export` · `POST /me/delete` · `POST /me/delete/cancel` (body: `password`)
 - Security: `GET /me/security`, `POST /me/security/2fa`, `/2fa/confirm`, `DELETE /me/security/2fa`, `POST /me/security/2fa/recovery-codes`, `GET /me/security/sessions`, `DELETE /me/security/sessions/{id}`, `POST /me/security/sessions/revoke-others`
 - Password/email: `POST /me/password` (`current_password`, `new_password`) · `POST /me/email` (`password`, `email`, `totp_code?` when 2FA enrolled; notifies the old address)
@@ -97,6 +98,7 @@ jump-to-message and pinned cross-references all broke for old messages.
 - Users: `GET /admin/users` · `POST /admin/users/{id}/{warn|suspend|ban|unban}`
 - Claims: `GET /admin/claims` · `POST /admin/claims/{claimId}/decide`
 - Businesses: `POST /admin/businesses/{id}/suspend|restore`
+- Categories: `POST /admin/categories` · `PATCH|DELETE /admin/categories/{id}` · `POST /admin/categories/{id}/merge/{intoId}` (siblings only — source and target must be at the same tree level; the source's businesses and child categories are re-pointed at the target, then the source is retired)
 - Curation/config: `GET|PUT /admin/curation` · `GET|PUT /admin/settings` · `GET|POST /admin/banned-words` · `DELETE /admin/banned-words/{word}` · `GET|PUT /admin/banned-words/allowlist`
 - Platform: `GET /admin/kpis` · `GET /admin/appeals` · `POST /admin/appeals/{id}/decide` · `GET /admin/anomalies` · `POST /admin/anomalies/{eventId}/resolve` · `GET /admin/moderation-actions`
 

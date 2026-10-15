@@ -10,8 +10,8 @@ hand-rolled. No proprietary APIs, no per-seat pricing, no data resale.
 
 ```
 apps/web/       React 18 + TypeScript + Vite + Tailwind (light/dark, en/id)
-services/api/   Go 1.26 — REST + WebSocket, 233 routes, 27 services
-infra/          docker compose, 31 versioned SQL migrations
+services/api/   Go 1.26 — REST + WebSocket, 233 routes, 25 services
+infra/          docker compose, 38 versioned SQL migrations
 docs/           PRD (frozen), API (authoritative), ARCHITECTURE, RUNBOOK, DEPLOYMENT
 ```
 
@@ -118,7 +118,7 @@ npx playwright install chromium && npx playwright test
 
 | File | What it is |
 |---|---|
-| [`docs/API.md`](docs/API.md) | **The endpoint reference.** Checked against the router; no phantom entries. |
+| [`docs/API.md`](docs/API.md) | **The endpoint reference.** `TestEveryAPIRouteIsDocumented` fails when a route group is absent, so no area of the API goes undocumented — the four `/admin/categories` endpoints and `GET /auth/csrf` were, until it was written. It checks groups rather than individual endpoints, deliberately: the document's `read\|typing\|close` family notation cannot be compared path-by-path, and a stricter version reported 31 false positives for the 2 real findings. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Design decisions, invariants, and the traps. Not an endpoint list. |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Admin operations, verification standards, incident response, migration recovery. |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel + Railway, with every env var that fails startup. |
