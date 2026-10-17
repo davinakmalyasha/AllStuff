@@ -69,12 +69,22 @@ $$;
 -- anywhere.
 DO $A$
 DECLARE
-    v_jkt_hour int;
-    v_expect   boolean;
-    v_got      boolean;
+    -- numeric, not int. `extract(...)::int / 60` is INTEGER division in Postgres
+    -- and always yields 0, so the minutes in the original expression contributed
+    -- nothing at all. The boundaries here are whole hours, so the answers it
+    -- produced were accidentally right, but the code did not do what it read as
+    -- doing and would have kept being "right" only until a boundary moved.
+    v_jkt_hour   numeric;
+    v_utc_hour   numeric;
+    v_expect     boolean;
+    v_utc_expect boolean;
+    v_got        boolean;
+    v_utc_got    boolean;
 BEGIN
-    v_jkt_hour := extract(hour FROM now() AT TIME ZONE 'Asia/Jakarta')::int
-                + extract(minute FROM now() AT TIME ZONE 'Asia/Jakarta')::int / 60;
+    v_jkt_hour := extract(hour FROM now() AT TIME ZONE 'Asia/Jakarta')
+                + extract(minute FROM now() AT TIME ZONE 'Asia/Jakarta') / 60.0;
+    v_utc_hour := extract(hour FROM now() AT TIME ZONE 'UTC')
+                + extract(minute FROM now() AT TIME ZONE 'UTC') / 60.0;
 
     -- The comparison target: is Jakarta's own wall clock inside 09:00-17:00?
     v_expect := (v_jkt_hour >= 9 AND v_jkt_hour < 17);
@@ -102,17 +112,32 @@ BEGIN
         RAISE EXCEPTION 'A3 FAIL: an all-day-closed window must be closed';
     END IF;
 
-    -- The same hours object evaluated in two very different zones must disagree
-    -- at some point in the day; if the zone were ignored entirely they would
-    -- always agree. Only assert the disagreement when the clocks actually differ.
-    IF v_jkt_hour >= 9 AND v_jkt_hour < 17 THEN
-        IF biz_is_open_now(open_all_days('{"open":"09:00","close":"17:00","closed":false}'),
-                           '{}'::jsonb, 'UTC') IS NOT FALSE THEN
-            RAISE EXCEPTION 'A4 FAIL: at Jakarta hour % the same window should be CLOSED in UTC', v_jkt_hour;
-        END IF;
+    -- Is the SAME hours object open in UTC? Checked against UTC's own clock, so
+    -- this holds at every hour of the day.
+    --
+    -- This replaced an assertion that the two zones DISAGREE, guarded by a
+    -- hand-derived "Jakarta 09:00-17:00 implies UTC is closed". That is false for
+    -- Jakarta's 16:00 hour, when UTC is 09:00 and the same window is OPEN there -
+    -- so the suite raised A4 and failed CI for one hour of every day, 09:00 to
+    -- 09:59 UTC, and was green the rest of the time. A gate whose verdict depends
+    -- on when it is pushed is worse than no gate: it teaches people to re-run.
+    --
+    -- Asserting each zone against its own clock is also strictly stronger than
+    -- asserting they differ. Differing was only evidence about the pair; this
+    -- pins both readings, so a silent fallback to UTC fails A1, and a silent
+    -- fallback to Jakarta fails A4, at every hour rather than during a window
+    -- someone chose by hand.
+    v_utc_expect := (v_utc_hour >= 9 AND v_utc_hour < 17);
+    v_utc_got := biz_is_open_now(open_all_days('{"open":"09:00","close":"17:00","closed":false}'),
+                                 '{}'::jsonb, 'UTC');
+    IF v_utc_got IS DISTINCT FROM v_utc_expect THEN
+        RAISE EXCEPTION
+            'A4 FAIL: UTC local hour is % so the answer should be %, but biz_is_open_now said %',
+            v_utc_hour, v_utc_expect, v_utc_got;
     END IF;
 
-    RAISE NOTICE 'A ok (Jakarta hour %, expected %, got %)', v_jkt_hour, v_expect, v_got;
+    RAISE NOTICE 'A ok (Jakarta hour %, expected %, got %; UTC hour %, expected %, got %)',
+        v_jkt_hour, v_expect, v_got, v_utc_hour, v_utc_expect, v_utc_got;
 END $A$;
 
 -- ===========================================================================

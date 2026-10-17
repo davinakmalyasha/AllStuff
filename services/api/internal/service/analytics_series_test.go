@@ -29,15 +29,29 @@ import (
 // one the keys come from. Reading the clock inside the function made the zone
 // impossible to pin down from a test at all.
 func TestFillSeriesUsesUTC(t *testing.T) {
+	// The machine's zone is pinned, not tested for. This used to skip whenever
+	// time.Local agreed with UTC for the chosen instant - which is always true on
+	// GitHub's runners, where time.Local IS UTC. So the regression test for the
+	// thirty-zeros bug skipped on every CI run and has never once protected the
+	// build. A test that deletes itself when the environment is inconvenient is
+	// indistinguishable in the logs from one that passed, which is how it read.
+	//
+	// Pinning also makes the test independent of the developer's TZ database,
+	// rather than merely independent of the runner's.
+	restore := time.Local
+	time.Local = time.FixedZone("TEST+13", 13*3600)
+	defer func() { time.Local = restore }()
+
 	// 2026-10-05T20:00Z is 2026-10-06 in any zone at or east of UTC+4. So a
 	// LOCAL-zone implementation and a UTC one produce different first keys for
 	// this input, and the test tells them apart.
 	now := time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC)
 	utcKey := now.UTC().Format("2006-01-02")
-	if local := now.Local().Format("2006-01-02"); local == utcKey {
-		t.Skipf("this machine's local zone (%s) agrees with UTC for the chosen instant, "+
-			"so this test cannot distinguish the two implementations; pick an instant near "+
-			"midnight UTC", time.Local)
+	if localKey := now.Local().Format("2006-01-02"); localKey == utcKey {
+		// Fatal, not Skip. The pin above exists to make this impossible, so it
+		// firing means the pin is wrong - a broken test setup, not an
+		// inapplicable test.
+		t.Fatalf("setup broken: time.Local (%s) renders %q, the same as UTC; the pin did not take", time.Local, localKey)
 	}
 
 	out := fillSeries(nil, 3, now)
@@ -52,11 +66,17 @@ func TestFillSeriesUsesUTC(t *testing.T) {
 	}
 	for i, w := range want {
 		if out[i].Day != w {
-			t.Errorf("day %d = %q, want %q (series is keyed in local time, not UTC)", i, out[i].Day, w)
+			t.Errorf("day %d = %q, want %q (series is keyed in the machine's zone, not UTC)", i, out[i].Day, w)
 		}
 	}
-	if out[len(out)-1].Day == utcKey && !strings.HasPrefix(utcKey, out[len(out)-1].Day) {
-		t.Error("last key does not match the UTC calendar date")
+	// The last key is the day the caller asked about, read on the UTC calendar.
+	//
+	// This replaced `out[len(out)-1].Day == utcKey && !strings.HasPrefix(utcKey, out[len(out)-1].Day)`,
+	// which could never fail: when the two strings are equal HasPrefix is true by
+	// definition, so the negation is always false. A guard that cannot fire is
+	// worse than a missing one, because it is counted as coverage.
+	if got := out[len(out)-1].Day; got != utcKey {
+		t.Errorf("last key = %q, want the UTC calendar date %q", got, utcKey)
 	}
 }
 
