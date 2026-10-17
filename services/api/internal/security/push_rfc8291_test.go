@@ -15,18 +15,25 @@ import (
 // Every value below is copied from the RFC. The intermediate assertions are the
 // point of writing the test this way: a failure names the step that diverged,
 // rather than reporting that 144 bytes came out different from 144 other bytes.
+//
+// Three of these trip the secret scanner's generic-api-key rule on Shannon
+// entropy alone, which is what a published cryptographic vector looks like to a
+// rule that cannot tell one from a leaked key. They carry inline allows rather
+// than a path exception in .gitleaks.toml, for a reason recorded there: the
+// top-level allowlist blocks in that file have no effect in this version of
+// gitleaks, so a path exception would look like enforcement and not be any.
 const (
 	rfcPlaintext = "When I grow up, I want to be a watermelon"
 
-	rfcAuthSecret = "BTBZMqHH6r4Tts7J_aSIgg"
+	rfcAuthSecret = "BTBZMqHH6r4Tts7J_aSIgg" //gitleaks:allow
 	rfcSalt       = "DGv6ra1nlYgDCS1FRnbzlw"
 
 	rfcUAPublic  = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"
 	rfcASPrivate = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"
 	rfcASPublic  = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8"
 
-	rfcECDHSecret = "kyrL1jIIOHEzg3sM2ZWRHDRB62YACZhhSlknJ672kSs"
-	rfcPRKKey     = "Snr3JMxaHVDXHWJn5wdC52WjpCtd2EIEGBykDcZW32k"
+	rfcECDHSecret = "kyrL1jIIOHEzg3sM2ZWRHDRB62YACZhhSlknJ672kSs" //gitleaks:allow
+	rfcPRKKey     = "Snr3JMxaHVDXHWJn5wdC52WjpCtd2EIEGBykDcZW32k" //gitleaks:allow
 	rfcIKM        = "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg"
 	rfcPRK        = "09_eUZGrsvxChDCGRCdkLiDXrReGOEVeSCdCcPBSJSc"
 	rfcCEK        = "oIhVW04MRdy2XN9CiKLxTg"

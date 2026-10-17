@@ -5,9 +5,33 @@
 # allowing blanket ignores" - and no file existed, so the job was scanning with
 # stock rules and would have failed on the repository's own dev defaults.
 #
-# Every exception below is scoped to a single path AND states why the string is
-# not a secret. A real credential pasted into any of these files still trips the
-# gate, because the exception is for a specific literal, not for a shape.
+# Every exception states why the string is not a secret, and none is a blanket
+# ignore: each names a specific literal rather than a shape.
+#
+# THE [[allowlists]] BLOCKS BELOW DO NOT ENFORCE ANYTHING. This was verified
+# against gitleaks 8.24.3, the version the workflow pins, rather than assumed:
+#
+#   - a top-level [[allowlists]] entry does not suppress a finding. Not with or
+#     without [extend] useDefault, not scoping by path, by literal, or by both,
+#     and not under any regexTarget. The finding is still reported.
+#   - a [[rules.allowlists]] entry does suppress one, but only when the rule is
+#     defined in full in this file, and defining a default rule by its id
+#     REPLACES it. A control file that the stock ruleset flagged stopped being
+#     flagged at all once that was tried, so attaching an exception this way
+#     silently switches generic-api-key off - worse than the inert form.
+#   - an inline `gitleaks:allow` comment suppresses the finding on that line and
+#     leaves every other rule working.
+#
+# So these blocks document why the named values are not credentials; they are not
+# enforcement, and the comments here previously implied otherwise. Where
+# enforcement is needed the mechanism is the inline comment, which
+# push_rfc8291_test.go uses.
+#
+# They also happen to suppress nothing real. None of the values named below is
+# flagged by the stock ruleset - not in the files they live in, and not anywhere
+# else. A full-history scan of all 102 commits found five findings in total: the
+# three RFC test vectors, which the inline comments handle, and two from commits
+# whose line numbers no longer correspond to anything in the working tree.
 #
 # Verify locally with:
 #   gitleaks detect --source . --config .gitleaks.toml -v
