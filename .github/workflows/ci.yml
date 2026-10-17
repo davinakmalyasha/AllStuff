@@ -214,7 +214,8 @@ jobs:
           }
 
       - name: Coverage ratchet
-        # A ratchet, not a threshold. Measured total is 15.3%, and any absolute
+        # A ratchet, not a threshold. The measured total lives in
+        # coverage.ratchet at the repo root, and any absolute
         # floor would be either useless (set below reality) or a permanent
         # excuse (set at a number nobody reaches). Instead the current figure is
         # committed to coverage.ratchet and the build fails only on a DECREASE —
@@ -250,26 +251,16 @@ jobs:
         # a bare number, deleting the documentation on the first green build
         # that improved coverage. The rationale lives here instead.
         #
-        # Where the 15.3% comes from, and what it does not tell you
-        # ----------------------------------------------------------
-        #   db          78.1%   splitter, migration routing, replay, fingerprint
-        #   redisclient 67.0%   RESP framing and URL parsing
-        #   config      60.9%   every prod startup invariant asserted individually
-        #   email       50.0%   SMTP header injection, multipart shape, escaping
-        #   util        36.4%   panic recovery in detached goroutines
-        #   security    32.9%   TOTP, VAPID, Stripe signature, SSRF ranges
-        #   ws          25.8%   origin checks and fan-out
-        #   ratelimit   23.6%   key derivation and every fail-open path
-        #   httpapi     18.1%   middleware, SSR escaping, JSON normalisation
-        #   service      8.6%   visibility, claims, retirement, search shape
-        #   repo         4.0%   ownership, slug uniqueness, unowned listings
-        #   jobs         2.0%   the job_runs claim ledger
-        #   domain       0.0%   DTOs and the error contract
-        #   cmd/api      0.0%   wiring
+        # Per-package figures are deliberately NOT listed here any more. They
+        # were, as a hand-written table, and it went stale: it described a
+        # 15.3% run and went on describing it after the total had reached 21.1%,
+        # so the comment disagreed with the gate directly beneath it. Worse, it
+        # read as measured fact. The step below now prints the same table from
+        # the profile it just produced, so it cannot drift from the number.
         #
         # The security-critical primitives are tested well. The I/O layers are
         # not, and the aggregate says so rather than flattering it. `repo` and
-        # `jobs` read in the low single digits because those packages are ~2,972
+        # `jobs` read in the low single digits because those packages are ~4,064
         # and ~300 lines of SQL and scheduler respectively, of which a handful of
         # paths are covered so far. That is an honest starting point, not a
         # finished one.
@@ -296,6 +287,37 @@ jobs:
           go test -count=1 -timeout 25m -coverpkg="$coverpkg" -coverprofile=coverage.out ./... 2>&1 | tail -20
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
           echo "coverage: ${total}%"
+          # Per-package, from the same profile the total above came from.
+          #
+          # The profile lists each block once per test binary that instrumented
+          # it, so summing it directly counts a block many times over: a naive
+          # sum of this profile reported 159,320 statements against a real
+          # 11,380, and a per-package table built from it would have been wrong
+          # by roughly an order of magnitude while looking plausible. Go's own
+          # -func merges duplicates by keeping the highest count per block, and
+          # the awk below reproduces exactly that - the computed total was
+          # verified to agree with `go tool cover -func` to the statement.
+          awk '
+            NR > 1 {
+              key = $1; st = $2 + 0; c = $3 + 0
+              if (!(key in seen) || c > maxc[key]) { seen[key] = 1; maxc[key] = c; stmt[key] = st }
+            }
+            END {
+              for (k in maxc) {
+                split(k, b, ":"); f = b[1]
+                n = split(f, seg, "/"); pkg = ""
+                for (i = 1; i < n; i++) pkg = pkg seg[i] "/"
+                sub(/^bizverse\/api\//, "", pkg)
+                tot[pkg] += stmt[k]
+                if (maxc[k] > 0) cov[pkg] += stmt[k]
+              }
+              for (name in tot) {
+                if (tot[name] > 0) {
+                  printf "  %-24s %5.1f%%  (%d/%d)\n", name, 100*cov[name]/tot[name], cov[name], tot[name]
+                }
+              }
+            }
+          ' coverage.out | sort
           ratchet=$(cat ../../coverage.ratchet)
           echo "ratchet:  ${ratchet}%"
           awk -v t="$total" -v r="$ratchet" 'BEGIN {

@@ -3,6 +3,18 @@ package service
 import (
 	"testing"
 	"time"
+
+	// Blank import, load-bearing. Three tests below resolve named zones
+	// (Pacific/Auckland, Asia/Jakarta, America/New_York) and each one skipped
+	// itself when time.LoadLocation failed. LoadLocation consults $ZONEINFO, then
+	// the system database (/usr/share/zoneinfo), then $GOROOT/lib/time/zoneinfo.zip
+	// - so on a Linux runner the middle path always resolved and the skips never
+	// fired. On Windows there is no system database, and the tests passed only
+	// because GOROOT happened to be set; without it they reported success while
+	// asserting nothing, which is the failure mode the skips were meant to avoid
+	// and instead reproduced. Embedding the IANA database makes resolution
+	// unconditional, so the skip branches are now dead code on every platform.
+	_ "time/tzdata"
 )
 
 func TestIsOpenNow(t *testing.T) {
@@ -157,12 +169,18 @@ func TestIsOpenNow_SpecialHoursUseLocalDate(t *testing.T) {
 	tz := "Pacific/Auckland" // UTC+12/+13
 	auckland, err := time.LoadLocation(tz)
 	if err != nil {
-		t.Skipf("tzdata unavailable: %v", err)
+		// Fatal, not Skip. time/tzdata is imported above, so resolution cannot
+		// fail for a valid zone name; this branch now only fires on a typo, and a
+		// typo that skips is a test that never runs and never says so.
+		t.Fatalf("time.LoadLocation(%q) failed: %v", tz, err)
 	}
 	// 2026-08-10 22:00 UTC is already 2026-08-11 in Auckland.
 	utcInstant := time.Date(2026, 8, 10, 22, 0, 0, 0, time.UTC)
+	// Fatal, not Skip: this is the premise every assertion below rests on, not a
+	// condition that makes the test inapplicable. Skipping here meant a wrong
+	// premise silently dropped the test from the run and reported success.
 	if got := utcInstant.In(auckland).Format("2006-01-02"); got != "2026-08-11" {
-		t.Skipf("unexpected local date mapping: %s", got)
+		t.Fatalf("premise failed: 2026-08-10T22:00Z renders as %s in %s, expected 2026-08-11", got, tz)
 	}
 	weekly := map[string]any{
 		"tue": map[string]any{"open": "09:00", "close": "17:00", "closed": false},
@@ -242,7 +260,7 @@ func TestValidateSpecialHours_Cap(t *testing.T) {
 func TestIsOpenNow_GoSQLParity(t *testing.T) {
 	loc, err := time.LoadLocation("Asia/Jakarta")
 	if err != nil {
-		t.Skipf("tzdata unavailable: %v", err)
+		t.Fatalf("time.LoadLocation(%q) failed: %v", "Asia/Jakarta", err)
 	}
 	tz := "Asia/Jakarta"
 	// Fixed instant: a Tuesday local 10:00, inside 09:00-17:00.
@@ -331,7 +349,7 @@ func TestIsOpenNow_GoSQLParity(t *testing.T) {
 func TestIsOpenNow_OvernightAcrossDST(t *testing.T) {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
-		t.Skipf("tzdata unavailable: %v", err)
+		t.Fatalf("time.LoadLocation(%q) failed: %v", "America/New_York", err)
 	}
 	tz := "America/New_York"
 	weekly := map[string]any{
