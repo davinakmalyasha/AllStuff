@@ -276,7 +276,15 @@ func readRESP(br *bufio.Reader) (any, error) {
 	}
 	switch line[0] {
 	case ':':
-		n, _ := strconv.Atoi(line[1:])
+		n, err := strconv.Atoi(line[1:])
+		if err != nil {
+			// Was `n, _ := strconv.Atoi(...)`, which returned 0 and no error. A
+			// corrupted or truncated integer line therefore read as a count of
+			// zero rather than a fault, and zero is a plausible value here - the
+			// bulk and array cases immediately below already treat an unparseable
+			// length as an error, so the three now agree.
+			return nil, fmt.Errorf("bad integer %q", line)
+		}
 		return n, nil
 	case '$':
 		n, err := strconv.Atoi(line[1:])
