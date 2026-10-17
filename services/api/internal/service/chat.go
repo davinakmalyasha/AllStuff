@@ -18,6 +18,7 @@ import (
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/ratelimit"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/security"
 	"bizverse/api/internal/util"
 	"bizverse/api/internal/ws"
 )
@@ -632,16 +633,15 @@ func (c *Chat) Pinned(ctx context.Context, userID, threadID string) ([]int64, er
 
 var urlRe = regexp.MustCompile(`https?://[^\s]+`)
 
-// isPublicIP reports whether ip is safe to dial: not loopback, private,
-// link-local, unspecified, or multicast. IPv4-mapped IPv6 (::ffff:127.0.0.1)
-// is normalized first — those accessors return false on the mapped form.
-func isPublicIP(ip net.IP) bool {
-	if v4 := ip.To4(); v4 != nil {
-		ip = v4
-	}
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast())
-}
+// isPublicIP used to live here as a second copy of security.IsPublicIP. The two
+// drifted: the copy in security was hardened to reject nil and to block CGNAT
+// (100.64.0.0/10) and the reserved blocks, and this one, written for link
+// previews, kept the older and weaker body. The same question - "is this
+// address safe to dial?" - was therefore answered differently depending on
+// which feature asked.
+//
+// Nothing about the link-preview path made the weaker answer correct. Both
+// callers below now use security.IsPublicIP, so there is one answer.
 
 // previewTransport dials only after resolving the hostname and validating
 // every resolved address. Because it sits at the dial layer it covers ALL
@@ -666,7 +666,7 @@ var previewClient = &http.Client{
 				return nil, err
 			}
 			for _, ia := range ips {
-				if !isPublicIP(ia.IP) {
+				if !security.IsPublicIP(ia.IP) {
 					return nil, fmt.Errorf("link preview: private address blocked")
 				}
 			}
@@ -695,7 +695,7 @@ func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 		return nil, false
 	}
 	host := u.Hostname()
-	if ip := net.ParseIP(host); ip != nil && !isPublicIP(ip) {
+	if ip := net.ParseIP(host); ip != nil && !security.IsPublicIP(ip) {
 		return nil, false
 	}
 	if net.ParseIP(host) == nil && !strings.Contains(host, ".") {

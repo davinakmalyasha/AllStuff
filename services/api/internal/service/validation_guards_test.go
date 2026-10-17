@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"net"
 	"regexp"
 	"strings"
 	"testing"
@@ -10,83 +9,18 @@ import (
 	"bizverse/api/internal/domain"
 )
 
-// These four functions had no coverage at all in the last measured CI profile
+// These three functions had no coverage at all in the last measured CI profile
 // (123 pure functions are in that state, 853 statements between them). They are
 // grouped here because none of them needs a database, so unlike the
 // //go:build !race suites they can be run and mutation-checked locally rather
 // than only on a runner.
 
-// The link-preview fetcher is the one place this service makes an outbound
-// request to a URL chosen by a user, so isPublicIP is the whole of its SSRF
-// defence at the address layer: the transport's DialContext calls it for every
-// resolved address on every hop, which is what covers redirects and DNS
-// rebinding (see previewClient in chat.go).
-//
-// A false positive here means the server fetches an internal address on a
-// user's behalf.
-func TestIsPublicIPRejectsEveryNonRoutableRange(t *testing.T) {
-	cases := []struct {
-		ip     string
-		public bool
-		why    string
-	}{
-		// The metadata endpoint, which is the canonical SSRF target: reachable it
-		// yields instance credentials on the major clouds.
-		{"169.254.169.254", false, "cloud metadata endpoint (link-local)"},
-		{"169.254.0.1", false, "link-local, low boundary"},
-		{"127.0.0.1", false, "loopback"},
-		{"127.1.2.3", false, "loopback, not just 0.0.1"},
-		{"10.0.0.1", false, "RFC1918 10/8"},
-		{"172.16.0.1", false, "RFC1918 172.16/12, low boundary"},
-		{"172.31.255.254", false, "RFC1918 172.16/12, high boundary"},
-		{"192.168.1.1", false, "RFC1918 192.168/16"},
-		{"0.0.0.0", false, "unspecified"},
-		{"224.0.0.1", false, "multicast"},
-
-		{"::1", false, "IPv6 loopback"},
-		{"fe80::1", false, "IPv6 link-local"},
-		{"fc00::1", false, "IPv6 unique local, low boundary"},
-		{"fd00::1", false, "IPv6 unique local"},
-		{"::", false, "IPv6 unspecified"},
-		{"ff02::1", false, "IPv6 multicast"},
-
-		// IPv4 addresses embedded in IPv6 are the classic way past a check that
-		// forgets to normalise through To4.
-		{"::ffff:127.0.0.1", false, "IPv4-mapped loopback"},
-		{"::ffff:169.254.169.254", false, "IPv4-mapped metadata endpoint"},
-		{"::ffff:10.0.0.1", false, "IPv4-mapped RFC1918"},
-
-		// Boundary neighbours: one step outside each blocked range must still be
-		// allowed, or the check has been written too wide and real previews break.
-		{"8.8.8.8", true, "public resolver"},
-		{"1.1.1.1", true, "public resolver"},
-		{"169.253.255.255", true, "just below link-local"},
-		{"172.32.0.1", true, "just above RFC1918 172.16/12"},
-		{"2001:4860:4860::8888", true, "public IPv6"},
-		{"::ffff:8.8.8.8", true, "IPv4-mapped public"},
-	}
-
-	for _, tc := range cases {
-		ip := net.ParseIP(tc.ip)
-		if ip == nil {
-			t.Fatalf("%s: net.ParseIP returned nil; the table is wrong", tc.ip)
-		}
-		if got := isPublicIP(ip); got != tc.public {
-			t.Errorf("isPublicIP(%s) = %v, want %v (%s)", tc.ip, got, tc.public, tc.why)
-		}
-	}
-}
-
-// Reviewed, and deliberately left as-is: 100.64.0.0/10 (RFC 6598 carrier-grade
-// NAT) is not matched by net.IP.IsPrivate, so it is treated as public. It is not
-// a cloud metadata or typical internal-service range, so the SSRF value of
-// blocking it is low, and this test pins the behaviour so that any future change
-// to it is a deliberate one with a diff, rather than a silent widening.
-func TestIsPublicIPTreatsCarrierGradeNATAsPublic(t *testing.T) {
-	if isPublicIP(net.ParseIP("100.64.0.1")) != true {
-		t.Error("100.64.0.0/10 is no longer treated as public; if this changed on purpose, update this test and the comment above it")
-	}
-}
+// The address-safety tests that were here have MOVED to
+// internal/security/push_test.go. isPublicIP turned out to exist twice - once
+// here, untested, and once in security, tested and hardened to reject nil and
+// to block CGNAT and the reserved ranges. This file's copy was the weaker of
+// the two and faced the more exposed caller. The duplicate is gone and both
+// callers now use security.IsPublicIP, so the tests belong with it.
 
 // validateHours normalises whatever the client sent into the shape the rest of
 // the service and the SQL open-now function expect. Two things matter: a

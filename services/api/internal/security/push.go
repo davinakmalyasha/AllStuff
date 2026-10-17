@@ -131,7 +131,7 @@ var pushClient = &http.Client{
 				return nil, err
 			}
 			for _, ia := range addrs {
-				if !isPublicIP(ia.IP) {
+				if !IsPublicIP(ia.IP) {
 					return nil, fmt.Errorf("push endpoint: non-public address blocked")
 				}
 			}
@@ -154,7 +154,7 @@ func ValidPushEndpoint(raw string) bool {
 	}
 	host := u.Hostname()
 	if ip := net.ParseIP(host); ip != nil {
-		return isPublicIP(ip)
+		return IsPublicIP(ip)
 	}
 	// Hostname: resolve and require every address to be public.
 	addrs, err := net.LookupIP(host)
@@ -162,17 +162,17 @@ func ValidPushEndpoint(raw string) bool {
 		return false
 	}
 	for _, a := range addrs {
-		if !isPublicIP(a) {
+		if !IsPublicIP(a) {
 			return false
 		}
 	}
 	return true
 }
 
-// isPublicIP: true only for globally routable, non-special addresses.
+// IsPublicIP: true only for globally routable, non-special addresses.
 // Covers loopback, RFC1918, link-local, CGNAT (100.64.0.0/10), benchmark
 // (198.18.0.0/15), documentation ranges, multicast, and reserved blocks.
-func isPublicIP(ip net.IP) bool {
+func IsPublicIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
