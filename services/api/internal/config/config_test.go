@@ -236,3 +236,63 @@ func baseConfig() Config {
 		PublicURL:          "https://bizverse.app",
 	}
 }
+
+// --- the E2E throttle bypass must not be startable outside a test environment ---
+
+// Two comments claimed Validate() refused to boot with
+// E2E_ACCOUNT_THROTTLE_BYPASS set outside APP_ENV=test - one in
+// httpapi/handlers_auth.go, one in playwright.config.ts. Neither was true: the only
+// guard was the `APP_ENV == "test"` comparison that computes the flag, so a deployment
+// mislabelled APP_ENV=test would have weakened per-account brute-force protection
+// silently. This pins the guard so the claim cannot drift false again.
+func TestValidate_RejectsThrottleBypassOutsideTest(t *testing.T) {
+	// A config that satisfies every OTHER invariant, so the only thing the assertions
+	// below can trip on is the bypass. Using a minimal Config made the prod case fail
+	// on COOKIE_SECURE before reaching the check under test, and the failure named the
+	// wrong variable - which is exactly the kind of misleading signal this test is
+	// supposed to prevent.
+	prodValid := func() Config {
+		return Config{
+			AppEnv:             "prod",
+			JWTSecret:          goodSecret,
+			CookieSecure:       true,
+			DatabaseURL:        "postgres://u:p@h:5432/db?sslmode=require",
+			MediaEncryptionKey: strings.Repeat("ab", 32),
+			ClamAVAddr:         "clamav:3310",
+			ResendAPIKey:       "re_test",
+		}
+	}
+
+	for _, env := range []string{"dev", "prod", "staging", ""} {
+		t.Run("refuses in "+env, func(t *testing.T) {
+			t.Setenv("E2E_ACCOUNT_THROTTLE_BYPASS", "1")
+			c := prodValid()
+			c.AppEnv = env
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("Validate() accepted E2E_ACCOUNT_THROTTLE_BYPASS with APP_ENV=%q; it disables the per-account failed-auth throttle", env)
+			}
+			if !strings.Contains(err.Error(), "E2E_ACCOUNT_THROTTLE_BYPASS") {
+				t.Errorf("error does not name the offending variable: %v", err)
+			}
+		})
+	}
+
+	// The flag is allowed in test, which is the only place it can engage anyway.
+	t.Run("allowed in test", func(t *testing.T) {
+		t.Setenv("E2E_ACCOUNT_THROTTLE_BYPASS", "1")
+		c := prodValid()
+		c.AppEnv = "test"
+		if err := c.Validate(); err != nil {
+			t.Fatalf("Validate() rejected the bypass under APP_ENV=test: %v", err)
+		}
+	})
+
+	// Absent is always fine; the check must not make the variable mandatory.
+	t.Run("absent is fine everywhere", func(t *testing.T) {
+		t.Setenv("E2E_ACCOUNT_THROTTLE_BYPASS", "")
+		if err := prodValid().Validate(); err != nil {
+			t.Fatalf("Validate() failed with a production-shaped config and no bypass: %v", err)
+		}
+	})
+}

@@ -235,6 +235,24 @@ func (c Config) Validate() error {
 			return errors.New("STRIPE_WEBHOOK_SECRET must be set when STRIPE_SECRET_KEY is set (otherwise no subscription change is ever applied)")
 		}
 	}
+
+	// E2E_ACCOUNT_THROTTLE_BYPASS turns off the per-account failed-authentication
+	// buckets, which is the brute-force defence protecting a 10^6 TOTP code space.
+	//
+	// Two comments claimed this function refuses to boot with it set outside a test
+	// environment - one in httpapi/handlers_auth.go and one in playwright.config.ts.
+	// Neither was true. The only guard was the `APP_ENV == "test"` comparison that
+	// computes the flag, so a deployment mislabelled `APP_ENV=test` would have weakened
+	// the defence silently, with nothing in the logs. This is the guard those comments
+	// promised, and it is here because this file is where they said it was.
+	//
+	// Deliberately not narrowed to `isProd`: a dev or staging instance carrying the
+	// variable is a copy-paste of the test configuration, and that is the mistake worth
+	// catching loudly wherever it happens.
+	if c.AppEnv != "test" && strings.TrimSpace(os.Getenv("E2E_ACCOUNT_THROTTLE_BYPASS")) != "" {
+		return errors.New("E2E_ACCOUNT_THROTTLE_BYPASS must not be set outside APP_ENV=test; it disables per-account failed-authentication throttling")
+	}
+
 	return nil
 }
 
