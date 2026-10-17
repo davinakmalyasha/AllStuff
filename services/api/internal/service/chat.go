@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/ratelimit"
@@ -735,7 +736,7 @@ func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 }
 
 func firstMeta(html []byte, keys ...string) string {
-	lower := strings.ToLower(string(html))
+	lower := asciiLower(string(html))
 	for _, key := range keys {
 		// Match name="x" or property="x" (double or single quotes).
 		for _, attr := range []string{`name="`, `property="`, `name='`, `property='`} {
@@ -756,15 +757,11 @@ func firstMeta(html []byte, keys ...string) string {
 			if start < len(lower) && (lower[start] == '"' || lower[start] == '\'') {
 				q := lower[start]
 				start++
-				end := strings.Index(lower[start:], string(q))
-				if end > 0 && end < 500 {
-					out := string(html[start : start+end])
-					out = htmlUnescape(out)
-					if len(out) > 300 {
-						out = out[:300] + "…"
-					}
-					return out
+				end := strings.IndexByte(lower[start:], q)
+				if end <= 0 {
+					continue
 				}
+				return previewValue(string(html[start : start+end]))
 			}
 		}
 	}
@@ -772,16 +769,60 @@ func firstMeta(html []byte, keys ...string) string {
 	if i := strings.Index(lower, "<title>"); i >= 0 {
 		start := i + len("<title>")
 		end := strings.Index(lower[start:], "</title>")
-		if end > 0 && end < 500 {
-			out := string(html[start : start+end])
-			out = htmlUnescape(out)
-			if len(out) > 300 {
-				out = out[:300] + "…"
-			}
-			return out
+		if end <= 0 {
+			return ""
 		}
+		return previewValue(string(html[start : start+end]))
 	}
 	return ""
+}
+
+// asciiLower lowercases A-Z and leaves every other byte exactly as it was.
+//
+// strings.ToLower cannot be used here. The offsets found in the lowered copy are
+// used to slice the ORIGINAL document, which is only sound if lowering preserves
+// byte length, and it does not for every input: "İ" (U+0130) is two bytes and
+// lowers to "i", one byte. One such character anywhere before a tag shifted every
+// later offset, so the value came back a byte out of step - carrying the closing
+// quote and losing its final character. Only ASCII needs folding anyway, because
+// the attribute names being matched are ASCII.
+func asciiLower(s string) string {
+	b := []byte(s)
+	changed := false
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+			changed = true
+		}
+	}
+	if !changed {
+		return s
+	}
+	return string(b)
+}
+
+// previewValue unescapes a meta value and bounds it for display.
+//
+// The cut lands on a rune boundary. Slicing at byte 300 splits any multi-byte
+// character that straddles it and puts invalid UTF-8 into the JSON response -
+// which a 299-byte prefix followed by anything non-ASCII does every time.
+//
+// The caller no longer rejects long values, only truncates them. It used to
+// require the closing quote within 500 bytes, so a description of 600 bytes
+// produced no preview at all while one of 499 produced a truncated preview: the
+// user-visible difference between two similar pages was total. The fetched body
+// is already capped at 256KB by the caller, so searching the whole document for
+// the closing quote is bounded, and the length that matters is bounded here.
+func previewValue(s string) string {
+	s = htmlUnescape(s)
+	if len(s) <= 300 {
+		return s
+	}
+	cut := 300
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 func htmlUnescape(s string) string {
