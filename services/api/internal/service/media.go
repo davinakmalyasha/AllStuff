@@ -17,6 +17,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -131,7 +132,17 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 
 	name := util.NewUUID()
 	ext := extensionFor(mime)
-	rel := filepath.Join(string(in.Kind), name+ext)
+	// path.Join, not filepath.Join. This value is persisted and then read back on
+	// whichever platform serves it, so it has to be platform-independent:
+	// filepath.Join writes "logo\uuid.png" on Windows, and a Linux server reading
+	// that row looks for a file literally named "logo\uuid.png" and finds nothing.
+	// A database written during Windows development and restored into the Linux
+	// deployment therefore 404s every image.
+	//
+	// The filesystem operations below keep using filepath.Join, which accepts "/"
+	// as a separator on both platforms, so the stored form and the on-disk form
+	// still agree.
+	rel := path.Join(string(in.Kind), name+ext)
 	full := filepath.Join(m.dir, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return nil, err
