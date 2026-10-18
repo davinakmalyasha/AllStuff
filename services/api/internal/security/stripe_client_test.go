@@ -213,7 +213,7 @@ func TestStripeErrorDoesNotEchoTheBody(t *testing.T) {
 		// The failure this guards: an unparseable body that happens to contain
 		// the key, turning a log line into a credential leak.
 		for _, leak := range []string{
-			"sk_live_51H8xQ2eZvKYlo2C",
+			"sk_live_51H8xQ2eZvKYlo2C", //gitleaks:allow -- a fake, and shaped like a real key because that is the point
 			"whsec_abcdef0123456789",
 			"<html><body>Authorization: Bearer sk_live_leaked</body></html>",
 		} {
