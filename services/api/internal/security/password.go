@@ -24,6 +24,27 @@ const (
 
 var ErrInvalidHash = errors.New("invalid password hash")
 
+// Bounds on the parameters read out of a stored hash.
+//
+// VerifyPassword has always rejected a hash it cannot parse, but it did not
+// check the values it had just parsed, and argon2 does not return errors for
+// them - it panics, or allocates:
+//
+//	t = 0      panic("argon2: number of rounds too small")
+//	p = 0      panic("argon2: parallelism degree too low")
+//	keyLen = 0 nil dereference inside blake2b, via the empty hash segment
+//	m = huge   a single make([]block, memory), in the terabytes
+//
+// All four were reachable from a stored hash, so a single malformed row panicked
+// the login path for that account rather than being refused. The limits below
+// are generous next to the current defaults (t=3, 64 MiB, p=4, keyLen=32) and
+// exist to bound the damage from a corrupted value, not to pin the profile.
+const (
+	maxArgonMemoryKiB = 1 << 20 // 1 GiB, sixteen times the current default
+	maxArgonTime      = 1024
+	maxArgonKeyLen    = 1024
+)
+
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -56,6 +77,21 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
+		return false, ErrInvalidHash
+	}
+	// Everything above checked the SHAPE of the hash. These values came out of
+	// it and are about to be handed to argon2, which panics rather than
+	// returning an error for several of them - see the constants above.
+	if l := len(want); l == 0 || l > maxArgonKeyLen {
+		return false, ErrInvalidHash
+	}
+	if t < 1 || t > maxArgonTime {
+		return false, ErrInvalidHash
+	}
+	if p < 1 {
+		return false, ErrInvalidHash
+	}
+	if m < 8 || m > maxArgonMemoryKiB {
 		return false, ErrInvalidHash
 	}
 	got := argon2.IDKey([]byte(password), salt, t, m, p, uint32(len(want)))
