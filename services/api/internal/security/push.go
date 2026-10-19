@@ -30,6 +30,33 @@ import (
 type VAPIDKeypair struct {
 	PublicKey  string // base64url(raw uncompressed point)
 	PrivateKey *ecdsa.PrivateKey
+
+	// http delivers through this client instead of the package pushClient. Nil in
+	// production, where pushClient applies the SSRF rules (port 443 only, every
+	// resolved address validated on every hop). Tests set it because those rules
+	// make a local test server unreachable - which is the point of them.
+	http *http.Client
+}
+
+// WithHTTPClient returns a copy of the keypair that delivers through c.
+//
+// Only for tests: the caller takes responsibility for the endpoint it points at.
+// Kept as an explicit method rather than an exported field so that "this keypair
+// bypasses the SSRF rules" is visible at every call site that does it.
+func (k *VAPIDKeypair) WithHTTPClient(c *http.Client) *VAPIDKeypair {
+	if k == nil {
+		return nil
+	}
+	cp := *k
+	cp.http = c
+	return &cp
+}
+
+func (k *VAPIDKeypair) client() *http.Client {
+	if k != nil && k.http != nil {
+		return k.http
+	}
+	return pushClient
 }
 
 func GenerateVAPIDKeypair() (*VAPIDKeypair, error) {
@@ -248,7 +275,7 @@ func (k *VAPIDKeypair) Send(sub PushSubscription, subject, title, body string, d
 	req.Header.Set("Content-Encoding", "aes128gcm")
 	req.Header.Set("Authorization", authHeader)
 
-	resp, err := pushClient.Do(req)
+	resp, err := k.client().Do(req)
 	if err != nil {
 		return err
 	}
