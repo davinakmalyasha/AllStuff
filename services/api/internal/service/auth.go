@@ -1087,7 +1087,26 @@ func (a *Auth) ExportData(ctx context.Context, userID string) (map[string]any, e
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		// GetByID returns (nil, nil) for a row that is missing OR soft-deleted -
+		// the contract the repositories share - so this is a legitimate answer
+		// rather than an error, and the caller gets ErrNotFound.
+		//
+		// It is reachable: an access token stays valid for its full TTL after the
+		// account is soft-deleted, so "delete my account, then request the export"
+		// arrives here with a live session and no row. Every other caller of
+		// GetByID checks for nil; this one did not, and the profile map below
+		// dereferenced it.
+		return nil, domain.ErrNotFound
+	}
 	businesses, _ := a.repos.Businesses.ListByOwner(ctx, userID)
+	if businesses == nil {
+		// A data export should carry an empty list where it has no rows. A nil
+		// slice marshals to null, and a consumer expecting an array gets a type
+		// change on the one payload it cannot ask to be re-sent. The other
+		// collections below are initialised, so this was the only null.
+		businesses = []*domain.Business{}
+	}
 	// Collect every product id first, then fetch options and variants for all of
 	// them in two queries. This was a ListOptions plus a ListVariants call PER
 	// PRODUCT inside the loop, so exporting an account with 40 products issued 81
