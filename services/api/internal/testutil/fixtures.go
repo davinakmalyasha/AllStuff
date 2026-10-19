@@ -82,7 +82,18 @@ func UserOpts_(t *testing.T, h *H, o UserOpts) *domain.User {
 // Admin inserts an active user carrying the admin role.
 func Admin(t *testing.T, h *H) *domain.User {
 	t.Helper()
-	return UserOpts_(t, h, UserOpts{Role: domain.RoleAdmin})
+	u := UserOpts_(t, h, UserOpts{Role: domain.RoleAdmin})
+	// UserRepo.Create does not write the role column - registration is the normal
+	// caller and always wants the default - so the row is 'user' unless it is set
+	// here. Without this, Admin returned a struct that claimed to be an admin and a
+	// row that was not, and every test using it was testing a non-admin.
+	//
+	// h.Repos.Exec, not h.Exec: Repos is rebound by UsePool, so this lands on the
+	// same connection as the fixture regardless of which harness the test uses.
+	if _, err := h.Repos.Exec(context.Background(), `UPDATE users SET role = $2 WHERE id = $1`, u.ID, string(domain.RoleAdmin)); err != nil {
+		t.Fatalf("promote the admin fixture: %v", err)
+	}
+	return u
 }
 
 // Category inserts a top-level category.
