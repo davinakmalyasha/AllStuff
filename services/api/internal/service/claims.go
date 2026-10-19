@@ -112,7 +112,8 @@ func (c *Claims) List(ctx context.Context, userID string, admin bool, limit, off
 	args = append(args, limit, offset)
 	limitPh, offsetPh := "$"+strconv.Itoa(len(args)-1), "$"+strconv.Itoa(len(args))
 	rows, err := c.repos.Query(ctx, `
-		SELECT cl.id, cl.user_id, cl.business_id, cl.name, cl.category_id, cl.address, cl.city,
+		SELECT cl.id, cl.user_id, cl.business_id, cl.name, COALESCE(cl.category_id::text, '') AS category_id,
+			cl.address, cl.city,
 			cl.country, cl.website, cl.evidence, cl.status, cl.note, cl.created_at, cl.decided_at,
 			u.name, u.email
 		FROM business_claims cl JOIN users u ON u.id = cl.user_id
@@ -139,7 +140,8 @@ func (c *Claims) List(ctx context.Context, userID string, admin bool, limit, off
 func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note string) (*ClaimItem, error) {
 	var it ClaimItem
 	if err := c.repos.QueryRow(ctx, `
-		SELECT id, user_id, business_id, name, category_id, address, city, country, website, status
+		SELECT id, user_id, business_id, name, COALESCE(category_id::text, '') AS category_id,
+			address, city, country, website, status
 		FROM business_claims WHERE id = $1`, claimID).Scan(&it.ID, &it.UserID, &it.BusinessID,
 		&it.Name, &it.CategoryID, &it.Address, &it.City, &it.Country, &it.Website, &it.Status); err != nil {
 		return nil, domain.ErrNotFound
@@ -242,7 +244,8 @@ func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note st
 	// Return the decided row.
 	var decided ClaimItem
 	if err := c.repos.QueryRow(ctx, `
-		SELECT id, user_id, business_id, name, category_id, address, city, country, website,
+		SELECT id, user_id, business_id, name, COALESCE(category_id::text, '') AS category_id,
+			address, city, country, website,
 			evidence, status, note, created_at, decided_at
 		FROM business_claims WHERE id = $1`, claimID).Scan(&decided.ID, &decided.UserID, &decided.BusinessID,
 		&decided.Name, &decided.CategoryID, &decided.Address, &decided.City, &decided.Country,
