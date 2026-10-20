@@ -53,8 +53,22 @@ func (d *Digest) SendWeekly(ctx context.Context) error {
 		rows.String(), d.publicURL())
 	// Branded template for parity with every other sender; bulk headers keep
 	// mailbox providers from classifying the weekly blast as spam.
+	//
+	// Errors were discarded here, and that mattered: the caller claims the ISO
+	// week before calling this and only releases it on a returned error, so a
+	// total delivery failure marked the week as done and nobody was ever sent it.
+	//
+	// Only a TOTAL failure is reported. A partial one must not release the week,
+	// because the release makes the next tick retry the whole batch and would
+	// re-send to everyone who did receive it. Partial failures are logged instead.
+	var failed int
 	for _, u := range users {
-		_ = d.email.SendBulk(ctx, u, "This week in BizVerse", email.WrapHTML(d.publicURL(), "This week in BizVerse", bodyHTML))
+		if err := d.email.SendBulk(ctx, u, "This week in BizVerse", email.WrapHTML(d.publicURL(), "This week in BizVerse", bodyHTML)); err != nil {
+			failed++
+		}
+	}
+	if failed == len(users) {
+		return fmt.Errorf("digest: all %d sends failed", failed)
 	}
 	return nil
 }

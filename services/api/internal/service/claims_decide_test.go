@@ -203,17 +203,15 @@ func TestClaimsDecideApprovalCreatesADraft(t *testing.T) {
 		t.Errorf("slug = %q", slug)
 	}
 
-	// Recorded for the next reader: the claim row is NOT linked to the draft it
-	// created. The claimer learns the id from the notification, but the claim
-	// itself still carries business_id NULL, so there is no durable link from the
-	// claim to its outcome. Asserted as the current behaviour rather than fixed
-	// here, because changing it is a schema decision.
+	// The claim records the draft it produced. Without this the claimer learns the
+	// id only from the notification and the claim itself has no durable link to
+	// its outcome, which is what an audit of "what did this claim create" needs.
 	var linked *string
 	if err := h.Pool.QueryRow(ctx, `SELECT business_id FROM business_claims WHERE id=$1`, claimID).Scan(&linked); err != nil {
 		t.Fatal(err)
 	}
-	if linked != nil {
-		t.Logf("the claim now links to business %s (behaviour changed; update this test)", *linked)
+	if linked == nil || *linked != id {
+		t.Errorf("claim.business_id = %v, want the draft %s it created", linked, id)
 	}
 }
 

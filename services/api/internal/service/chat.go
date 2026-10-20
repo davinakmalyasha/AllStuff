@@ -382,7 +382,7 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 
 	// Notify other participants (skipping thread-muted ones, PRD §5.5.1).
 	participants, err := c.repos.Chat.ParticipantIDs(ctx, threadID)
-	if err == nil {
+	if err == nil && c.notifier != nil {
 		muted := c.mutedParticipants(ctx, threadID)
 		for _, pid := range participants {
 			if pid == userID || muted[pid] {

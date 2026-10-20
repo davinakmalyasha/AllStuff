@@ -213,8 +213,9 @@ func (c *Claims) Decide(ctx context.Context, adminID, claimID, decision, note st
 				return nil, err
 			}
 			res, err := c.repos.Exec(ctx, `
-				UPDATE business_claims SET status='approved', decided_by=$2, decided_at=now(), note=$3
-				WHERE id=$1 AND status='open'`, claimID, adminID, note)
+				UPDATE business_claims SET status='approved', decided_by=$2, decided_at=now(), note=$3,
+					business_id=$4
+				WHERE id=$1 AND status='open'`, claimID, adminID, note, draftID)
 			if err != nil {
 				return nil, err
 			}

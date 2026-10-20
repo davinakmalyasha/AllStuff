@@ -8,12 +8,14 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"bizverse/api/internal/config"
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/email"
+	"bizverse/api/internal/ratelimit"
 	"bizverse/api/internal/testutil"
 	"bizverse/api/internal/util"
 	"bizverse/api/internal/ws"
@@ -537,5 +539,62 @@ func TestChatSendNotifiesTheRightParticipants(t *testing.T) {
 	// ParticipantIDs filters left_at, so a participant who left is not notified.
 	if got := notified(left.ID); got != 0 {
 		t.Errorf("a participant who left got %d notifications, want 0", got)
+	}
+}
+
+// hourLimiter allows the per-second tier and refuses the per-hour one, which is
+// the only way to reach the hour branch: in production the 1/sec tier rejects
+// first, so the hour limit is unreachable without waiting an hour.
+type hourLimiter struct {
+	mu    sync.Mutex
+	seen  []string
+	limit int
+}
+
+func (h *hourLimiter) Allow(key string, limit int, window time.Duration) (int, time.Duration, bool) {
+	h.mu.Lock()
+	h.seen = append(h.seen, key)
+	h.mu.Unlock()
+	if strings.Contains(key, "chat:hour:") {
+		h.limit = limit
+		return 0, 42 * time.Minute, false
+	}
+	return limit - 1, 0, true
+}
+
+func TestChatSendReportsTheHourlyLimit(t *testing.T) {
+	c, h := newTestChat(t)
+	ctx := fixtureCtx(t)
+	u := testutil.User(t, h)
+	thread := makeThread(t, h, "direct", nil, "", participant{userID: u.ID})
+
+	fake := &hourLimiter{}
+	var rl ratelimit.RateLimiter = fake
+	c.limiter = &rl
+
+	_, err := sendText(t, c, ctx, u.ID, thread, "one")
+	if !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+	var derr *domain.Error
+	if !errors.As(err, &derr) {
+		t.Fatalf("err = %T, want *domain.Error", err)
+	}
+	// The message tells the user how long to wait, computed from the retry the
+	// limiter reported rather than a fixed string.
+	if !strings.Contains(derr.Message, "Message limit reached") {
+		t.Errorf("message = %q", derr.Message)
+	}
+	if fake.limit != 60 {
+		t.Errorf("the hour tier asked for a limit of %d, want 60", fake.limit)
+	}
+
+	// Nothing was written: the refusal happens before the insert.
+	var n int
+	if err := h.Pool.QueryRow(ctx, `SELECT count(*) FROM chat_messages WHERE thread_id=$1`, thread).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("%d message(s) were written despite the hour limit", n)
 	}
 }

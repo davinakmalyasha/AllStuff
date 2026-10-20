@@ -96,33 +96,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	// behind a single select loop. `running` guards each job against
 	// overlapping with itself when a run exceeds its interval; cross-replica
 	// duplication is already excluded by the leader lock.
-	var runningMu sync.Mutex
-	running := map[string]bool{}
-	spawn := func(name string, fn func(ctx context.Context)) {
-		runningMu.Lock()
-		if running[name] {
-			runningMu.Unlock()
-			return
-		}
-		running[name] = true
-		runningMu.Unlock()
-		go func() {
-			defer func() {
-				runningMu.Lock()
-				delete(running, name)
-				runningMu.Unlock()
-				// A panic in a job goroutine is unrecoverable from outside and
-				// takes the whole process down. recover() was previously
-				// present only in the HTTP middleware, so a nil deref in any
-				// detached job (trending recompute, digest fan-out, retention
-				// sweep) was a full outage rather than one failed tick.
-				if r := recover(); r != nil {
-					logger.Error("job panicked", "job", name, "panic", r, "stack", string(debug.Stack()))
-				}
-			}()
-			fn(ctx)
-		}()
-	}
+	runner := newJobRunner(logger)
 
 	for {
 		select {
@@ -131,7 +105,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 			return
 		case <-trendTicker.C:
 			start := time.Now()
-			spawn("trending", func(ctx context.Context) {
+			runner.spawn("trending", func() {
 				if err := trending.Compute(ctx); err != nil {
 					logger.Error("trending recompute", "err", err)
 					return
@@ -139,7 +113,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				logger.Info("trending recompute done", "dur_ms", time.Since(start).Milliseconds())
 			})
 		case <-currencyTicker.C:
-			spawn("currency", func(ctx context.Context) {
+			runner.spawn("currency", func() {
 				if err := currency.Sync(ctx); err != nil {
 					logger.Warn("currency sync", "err", err)
 					return
@@ -155,7 +129,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 			now := time.Now().UTC()
 			y, w := now.ISOWeek()
 			period := fmt.Sprintf("%04d-W%02d", y, w)
-			spawn("weekly_digest", func(ctx context.Context) {
+			runner.spawn("weekly_digest", func() {
 				if !claimPeriod(ctx, repos, "weekly_digest", period) {
 					return
 				}
@@ -169,7 +143,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 		case <-alertTicker.C:
 			// Daily search alerts (PRD 5.1.2), idempotent per day.
 			day := time.Now().UTC().Format("2006-01-02")
-			spawn("search_alerts", func(ctx context.Context) {
+			runner.spawn("search_alerts", func() {
 				if !claimPeriod(ctx, repos, "search_alerts", day) {
 					return
 				}
@@ -179,7 +153,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				}
 			})
 		case <-purgeTicker.C:
-			spawn("purges", func(ctx context.Context) {
+			runner.spawn("purges", func() {
 				n, err := repos.Engagement.PurgeExpired(ctx)
 				if err != nil {
 					logger.Warn("notification purge", "err", err)
@@ -194,7 +168,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				retention(ctx, repos, logger)
 			})
 		case <-opsTicker.C:
-			spawn("ops", func(ctx context.Context) {
+			runner.spawn("ops", func() {
 				if err := ops.PruneSnapshots(ctx); err != nil {
 					logger.Warn("snapshot prune", "err", err)
 				}
@@ -208,7 +182,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 			// canceled subscription would keep granting entitlements forever
 			// and an active one would never be noticed if `created` was missed.
 			// Cheap: the query is index-backed and usually returns zero rows.
-			spawn("billing_reconcile", func(ctx context.Context) {
+			runner.spawn("billing_reconcile", func() {
 				if err := billing.Reconcile(ctx); err != nil {
 					logger.Warn("billing reconcile", "err", err)
 				}
@@ -297,4 +271,58 @@ func retention(ctx context.Context, repos *repo.Repos, logger *slog.Logger) {
 			logger.Info("retention "+st.name, "removed", total)
 		}
 	}
+}
+
+// jobRunner starts one goroutine per job and keeps a job from overlapping itself.
+//
+// Extracted from Run so it can be exercised directly: every test in this package
+// needs a database, so none of them carry a build tag that lets the race detector
+// run, and `go test -race ./internal/jobs/` was executing nothing at all. The
+// concurrency in this package lives here, and now it has a test that runs under
+// -race with no database.
+type jobRunner struct {
+	logger  *slog.Logger
+	mu      sync.Mutex
+	running map[string]bool
+}
+
+func newJobRunner(logger *slog.Logger) *jobRunner {
+	return &jobRunner{logger: logger, running: map[string]bool{}}
+}
+
+// spawn starts fn unless a run of the same name is already in flight, and
+// reports whether it started one.
+//
+// A panic in a job goroutine is unrecoverable from outside and takes the whole
+// process down. recover() was previously present only in the HTTP middleware, so
+// a nil deref in any detached job (trending recompute, digest fan-out, retention
+// sweep) was a full outage rather than one failed tick.
+func (r *jobRunner) spawn(name string, fn func()) bool {
+	r.mu.Lock()
+	if r.running[name] {
+		r.mu.Unlock()
+		return false
+	}
+	r.running[name] = true
+	r.mu.Unlock()
+
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				r.logger.Error("job panicked", "job", name, "panic", p, "stack", string(debug.Stack()))
+			}
+			r.mu.Lock()
+			delete(r.running, name)
+			r.mu.Unlock()
+		}()
+		fn()
+	}()
+	return true
+}
+
+// busy reports whether a job of this name is in flight. Tests only.
+func (r *jobRunner) busy(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running[name]
 }
