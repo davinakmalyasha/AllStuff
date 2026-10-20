@@ -452,7 +452,7 @@ func (r *BusinessRepo) RemoveDocument(ctx context.Context, id, businessID string
 
 func (r *BusinessRepo) ListDocuments(ctx context.Context, businessID string) ([]*domain.VerificationDocument, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT d.id, d.business_id, d.kind, d.media_id, d.status, d.review_note, d.reviewed_at, d.created_at, m.original_name
+		SELECT d.id, d.business_id, d.kind, d.media_id, d.status, d.review_note, d.reviewed_at, d.created_at, COALESCE(m.original_name, '')
 		FROM verification_documents d
 		LEFT JOIN media m ON m.id = d.media_id
 		WHERE d.business_id = $1
