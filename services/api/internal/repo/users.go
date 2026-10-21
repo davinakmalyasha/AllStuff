@@ -24,13 +24,13 @@ type pooler interface {
 }
 
 const UserColumns = `id, email, password_hash, name, username, avatar_url, bio, timezone,
-	profile_links, email_verified_at, role, status, suspended_until, ban_reason, created_at, updated_at`
+	profile_links, email_verified_at, role, status, suspended_until, ban_reason, deleted_at, created_at, updated_at`
 
 func ScanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Username,
 		&u.AvatarURL, &u.Bio, &u.Timezone, &u.ProfileLinks, &u.EmailVerifiedAt,
-		&u.Role, &u.Status, &u.SuspendedUntil, &u.BanReason, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&u.Role, &u.Status, &u.SuspendedUntil, &u.BanReason, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -46,6 +46,22 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 		u.ID, u.Email, u.PasswordHash, u.Name, u.Username, u.Timezone,
 		string(u.Role), string(u.Status), u.EmailVerifiedAt)
 	return err
+}
+
+// GetAnyByID reads a user even when soft-deleted.
+//
+// Only account-recovery paths may use it. CancelDeletion is the one caller that
+// must: it is asked to restore an account that GetByID deliberately hides, so
+// going through GetByID made the feature unreachable - every deleted account
+// answered ErrNotFound, which the handler reports as a 404 to the person trying
+// to undo their own deletion.
+func (r *UserRepo) GetAnyByID(ctx context.Context, id string) (*domain.User, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+UserColumns+` FROM users WHERE id = $1`, id)
+	u, err := ScanUser(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return u, err
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {

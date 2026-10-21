@@ -984,7 +984,9 @@ func (a *Auth) RequestDeletion(ctx context.Context, userID, password string) err
 }
 
 func (a *Auth) CancelDeletion(ctx context.Context, userID, password string) error {
-	user, err := a.repos.Users.GetByID(ctx, userID)
+	// Not GetByID: it hides soft-deleted users, which is exactly the account
+	// this call exists to restore.
+	user, err := a.repos.Users.GetAnyByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrNotFound
 	}
