@@ -233,7 +233,51 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 			adminID, reportID); err != nil {
 			return err
 		}
+		// The audit vocabulary has no "dismiss": moderation_actions.action is a
+		// CHECK list created in 0029, and it is recreated by that file on every
+		// replay, so a later migration that widened it would be undone by the
+		// replay-safety contract. "reject" is the honest fit - the report was
+		// rejected - and reports.status='dismissed' is what distinguishes it
+		// from any other decision.
+		action = "reject"
 	case "hide", "warn", "suspend", "delete_for_everyone":
+		// Decide everything the action needs BEFORE resolving the report. A
+		// refused action used to resolve it first and then return an error, so
+		// the content was never touched, no audit row was written, and the
+		// retry failed with "Report already resolved."
+		subject := ""
+		switch action {
+		case "warn":
+			// Warn the AUTHOR of the reported content - TargetID is the content
+			// row, not a user (warning it previously notified nobody or a bogus
+			// principal).
+			authorID, err := a.contentAuthorID(ctx, report.TargetType, report.TargetID)
+			if err != nil {
+				return err
+			}
+			if authorID == "" {
+				return domain.ErrValidation.WithField("action", "Cannot warn: content author not found.")
+			}
+			subject = authorID
+		case "suspend":
+			subject = report.TargetID
+			if report.TargetType != "user" {
+				authorID, err := a.contentAuthorID(ctx, report.TargetType, report.TargetID)
+				if err != nil {
+					return err
+				}
+				if authorID == "" {
+					return domain.ErrValidation.WithField("action", "Cannot suspend: content author not found.")
+				}
+				subject = authorID
+			}
+		case "delete_for_everyone":
+			// Messages only (PRD §5.8.2).
+			if report.TargetType != "message" {
+				return domain.ErrValidation.WithField("action", "Only messages support delete-for-everyone.")
+			}
+		}
+
 		// Resolve the report.
 		if _, err := a.repos.Exec(ctx, `
 			UPDATE reports SET status='resolved', resolved_by=$1, resolved_at=now() WHERE id=$2`,
@@ -246,40 +290,15 @@ func (a *Admin) DecideReport(ctx context.Context, adminID, reportID, action, not
 				return err
 			}
 		case "warn":
-			// Warn the AUTHOR of the reported content — TargetID is the
-			// content row, not a user (warning it previously notified nobody
-			// or a bogus principal).
-			authorID, err := a.contentAuthorID(ctx, report.TargetType, report.TargetID)
-			if err != nil {
-				return err
-			}
-			if authorID == "" {
-				return domain.ErrValidation.WithField("action", "Cannot warn: content author not found.")
-			}
-			a.notifier.Create(ctx, authorID, "moderation_warning", map[string]any{"note": note})
+			a.notifier.Create(ctx, subject, "moderation_warning", map[string]any{"note": note})
 		case "suspend":
-			subject := report.TargetID
-			if report.TargetType != "user" {
-				var err error
-				subject, err = a.contentAuthorID(ctx, report.TargetType, report.TargetID)
-				if err != nil {
-					return err
-				}
-				if subject == "" {
-					return domain.ErrValidation.WithField("action", "Cannot suspend: content author not found.")
-				}
-			}
 			if _, err := a.repos.Exec(ctx, `
 				UPDATE users SET status='suspended', suspended_until = now() + interval '7 days'
 				WHERE id=$1`, subject); err != nil {
 				return err
 			}
 		case "delete_for_everyone":
-			// Messages only (PRD §5.8.2): remove from every participant's
-			// view and tell the sender why.
-			if report.TargetType != "message" {
-				return domain.ErrValidation.WithField("action", "Only messages support delete-for-everyone.")
-			}
+			// Remove from every participant's view and tell the sender why.
 			if err := a.HideContent(ctx, adminID, "message", report.TargetID, note); err != nil {
 				return err
 			}
