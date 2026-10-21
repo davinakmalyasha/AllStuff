@@ -38,9 +38,13 @@ func ScanUser(row pgx.Row) (*domain.User, error) {
 
 func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO users (id, email, password_hash, name, username, timezone)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		u.ID, u.Email, u.PasswordHash, u.Name, u.Username, u.Timezone)
+		INSERT INTO users (id, email, password_hash, name, username, timezone, role, status, email_verified_at)
+		VALUES ($1, $2, $3, $4, $5, $6,
+			COALESCE(NULLIF($7, '')::user_role, 'user'),
+			COALESCE(NULLIF($8, '')::user_status, 'active'),
+			$9)`,
+		u.ID, u.Email, u.PasswordHash, u.Name, u.Username, u.Timezone,
+		string(u.Role), string(u.Status), u.EmailVerifiedAt)
 	return err
 }
 
