@@ -174,6 +174,10 @@ func (s *Invites) Accept(ctx context.Context, userID, token string) error {
 	if err != nil {
 		return err
 	}
+	// These predicates are repeated atomically in AcceptInvite's WHERE, so they
+	// are not what makes the token single-use - the zero-rows check below is.
+	// They exist to fail here, before any write is attempted, with the same
+	// error the caller would otherwise get one query later.
 	if inv == nil || inv.RevokedAt != nil || inv.AcceptedAt != nil {
 		return domain.ErrTokenInvalid
 	}
@@ -188,12 +192,20 @@ func (s *Invites) Accept(ctx context.Context, userID, token string) error {
 		return domain.ErrForbidden
 	}
 	// A deleted or suspended business must not gain new collaborators.
-	// (GetByID already filters deleted_at; nil therefore covers deletion.)
+	//
+	// GetByID does NOT filter retired rows - it stopped in 0032, deliberately,
+	// because only public readers need the filter and they carry their own. So
+	// deletion has to be asked for separately; the previous comment here claimed
+	// otherwise and the guard silently let a retired listing accept a co-owner.
 	b, err := s.repos.Businesses.GetByID(ctx, inv.BusinessID)
 	if err != nil {
 		return err
 	}
-	if b == nil || b.Status == domain.BusinessSuspended {
+	retired, err := s.repos.Businesses.IsDeleted(ctx, inv.BusinessID)
+	if err != nil {
+		return err
+	}
+	if b == nil || retired || b.Status == domain.BusinessSuspended {
 		return domain.ErrValidation.WithField("_", "This business is no longer accepting invitations.")
 	}
 	// userID is passed so the grant is bound to the ACCOUNT, not re-resolved from

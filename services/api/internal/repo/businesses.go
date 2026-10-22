@@ -141,6 +141,24 @@ func (r *BusinessRepo) HighlightedProductIDs(ctx context.Context, businessID str
 	return ids, err
 }
 
+// IsDeleted reports whether a listing has been retired (soft-deleted).
+//
+// A dedicated reader, for the reason stated above HighlightedProductIDs:
+// BusinessCols is shared by nine queries and only three of them scan through
+// scanBusinessWithCounts, so adding deleted_at there would mean editing every
+// hand-written scan. GetByID deliberately does NOT filter retired rows, so a
+// caller that must refuse one has to ask this explicitly rather than relying on
+// a nil result.
+func (r *BusinessRepo) IsDeleted(ctx context.Context, businessID string) (bool, error) {
+	var deleted bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT deleted_at IS NOT NULL FROM businesses WHERE id = $1`, businessID).Scan(&deleted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return deleted, err
+}
+
 // SetHighlightedProductIDs replaces the pinned set.
 //
 // The ::uuid[] cast is explicit. The column is uuid[], and pgx sends a []string as
