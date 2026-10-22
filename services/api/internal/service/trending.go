@@ -369,7 +369,7 @@ func (t *Trending) CategoryLeaderboard(ctx context.Context, categoryID string, l
 func (t *Trending) categoryEntries(ctx context.Context, categoryID string, takenAt time.Time, limit int, risingOnly bool) ([]*domain.TrendEntry, error) {
 	base := `
 		SELECT b.id, b.name, b.slug, b.logo_url, b.city, cat.name AS category,
-			s.score, s.velocity, s.is_booming, s.is_rising, b.verification_level, s.rank_category
+			s.score, s.velocity, s.is_booming, s.is_rising, b.verification_level, COALESCE(s.rank_category, 0)
 		FROM trend_snapshots s
 		JOIN businesses b ON b.id = s.business_id AND ` + repo.PubliclyVisibleBusiness + `
 		LEFT JOIN categories cat ON cat.id = b.category_id
