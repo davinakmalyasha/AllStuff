@@ -107,7 +107,7 @@ func (s *Profiles) ByUsername(ctx context.Context, username string) (*PublicProf
 	collections.Close()
 
 	businesses, err := s.repos.Query(ctx, `
-		SELECT id, name, slug, logo_url, city, category_id FROM businesses
+		SELECT id, name, slug, logo_url, city, COALESCE(category_id::text, '') FROM businesses
 		WHERE owner_id = $1 AND status = 'verified' AND deleted_at IS NULL LIMIT 20`, u.ID)
 	if err != nil {
 		return nil, err
