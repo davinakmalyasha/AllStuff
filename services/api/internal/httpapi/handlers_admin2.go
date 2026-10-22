@@ -278,21 +278,24 @@ func (s *Server) handleAdminBusinessSuspend(w http.ResponseWriter, r *http.Reque
 	restored := "verified"
 	if action == "restore" {
 		var prev string
-		err := s.deps.Repos.QueryRow(r.Context(), `
-			SELECT coalesce(pre_suspend_status, '') FROM businesses WHERE id = $1`,
-			r.PathValue("id")).Scan(&prev)
-		switch {
-		case err == nil && prev != "":
-			restored = prev
-		case err != nil:
+		// max() so the query returns exactly one row even when the id does not
+		// exist: a bare SELECT ... WHERE id = $1 returns none, and scanning that
+		// surfaced as a 500 for a business that simply is not there. The UPDATE
+		// below reports the 404 via RowsAffected.
+		if err := s.deps.Repos.QueryRow(r.Context(), `
+			SELECT coalesce(max(pre_suspend_status), '') FROM businesses WHERE id = $1`,
+			r.PathValue("id")).Scan(&prev); err != nil {
 			fail(w, err)
 			return
+		}
+		if prev != "" {
+			restored = prev
 		}
 	}
 	tag, err := s.deps.Repos.Exec(r.Context(), `
 		UPDATE businesses SET
-			status = $2,
-			pre_suspend_status = CASE WHEN $3 = 'suspend' THEN status ELSE pre_suspend_status END,
+			status = $2::business_status,
+			pre_suspend_status = CASE WHEN $3 = 'suspend' THEN status::text ELSE pre_suspend_status END,
 			updated_at = now()
 		WHERE id = $1`,
 		r.PathValue("id"), map[string]string{"suspend": "suspended", "restore": restored}[action], action)
