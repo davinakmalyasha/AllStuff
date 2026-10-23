@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"bizverse/api/internal/domain"
@@ -304,7 +304,7 @@ func sanitizeCDName(name string) string {
 			return -1
 		}
 		return r
-	}, filepath.Base(name))
+	}, path.Base(strings.ReplaceAll(name, `\`, "/")))
 	if name == "" || name == "." || name == "/" {
 		return "download"
 	}
