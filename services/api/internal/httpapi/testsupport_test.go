@@ -71,7 +71,30 @@ func newDBTestServerDeps(t *testing.T) (*Server, *testutil.H, *testDeps) {
 
 func newDBTestServerWith(t *testing.T, cfg config.Config) (*Server, *testutil.H, *testDeps) {
 	t.Helper()
+	return newDBTestServerOpts(t, cfg, false)
+}
+
+// newDBTestServerPool wires the server to the connection POOL instead of the
+// test transaction.
+//
+// Some service methods open their own transaction through repos.Pool() - Chat.Send
+// is the one that matters for handlers - and Pool() is nil inside a tx-bound
+// Repos, so those paths panic. Rebinding BEFORE the deps are built keeps the
+// fixtures and the server on one connection.
+//
+// The cost is that h.Exec (the transaction) no longer shares a view with the
+// server: raw-SQL fixtures here must use h.ExecPool.
+func newDBTestServerPool(t *testing.T) (*Server, *testutil.H, *testDeps) {
+	t.Helper()
+	return newDBTestServerOpts(t, testConfig(t), true)
+}
+
+func newDBTestServerOpts(t *testing.T, cfg config.Config, usePool bool) (*Server, *testutil.H, *testDeps) {
+	t.Helper()
 	h := testutil.New(t)
+	if usePool {
+		h.UsePool()
+	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	// An empty ResendConfig selects the log sender, so no mail leaves the test.
