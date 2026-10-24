@@ -68,8 +68,10 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 // cannot act on. Refusing at send time gives the owner the upgrade prompt while
 // they are still looking at their own team page.
 //
-// The count itself is of ACCEPTED seats, so an outstanding invitation does not
-// consume the allowance — see repo.CountActiveSeats for why.
+// The count includes OUTSTANDING invitations, not only accepted seats. Counting
+// accepted seats alone let an owner send any number of invitations before the
+// first acceptance - every one of them saw the same accepted count - accept them
+// all, and end up past the plan's limit. See repo.CountReservedSeats.
 func (s *Invites) checkSeatCapacity(ctx context.Context, businessID string) error {
 	if s.ents == nil {
 		return nil
@@ -78,7 +80,7 @@ func (s *Invites) checkSeatCapacity(ctx context.Context, businessID string) erro
 	if err != nil {
 		return err
 	}
-	n, err := s.repos.Businesses.CountActiveSeats(ctx, businessID)
+	n, err := s.repos.Businesses.CountReservedSeats(ctx, businessID)
 	if err != nil {
 		return err
 	}

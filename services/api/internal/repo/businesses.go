@@ -624,6 +624,28 @@ func (r *BusinessRepo) CountLiveByOwner(ctx context.Context, ownerID string) (in
 	return n, err
 }
 
+// CountReservedSeats counts seats that are spoken for: the owner, accepted
+// collaborators, and OUTSTANDING invitations that have not expired or been
+// revoked.
+//
+// The invitation gate needs this rather than CountActiveSeats. Counting only
+// accepted seats lets an owner send any number of invitations before the first
+// acceptance - each one sees the same accepted count - accept them all, and end
+// up past the plan's limit. That is the exact sequence the send-time gate exists
+// to prevent, and it was reachable whenever the plan had a seat cap.
+func (r *BusinessRepo) CountReservedSeats(ctx context.Context, businessID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+		    (SELECT count(*) FROM businesses b
+		      WHERE b.id = $1 AND b.owner_id IS NOT NULL)
+		  + (SELECT count(*) FROM business_invites i
+		      WHERE i.business_id = $1
+		        AND i.revoked_at IS NULL
+		        AND i.expires_at > now())`, businessID).Scan(&n)
+	return n, err
+}
+
 func (r *BusinessRepo) CountActiveSeats(ctx context.Context, businessID string) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx, `
