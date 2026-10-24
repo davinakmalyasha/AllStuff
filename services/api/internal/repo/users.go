@@ -76,20 +76,21 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 // GetByEmailIncludingDeleted returns the account even when soft-deleted
 // (pending deletion grace period). deletedAt is nil for live accounts.
 func (r *UserRepo) GetByEmailIncludingDeleted(ctx context.Context, email string) (*domain.User, *time.Time, error) {
-	row := r.pool.QueryRow(ctx, `SELECT `+UserColumns+`, deleted_at FROM users WHERE email = $1`, email)
+	// UserColumns already carries deleted_at (added when CancelDeletion needed
+	// it read), so it must NOT be appended again: that made this SELECT 18
+	// columns against 17 scan destinations, and every restore answered 500 with
+	// "number of field descriptions must equal number of destinations".
+	row := r.pool.QueryRow(ctx, `SELECT `+UserColumns+` FROM users WHERE email = $1`, email)
 	var u domain.User
-	var deletedAt *time.Time
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Username,
 		&u.AvatarURL, &u.Bio, &u.Timezone, &u.ProfileLinks, &u.EmailVerifiedAt,
-		&u.Role, &u.Status, &u.SuspendedUntil, &u.BanReason, &u.CreatedAt, &u.UpdatedAt,
-		&deletedAt); err != nil {
+		&u.Role, &u.Status, &u.SuspendedUntil, &u.BanReason, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, nil
 		}
 		return nil, nil, err
 	}
-	u.DeletedAt = deletedAt
-	return &u, deletedAt, nil
+	return &u, u.DeletedAt, nil
 }
 
 func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
