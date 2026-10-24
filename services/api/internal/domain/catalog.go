@@ -153,9 +153,12 @@ type Product struct {
 	IsPublished   bool        `json:"is_published"`
 	Badge         string      `json:"badge"`
 	SeoTitle      *string     `json:"seo_title"`
-	DeletedAt     *time.Time  `json:"-"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	// DurationMinutes is how long one appointment of this service takes. NULL
+	// means the product is not bookable - see migration 0044.
+	DurationMinutes *int       `json:"duration_minutes"`
+	DeletedAt       *time.Time `json:"-"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 
 	// Nested (owner views)
 	Options  []*ProductOption  `json:"options,omitempty"`

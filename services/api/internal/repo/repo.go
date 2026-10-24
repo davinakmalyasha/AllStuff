@@ -32,6 +32,7 @@ type Repos struct {
 	Community  *CommunityRepo
 	TFA        *TFARepo
 	Billing    *BillingRepo
+	Bookings   *BookingRepo
 }
 
 func New(pool *pgxpool.Pool) *Repos {
@@ -70,6 +71,7 @@ func NewForTx(tx pgx.Tx) *Repos {
 		Community:  &CommunityRepo{pool: tx},
 		TFA:        &TFARepo{pool: tx},
 		Billing:    &BillingRepo{pool: tx},
+		Bookings:   &BookingRepo{pool: tx},
 	}
 }
 

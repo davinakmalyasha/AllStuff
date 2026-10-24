@@ -24,14 +24,14 @@ type ProductRepo struct{ pool pooler }
 
 const productCols = `p.id, p.business_id, p.type, p.name, p.description, p.currency, p.base_price,
 	p.call_for_price, p.cover_image_id, p.image_ids, p.tags, p.is_available, p.is_featured,
-	p.featured_order, p.sort_order, p.is_published, p.badge, p.seo_title, p.deleted_at, p.created_at, p.updated_at`
+	p.featured_order, p.sort_order, p.is_published, p.badge, p.seo_title, p.duration_minutes, p.deleted_at, p.created_at, p.updated_at`
 
 func scanProduct(row pgx.Row) (*domain.Product, error) {
 	var pr domain.Product
 	if err := row.Scan(&pr.ID, &pr.BusinessID, &pr.Type, &pr.Name, &pr.Description, &pr.Currency,
 		&pr.BasePrice, &pr.CallForPrice, &pr.CoverImageID, &pr.ImageIDs, &pr.Tags, &pr.IsAvailable,
 		&pr.IsFeatured, &pr.FeaturedOrder, &pr.SortOrder, &pr.IsPublished, &pr.Badge, &pr.SeoTitle,
-		&pr.DeletedAt, &pr.CreatedAt, &pr.UpdatedAt); err != nil {
+		&pr.DurationMinutes, &pr.DeletedAt, &pr.CreatedAt, &pr.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &pr, nil
@@ -40,10 +40,10 @@ func scanProduct(row pgx.Row) (*domain.Product, error) {
 func (r *ProductRepo) Create(ctx context.Context, p *domain.Product) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO products (id, business_id, type, name, description, currency, base_price,
-			call_for_price, tags, is_published)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			call_for_price, tags, is_published, duration_minutes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		p.ID, p.BusinessID, p.Type, p.Name, p.Description, p.Currency, p.BasePrice,
-		p.CallForPrice, p.Tags, p.IsPublished)
+		p.CallForPrice, p.Tags, p.IsPublished, p.DurationMinutes)
 	return err
 }
 
@@ -51,7 +51,7 @@ var allowedProductFields = map[string]bool{
 	"name": true, "description": true, "currency": true, "base_price": true,
 	"call_for_price": true, "cover_image_id": true, "image_ids": true, "tags": true,
 	"is_available": true, "is_featured": true, "featured_order": true, "sort_order": true,
-	"badge": true, "seo_title": true,
+	"badge": true, "seo_title": true, "duration_minutes": true,
 }
 
 func (r *ProductRepo) Update(ctx context.Context, id string, fields map[string]any) error {

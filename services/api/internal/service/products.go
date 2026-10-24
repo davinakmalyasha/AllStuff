@@ -24,20 +24,21 @@ func NewProducts(repos *repo.Repos, notifier *Notifier, ents EntitlementSource) 
 }
 
 type ProductInput struct {
-	Type         *string   `json:"type"`
-	Name         *string   `json:"name"`
-	Description  *string   `json:"description"`
-	Currency     *string   `json:"currency"`
-	BasePrice    *float64  `json:"base_price"`
-	CallForPrice *bool     `json:"call_for_price"`
-	CoverImageID *string   `json:"cover_image_id"`
-	ImageIDs     *[]string `json:"image_ids"`
-	Tags         *[]string `json:"tags"`
-	IsAvailable  *bool     `json:"is_available"`
-	IsFeatured   *bool     `json:"is_featured"`
-	Badge        *string   `json:"badge"`
-	SeoTitle     *string   `json:"seo_title"`
-	SortOrder    *int      `json:"sort_order"`
+	Type            *string   `json:"type"`
+	Name            *string   `json:"name"`
+	Description     *string   `json:"description"`
+	Currency        *string   `json:"currency"`
+	BasePrice       *float64  `json:"base_price"`
+	CallForPrice    *bool     `json:"call_for_price"`
+	CoverImageID    *string   `json:"cover_image_id"`
+	ImageIDs        *[]string `json:"image_ids"`
+	Tags            *[]string `json:"tags"`
+	IsAvailable     *bool     `json:"is_available"`
+	IsFeatured      *bool     `json:"is_featured"`
+	Badge           *string   `json:"badge"`
+	SeoTitle        *string   `json:"seo_title"`
+	DurationMinutes *int      `json:"duration_minutes"`
+	SortOrder       *int      `json:"sort_order"`
 }
 
 // checkCatalogCapacity enforces the plan's product_limit.

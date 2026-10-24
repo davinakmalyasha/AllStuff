@@ -39,6 +39,7 @@ type Deps struct {
 	APIKeys     *service.APIKeys
 	Claims      *service.Claims
 	Billing     *service.Billing
+	Booking     *service.Booking
 	Notifier    *service.Notifier
 	RateLimiter ratelimit.RateLimiter
 	Hub         *ws.Hub
@@ -181,6 +182,14 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/businesses/{id}/resubmit", s.handleBusinessResubmit)
 	mux.HandleFunc("POST /api/v1/businesses/{id}/slug-change", s.handleSlugChange)
 	mux.HandleFunc("GET /api/v1/businesses/{id}/documents", s.handleDocumentsList)
+	mux.HandleFunc("GET /api/v1/businesses/{id}/availability", s.handleAvailability)
+	mux.HandleFunc("POST /api/v1/businesses/{id}/appointments", s.handleAppointmentCreate)
+	mux.HandleFunc("GET /api/v1/businesses/{id}/appointments", s.handleBusinessAppointments)
+	mux.HandleFunc("GET /api/v1/me/appointments", s.handleMyAppointments)
+	mux.HandleFunc("DELETE /api/v1/appointments/{appointmentId}", s.handleAppointmentCancel)
+	mux.HandleFunc("GET /api/v1/businesses/{id}/blackouts", s.handleBlackouts)
+	mux.HandleFunc("POST /api/v1/businesses/{id}/blackouts", s.handleBlackouts)
+	mux.HandleFunc("DELETE /api/v1/businesses/{id}/blackouts/{blackoutId}", s.handleBlackoutDelete)
 	mux.HandleFunc("POST /api/v1/businesses/{id}/documents", s.handleDocumentAdd)
 	mux.HandleFunc("DELETE /api/v1/businesses/{id}/documents/{docId}", s.handleDocumentRemove)
 	mux.HandleFunc("PUT /api/v1/businesses/{id}/storefront", s.handleStorefrontUpdate)

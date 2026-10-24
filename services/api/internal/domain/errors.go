@@ -51,6 +51,7 @@ func (e *Error) WithField(field, msg string) *Error {
 var (
 	ErrValidation             = &Error{Code: "validation_error", Message: "Validation failed.", Status: http.StatusBadRequest}
 	ErrEmailTaken             = &Error{Code: "email_taken", Message: "An account with this email already exists.", Status: http.StatusConflict}
+	ErrSlotTaken              = &Error{Code: "slot_taken", Message: "That time was just booked. Pick another slot.", Status: http.StatusConflict}
 	ErrUsernameTaken          = &Error{Code: "username_taken", Message: "This username is already taken.", Status: http.StatusConflict}
 	ErrInvalidCreds           = &Error{Code: "invalid_credentials", Message: "Email or password is incorrect.", Status: http.StatusUnauthorized}
 	ErrEmailNotVerified       = &Error{Code: "email_not_verified", Message: "Verify your email before doing this.", Status: http.StatusForbidden}

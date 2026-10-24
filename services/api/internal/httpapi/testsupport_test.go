@@ -106,6 +106,7 @@ func newDBTestServerOpts(t *testing.T, cfg config.Config, usePool bool) (*Server
 
 	billingSvc := service.NewBilling(h.Repos, cfg, stripeClient, logger)
 	notifier := service.NewNotifier(h.Repos, cfg, sender, hub, logger)
+	bookingSvc := service.NewBooking(h.Repos, notifier)
 	authSvc := service.NewAuth(h.Repos, cfg, sender, logger)
 	userSvc := service.NewUsers(h.Repos)
 	categorySvc := service.NewCategories(h.Repos)
@@ -152,6 +153,7 @@ func newDBTestServerOpts(t *testing.T, cfg config.Config, usePool bool) (*Server
 		APIKeys:     apiKeysSvc,
 		Claims:      claimsSvc,
 		Billing:     billingSvc,
+		Booking:     bookingSvc,
 		Notifier:    notifier,
 		RateLimiter: ratelimit.NewInMemory(),
 		Hub:         hub,

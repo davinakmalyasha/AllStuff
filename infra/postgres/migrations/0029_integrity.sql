@@ -541,7 +541,13 @@ ALTER TABLE notifications
             'verification_result','doc_re_request','business_suspended',
             'business_restored','moderation_warning','appeal_result',
             'category_new_business','back_in_stock','claim_result','trend_anomaly',
-            'system_announcement'
+            'system_announcement',
+            -- 0044 (bookings). Repeated here ON PURPOSE: this file recreates the
+            -- constraint on every replay, so a vocabulary added only in 0044
+            -- would be removed by replaying 0029 and TestMigrateReplayIsSafe
+            -- would fail. Both files carry the full list and the final schema is
+            -- the same whichever path built it.
+            'appointment_booked','appointment_cancelled'
         )
     ) NOT VALID;
 

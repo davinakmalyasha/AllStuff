@@ -141,6 +141,7 @@ func main() {
 	// Billing is constructed first purely as a construction-order requirement.
 	stripeClient := security.NewStripeClient(cfg.StripeSecretKey, cfg.StripePublishableKey)
 	billingSvc := service.NewBilling(repos, cfg, stripeClient, logger)
+	bookingSvc := service.NewBooking(repos, notifier)
 	if billingSvc.Enabled() {
 		logger.Info("billing enabled (stripe)", "publishable", stripeClient.PublishableKey() != "")
 	} else {
@@ -204,6 +205,7 @@ func main() {
 		APIKeys:     apiKeysSvc,
 		Claims:      claimsSvc,
 		Billing:     billingSvc,
+		Booking:     bookingSvc,
 		Notifier:    notifier,
 		RateLimiter: rateLimiter,
 		Hub:         hub,
