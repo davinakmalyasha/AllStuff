@@ -89,9 +89,19 @@ func (k *APIKeys) List(ctx context.Context, userID string) ([]*APIKey, error) {
 }
 
 func (k *APIKeys) Revoke(ctx context.Context, userID, id string) error {
-	_, err := k.repos.Exec(ctx, `
-		UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	tag, err := k.repos.Exec(ctx, `
+		UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, id, userID)
+	if err != nil {
+		return err
+	}
+	// The WHERE clause already scopes to the owner, so zero rows means the id is
+	// unknown, belongs to someone else, or was already revoked. Reporting success
+	// for all three made the endpoint unable to distinguish a typo from a
+	// revocation, and hid the fact that the cross-user attempt did nothing.
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // Valid returns the key row if rawKey matches and is not revoked.
