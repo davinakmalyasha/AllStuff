@@ -205,7 +205,7 @@ func (s *Booking) Book(ctx context.Context, customerID, businessID, productID st
 		}
 		return nil, err
 	}
-	if b.OwnerID != customerID {
+	if b.OwnerID != customerID { // lint:allow: not authorisation - suppresses notifying someone about their own booking
 		s.notifier.Create(ctx, b.OwnerID, "appointment_booked", map[string]any{
 			"appointment_id": a.ID, "business_id": businessID,
 			"product": p.Name, "starts_at": a.StartsAt,
@@ -246,7 +246,7 @@ func (s *Booking) Cancel(ctx context.Context, userID, appointmentID string) erro
 	// Tell the other side: a customer cancelling notifies the owner, the owner
 	// cancelling notifies the customer.
 	if a.CustomerID == userID {
-		if b, _ := s.repos.Businesses.GetByID(ctx, a.BusinessID); b != nil && b.OwnerID != "" {
+		if b, _ := s.repos.Businesses.GetByID(ctx, a.BusinessID); b != nil && b.OwnerID != "" { // lint:allow: not authorisation - a null-check on the notification RECIPIENT
 			s.notifier.Create(ctx, b.OwnerID, "appointment_cancelled", map[string]any{
 				"appointment_id": a.ID, "business_id": a.BusinessID, "starts_at": a.StartsAt,
 			})
