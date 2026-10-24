@@ -337,3 +337,56 @@ func (s *Booking) RemoveBlackout(ctx context.Context, ownerID, businessID, id st
 	}
 	return nil
 }
+
+// SetStatus is the manager's side of the lifecycle.
+//
+// A booking is created 'confirmed', because a self-service slot that silently
+// waits for approval is worse than one already in the calendar. What an owner
+// actually needs is to close a booking that has happened, and to confirm one
+// that was created 'pending' by a future manual-approval flow - so those are the
+// transitions, and the UPDATE carries the allowed FROM states so two managers
+// clicking at once cannot both apply one.
+func (s *Booking) SetStatus(ctx context.Context, actorID, appointmentID string, status domain.AppointmentStatus) error {
+	a, err := s.repos.Bookings.GetAppointment(ctx, appointmentID)
+	if err != nil {
+		return err
+	}
+	if a == nil {
+		return domain.ErrNotFound
+	}
+	can, err := s.repos.Businesses.CanManageBusiness(ctx, actorID, a.BusinessID)
+	if err != nil {
+		return err
+	}
+	if !can {
+		return domain.ErrForbidden
+	}
+
+	switch status {
+	case domain.AppointmentConfirmed:
+		ok, err := s.repos.Bookings.SetAppointmentState(ctx, appointmentID, status, domain.AppointmentPending)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return domain.ErrValidation.WithField("status", "Only a pending appointment can be confirmed.")
+		}
+	case domain.AppointmentCompleted, domain.AppointmentNoShow:
+		// A booking cannot have happened before it starts: closing a future
+		// appointment would free its slot while the customer still expects it.
+		if a.StartsAt.After(time.Now()) {
+			return domain.ErrValidation.WithField("status", "That appointment has not started yet.")
+		}
+		ok, err := s.repos.Bookings.SetAppointmentState(ctx, appointmentID, status, domain.AppointmentConfirmed)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return domain.ErrValidation.WithField("status", "Only a confirmed appointment can be closed.")
+		}
+	default:
+		return domain.ErrValidation.WithField("status",
+			"Status must be confirmed, completed or no_show. Cancelling has its own endpoint.")
+	}
+	return nil
+}

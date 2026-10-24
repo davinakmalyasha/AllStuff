@@ -367,3 +367,71 @@ func TestBookingBlackoutRules(t *testing.T) {
 		t.Errorf("an overlapping blackout: err = %v, want ErrValidation", err)
 	}
 }
+
+func TestBookingSetStatus(t *testing.T) {
+	svc, h := newTestBooking(t)
+	ctx := context.Background()
+	b, p, owner := bookableFixture(t, h)
+	customer := testutil.User(t, h)
+	stranger := testutil.User(t, h)
+	day := nextDay()
+
+	// A pending booking: the status exists for businesses that approve by hand,
+	// so it is inserted directly - Book always creates 'confirmed'.
+	pending := &domain.Appointment{
+		ID: util.NewUUID(), BusinessID: b.ID, ProductID: p.ID, CustomerID: customer.ID,
+		StartsAt: day.Add(9 * time.Hour), EndsAt: day.Add(10 * time.Hour), Status: domain.AppointmentPending,
+	}
+	if err := h.Repos.Bookings.CreateAppointment(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetStatus(ctx, stranger.ID, pending.ID, domain.AppointmentConfirmed); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("a stranger: err = %v, want ErrForbidden", err)
+	}
+	if err := svc.SetStatus(ctx, owner.ID, pending.ID, domain.AppointmentConfirmed); err != nil {
+		t.Fatalf("confirm a pending booking: %v", err)
+	}
+	// Confirming again is refused: nothing would change.
+	if err := svc.SetStatus(ctx, owner.ID, pending.ID, domain.AppointmentConfirmed); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("a second confirmation: err = %v, want ErrValidation", err)
+	}
+
+	// The future cannot be marked as having happened.
+	if err := svc.SetStatus(ctx, owner.ID, pending.ID, domain.AppointmentCompleted); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("completing a future booking: err = %v, want ErrValidation", err)
+	}
+
+	// A past confirmed booking can be closed either way.
+	past := &domain.Appointment{
+		ID: util.NewUUID(), BusinessID: b.ID, ProductID: p.ID, CustomerID: customer.ID,
+		StartsAt: time.Now().Add(-2 * time.Hour), EndsAt: time.Now().Add(-time.Hour),
+		Status: domain.AppointmentConfirmed,
+	}
+	if err := h.Repos.Bookings.CreateAppointment(ctx, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetStatus(ctx, owner.ID, past.ID, domain.AppointmentCompleted); err != nil {
+		t.Errorf("complete a past booking: %v", err)
+	}
+
+	past2 := &domain.Appointment{
+		ID: util.NewUUID(), BusinessID: b.ID, ProductID: p.ID, CustomerID: customer.ID,
+		StartsAt: time.Now().Add(-3 * time.Hour), EndsAt: time.Now().Add(-2 * time.Hour),
+		Status: domain.AppointmentConfirmed,
+	}
+	if err := h.Repos.Bookings.CreateAppointment(ctx, past2); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetStatus(ctx, owner.ID, past2.ID, domain.AppointmentNoShow); err != nil {
+		t.Errorf("mark a no-show: %v", err)
+	}
+
+	// Cancelling is not a status transition.
+	if err := svc.SetStatus(ctx, owner.ID, pending.ID, domain.AppointmentCancelled); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("cancelling through SetStatus: err = %v, want ErrValidation", err)
+	}
+	// An unknown status is refused too.
+	if err := svc.SetStatus(ctx, owner.ID, pending.ID, domain.AppointmentStatus("rescheduled")); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("an unknown status: err = %v, want ErrValidation", err)
+	}
+}

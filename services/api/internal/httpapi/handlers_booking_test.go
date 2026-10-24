@@ -12,6 +12,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/testutil"
+	"bizverse/api/internal/util"
 )
 
 // The booking routes: availability is public, everything else is authorised, and
@@ -216,4 +217,35 @@ func testutilProductID(t *testing.T, h *testutil.H, businessID string) string {
 		t.Fatal(err)
 	}
 	return id
+}
+
+// The manager transition route. A booking that has happened must be closeable as
+// completed or no-show; a future one must not, or its slot frees while the
+// customer still expects it.
+func TestAppointmentStatusRoute(t *testing.T) {
+	s, h, td := newDBTestServerDeps(t)
+	hdl := s.Handler()
+	b, p, owner := bookingFixture(t, h)
+	customer := testutil.User(t, h)
+	stranger := testutil.User(t, h)
+
+	id := util.NewUUID()
+	h.Exec(t, `INSERT INTO appointments (id, business_id, product_id, customer_id, starts_at, ends_at, status)
+		VALUES ($1,$2,$3,$4,$5,$6,'confirmed')`,
+		id, b.ID, p.ID, customer.ID, time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour))
+	path := "/api/v1/appointments/" + id + "/status"
+
+	if w := dash(t, td, hdl, http.MethodPatch, path, map[string]any{"status": "completed"}, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger: status = %d, want 403", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodPatch, path, map[string]any{"status": "rescheduled"}, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("invalid status: status = %d, want 400", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodPatch, path, map[string]any{"status": "completed"}, owner); w.Code != http.StatusNoContent {
+		t.Errorf("complete: status = %d, want 204", w.Code)
+	}
+	// Terminal: closing it again is refused rather than silently succeeding.
+	if w := dash(t, td, hdl, http.MethodPatch, path, map[string]any{"status": "no_show"}, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("a second close: status = %d, want 400", w.Code)
+	}
 }

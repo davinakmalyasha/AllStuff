@@ -208,3 +208,26 @@ func (s *Server) handleBlackoutDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	noContent(w)
 }
+
+// handleAppointmentStatus is the manager's transition endpoint. It takes no
+// business id: the appointment names its own business, and the service checks
+// management against that.
+func (s *Server) handleAppointmentStatus(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	var in struct {
+		Status string `json:"status"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.deps.Booking.SetStatus(r.Context(), user.ID, r.PathValue("appointmentId"), domain.AppointmentStatus(in.Status)); err != nil {
+		fail(w, err)
+		return
+	}
+	noContent(w)
+}

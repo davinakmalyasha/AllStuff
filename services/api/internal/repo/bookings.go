@@ -69,6 +69,23 @@ func (r *BookingRepo) SetAppointmentStatus(ctx context.Context, id string, statu
 	return tag.RowsAffected() == 1, nil
 }
 
+// SetAppointmentState moves a booking to `to`, but only from one of the `from`
+// states. The caller passes the states its transition allows, so the UPDATE
+// itself is the guard: two managers clicking at once cannot both apply one.
+func (r *BookingRepo) SetAppointmentState(ctx context.Context, id string, to domain.AppointmentStatus, from ...domain.AppointmentStatus) (bool, error) {
+	allowed := make([]string, 0, len(from))
+	for _, f := range from {
+		allowed = append(allowed, string(f))
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE appointments SET status = $2, updated_at = now()
+		 WHERE id = $1 AND status = ANY($3)`, id, string(to), allowed)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 func (r *BookingRepo) ListForCustomer(ctx context.Context, customerID string, from time.Time) ([]*domain.Appointment, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+appointmentCols+appointmentFrom+`
 		WHERE a.customer_id = $1 AND a.ends_at >= $2
