@@ -44,9 +44,16 @@ func (s *Server) handleAvailability(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrValidation.WithField("date", "Use YYYY-MM-DD."))
 		return
 	}
-	slots, err := s.deps.Booking.Slots(r.Context(), r.PathValue("id"), productID, day)
-	if err != nil {
-		fail(w, err)
+	staffID := strings.TrimSpace(r.URL.Query().Get("staff_id"))
+	var slots []domain.Slot
+	var err2 error
+	if staffID != "" {
+		slots, err2 = s.deps.Booking.SlotsForStaff(r.Context(), r.PathValue("id"), productID, staffID, day)
+	} else {
+		slots, err2 = s.deps.Booking.Slots(r.Context(), r.PathValue("id"), productID, day)
+	}
+	if err2 != nil {
+		fail(w, err2)
 		return
 	}
 	ok(w, map[string]any{"date": dateStr, "slots": slots})
@@ -60,6 +67,7 @@ func (s *Server) handleAppointmentCreate(w http.ResponseWriter, r *http.Request)
 	}
 	var in struct {
 		ProductID string `json:"product_id"`
+		StaffID   string `json:"staff_id"`
 		StartsAt  string `json:"starts_at"`
 		Notes     string `json:"notes"`
 	}
@@ -72,7 +80,7 @@ func (s *Server) handleAppointmentCreate(w http.ResponseWriter, r *http.Request)
 		fail(w, domain.ErrValidation.WithField("starts_at", "Use an RFC3339 timestamp."))
 		return
 	}
-	a, err := s.deps.Booking.Book(r.Context(), user.ID, r.PathValue("id"), in.ProductID, at, in.Notes)
+	a, err := s.deps.Booking.BookWithStaff(r.Context(), user.ID, r.PathValue("id"), in.ProductID, in.StaffID, at, in.Notes)
 	if err != nil {
 		fail(w, err)
 		return
@@ -230,4 +238,118 @@ func (s *Server) handleAppointmentStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	noContent(w)
+}
+
+// ---- staff (manager only) ----
+
+func (s *Server) handleStaff(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	businessID := r.PathValue("id")
+	switch r.Method {
+	case http.MethodGet:
+		list, err := s.deps.Booking.Staff(r.Context(), user.ID, businessID)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		ok(w, map[string]any{"staff": list})
+	case http.MethodPost:
+		var in struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+			Phone string `json:"phone"`
+		}
+		if err := decodeBody(w, r, &in); err != nil {
+			fail(w, err)
+			return
+		}
+		st, err := s.deps.Booking.CreateStaff(r.Context(), user.ID, businessID, in.Name, in.Email, in.Phone)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		created(w, map[string]any{"staff": st})
+	default:
+		fail(w, domain.ErrValidation.WithField("_", "Method not allowed."))
+	}
+}
+
+func (s *Server) handleStaffUpdate(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	businessID := r.PathValue("id")
+	staffID := r.PathValue("staffId")
+	if r.Method == http.MethodDelete {
+		if err := s.deps.Booking.DeleteStaff(r.Context(), user.ID, businessID, staffID); err != nil {
+			fail(w, err)
+			return
+		}
+		noContent(w)
+		return
+	}
+	var in struct {
+		Name   *string `json:"name"`
+		Email  *string `json:"email"`
+		Phone  *string `json:"phone"`
+		Active *bool   `json:"active"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	st, err := s.deps.Booking.UpdateStaff(r.Context(), user.ID, businessID, staffID, in.Name, in.Email, in.Phone, in.Active)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"staff": st})
+}
+
+func (s *Server) handleStaffServices(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	var in struct {
+		ProductIDs []string `json:"product_ids"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	st, err := s.deps.Booking.SetStaffServices(r.Context(), user.ID, r.PathValue("id"), r.PathValue("staffId"), in.ProductIDs)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"staff": st})
+}
+
+func (s *Server) handleStaffHours(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	var in struct {
+		Hours map[string]domain.StaffHour `json:"hours"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	st, err := s.deps.Booking.SetStaffHours(r.Context(), user.ID, r.PathValue("id"), r.PathValue("staffId"), in.Hours)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"staff": st})
 }

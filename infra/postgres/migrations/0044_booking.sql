@@ -46,12 +46,24 @@ CREATE TABLE IF NOT EXISTS appointments (
 
 -- Half-open [start, end): a 10:00-10:30 appointment and a 10:30-11:00 one do
 -- not overlap, so back-to-back bookings are allowed.
+-- Guarded, not plain DDL: 0045 adds a staff dimension and REPLACES this rule
+-- with two partitioned ones. Replaying 0044 after 0045 must not put the
+-- business-wide constraint back, or TestMigrateReplayIsSafe would see a schema
+-- change - the same replay trap 0029 documents for its constraints.
 ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_no_overlap;
-ALTER TABLE appointments ADD CONSTRAINT appointments_no_overlap
-    EXCLUDE USING gist (
-        business_id WITH =,
-        tstzrange(starts_at, ends_at, '[)') WITH &&
-    ) WHERE (status IN ('pending', 'confirmed'));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'appointments' AND column_name = 'staff_id'
+    ) THEN
+        ALTER TABLE appointments ADD CONSTRAINT appointments_no_overlap
+            EXCLUDE USING gist (
+                business_id WITH =,
+                tstzrange(starts_at, ends_at, '[)') WITH &&
+            ) WHERE (status IN ('pending', 'confirmed'));
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments (customer_id, starts_at DESC);
 CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments (business_id, starts_at);

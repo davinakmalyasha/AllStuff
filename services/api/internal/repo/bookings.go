@@ -14,12 +14,14 @@ import (
 type BookingRepo struct{ pool pooler }
 
 const appointmentCols = `a.id, a.business_id, b.name, b.slug, a.product_id, pr.name,
-	a.customer_id, u.name, a.starts_at, a.ends_at, a.status, coalesce(a.notes, ''), a.created_at`
+	a.customer_id, u.name, coalesce(a.staff_id::text, ''), coalesce(st.name, ''),
+	a.starts_at, a.ends_at, a.status, coalesce(a.notes, ''), a.created_at`
 
 func scanAppointment(row pgx.Row) (*domain.Appointment, error) {
 	var a domain.Appointment
 	if err := row.Scan(&a.ID, &a.BusinessID, &a.BusinessName, &a.BusinessSlug, &a.ProductID,
-		&a.ProductName, &a.CustomerID, &a.CustomerName, &a.StartsAt, &a.EndsAt, &a.Status,
+		&a.ProductName, &a.CustomerID, &a.CustomerName, &a.StaffID, &a.StaffName,
+		&a.StartsAt, &a.EndsAt, &a.Status,
 		&a.Notes, &a.CreatedAt); err != nil {
 		return nil, err
 	}
@@ -30,7 +32,8 @@ const appointmentFrom = `
 	FROM appointments a
 	JOIN businesses b ON b.id = a.business_id
 	JOIN products pr  ON pr.id = a.product_id
-	JOIN users u      ON u.id = a.customer_id`
+	JOIN users u      ON u.id = a.customer_id
+	LEFT JOIN business_staff st ON st.id = a.staff_id`
 
 // CreateAppointment inserts a booking.
 //
@@ -39,9 +42,10 @@ const appointmentFrom = `
 // an internal error, because it is the expected outcome of a race and not a bug.
 func (r *BookingRepo) CreateAppointment(ctx context.Context, a *domain.Appointment) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO appointments (id, business_id, product_id, customer_id, starts_at, ends_at, status, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		a.ID, a.BusinessID, a.ProductID, a.CustomerID, a.StartsAt, a.EndsAt, string(a.Status), a.Notes)
+		INSERT INTO appointments (id, business_id, product_id, customer_id, staff_id, starts_at, ends_at, status, notes)
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7, $8, $9)`,
+		a.ID, a.BusinessID, a.ProductID, a.CustomerID, a.StaffID,
+		a.StartsAt, a.EndsAt, string(a.Status), a.Notes)
 	return err
 }
 
@@ -190,4 +194,27 @@ func (r *BookingRepo) DeleteBlackout(ctx context.Context, businessID, id string)
 func IsSlotConflict(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23P01"
+}
+
+// BlackoutRanges is the business-wide unavailability in [from, to). Separate from
+// BusyRanges because a staffed calendar needs the two apart: a blackout blocks
+// everyone, while an appointment blocks only the person assigned to it.
+func (r *BookingRepo) BlackoutRanges(ctx context.Context, businessID string, from, to time.Time) ([][2]time.Time, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT starts_at, ends_at FROM booking_blackouts
+		 WHERE business_id = $1 AND starts_at < $3 AND ends_at > $2
+		ORDER BY 1`, businessID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][2]time.Time
+	for rows.Next() {
+		var s, e time.Time
+		if err := rows.Scan(&s, &e); err != nil {
+			return nil, err
+		}
+		out = append(out, [2]time.Time{s, e})
+	}
+	return out, rows.Err()
 }

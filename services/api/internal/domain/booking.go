@@ -33,6 +33,8 @@ type Appointment struct {
 	ProductName  string            `json:"product_name,omitempty"`
 	CustomerID   string            `json:"customer_id"`
 	CustomerName string            `json:"customer_name,omitempty"`
+	StaffID      string            `json:"staff_id,omitempty"`
+	StaffName    string            `json:"staff_name,omitempty"`
 	StartsAt     time.Time         `json:"starts_at"`
 	EndsAt       time.Time         `json:"ends_at"`
 	Status       AppointmentStatus `json:"status"`
@@ -54,4 +56,32 @@ type Blackout struct {
 type Slot struct {
 	StartsAt time.Time `json:"starts_at"`
 	EndsAt   time.Time `json:"ends_at"`
+	// StaffAvailable is how many qualified staff are free at this time. Zero
+	// never appears - a slot with nobody free is not offered - but the number
+	// lets a client show "3 slots left" or hide a nearly-full day.
+	StaffAvailable int `json:"staff_available,omitempty"`
+}
+
+// Staff is a bookable person on a business. Not every staff member has a
+// platform account: many shops will never give their staff a login, and
+// requiring one would block the calendar for the businesses that need it most.
+type Staff struct {
+	ID         string               `json:"id"`
+	BusinessID string               `json:"business_id"`
+	UserID     string               `json:"user_id,omitempty"`
+	Name       string               `json:"name"`
+	Email      string               `json:"email,omitempty"`
+	Phone      string               `json:"phone,omitempty"`
+	Active     bool                 `json:"active"`
+	Services   []string             `json:"services"` // product ids this person performs
+	Hours      map[string]StaffHour `json:"hours"`    // weekday -> shift; absent means "inherit the business hours"
+	CreatedAt  time.Time            `json:"created_at"`
+}
+
+// StaffHour is one weekday's shift. A row with Working false is a day off, which
+// is different from an absent row (inherit the business hours).
+type StaffHour struct {
+	Working  bool   `json:"working"`
+	OpensAt  string `json:"opens_at,omitempty"`
+	ClosesAt string `json:"closes_at,omitempty"`
 }

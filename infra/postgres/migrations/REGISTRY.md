@@ -14,9 +14,9 @@ succeed, so a failure in that window replays the file.
 filename, so a number that has never been applied carries no migration history.
 This is why the reserved list below was renumbered rather than worked around.
 
-`0032`, `0033`, `0044`, `0047`, `0048` and `0049` are the exceptions and the reason for this
-note: all six were reserved, then actually written — `0032` for the slug-release fix,
-`0033` for the pagination total-order fix, `0044` for bookings, `0047` for the
+`0032`, `0033`, `0044`, `0045`, `0047`, `0048` and `0049` are the exceptions and the reason for this
+note: all seven were reserved, then actually written — `0032` for the slug-release fix,
+`0033` for the pagination total-order fix, `0044` for bookings, `0045` for staff scheduling, `0047` for the
 `user_2fa.enabled_at` default, `0048` for per-participant message hiding, `0049` for invite
 grants bound to user ids — and everything above them shifted by one each time.
 Remediation migrations will keep eating into this list, so treat a reservation as
@@ -170,7 +170,7 @@ feature that adds or paginations a listing.
 | Version | File | Why it is last |
 |---|---|---|
 | `0044` | `0044_booking.sql` | `0001` | Bookings: `appointments` and `booking_blackouts`, `products.duration_minutes`, and the `appointment_booked`/`appointment_cancelled` notification types. Double-booking is prevented by `EXCLUDE USING gist` on `(business_id, tstzrange(starts_at, ends_at, '[)'))`, not by a read-then-write check: two concurrent requests both see a slot free and both insert, and the constraint makes the second fail with 23P01, which the service maps to `slot_taken`. Half-open ranges keep back-to-back appointments legal. No `booking_slots` table: slots are derived from hours x special hours x duration x live appointments x blackouts. Writes to `products` and the lenient `NOT VALID` notification constraint are the only touches outside the two new tables. |
-| `0045` | `0045_staff_offers.sql` | Per-staff scheduling and commissions. Vertical SaaS, not platform. Only worth building once `0044` proves the availability engine. |
+| `0045` | `0045_staff_scheduling.sql` | `0044` | Staff, qualifications and shifts. `business_staff` is a row on the business, not necessarily a user account - requiring a login would block the calendar for the shops that need it most. `staff_services` makes qualification explicit (no rows means bookable for nothing, rather than a silent 'everything'); `staff_hours` overrides the business hours per weekday and a MISSING row inherits them. The conflict rule becomes two partitioned EXCLUDE constraints: unstaffed bookings still conflict per business, staffed ones per staff member, so two people can serve two customers at once. 0044's own ADD is guarded on the absence of `staff_id` so replaying it after this file is a no-op. |
 | `0048` | `0048_chat_message_hides.sql` | `0001` | `chat_message_hides(message_id, thread_id, user_id)` so "delete for me" hides from the actor alone. The single `chat_messages.deleted_for` column could not express it: `me` is not `everyone`, so every read path (all of which filter `deleted_for <> 'everyone'`) kept serving the message to the other party while the author still saw it. Migrates existing `me` rows into per-author hides and clears the shared column. |
 | `0049` | `0049_business_invite_accepted_user.sql` | `0048` | `business_invites.accepted_user_id` binds an accepted co-owner/viewer grant to a user id. Both authorisation predicates resolved the holder with `JOIN users u ON u.email = i.email`, so a holder who changed their own email (legitimately - `POST /me/email` re-verifies and alerts the old address) silently lost every grant while the owner still saw them listed. Backfills existing accepted invites by address and leaves genuinely orphaned ones NULL. |
 | `0046` | `0046_business_hours.sql` | Per-department / per-service hours replacing the `hours` jsonb. Only meaningful per-location, so it belongs after `0043`, and per-staff only after `0045`. |

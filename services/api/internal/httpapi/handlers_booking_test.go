@@ -249,3 +249,90 @@ func TestAppointmentStatusRoute(t *testing.T) {
 		t.Errorf("a second close: status = %d, want 400", w.Code)
 	}
 }
+
+func TestStaffRoutes(t *testing.T) {
+	s, h, td := newDBTestServerDeps(t)
+	hdl := s.Handler()
+	b, p, owner := bookingFixture(t, h)
+	stranger := testutil.User(t, h)
+	customer := testutil.User(t, h)
+	base := "/api/v1/businesses/" + b.ID + "/staff"
+
+	if w := dash(t, td, hdl, http.MethodGet, base, nil, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger list: status = %d, want 403", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodPost, base, map[string]any{"name": "Budi"}, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger create: status = %d, want 403", w.Code)
+	}
+
+	w := dash(t, td, hdl, http.MethodPost, base, map[string]any{"name": "Budi", "email": "budi@example.test"}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d: %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Staff struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"staff"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	staffID := created.Staff.ID
+	if staffID == "" || created.Staff.Name != "Budi" {
+		t.Fatalf("staff = %+v", created.Staff)
+	}
+
+	// Qualify the staff member for the service, then give them a shift.
+	w = dash(t, td, hdl, http.MethodPut, base+"/"+staffID+"/services", map[string]any{"product_ids": []string{p.ID}}, owner)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), p.ID) {
+		t.Errorf("services: status = %d: %s", w.Code, w.Body.String())
+	}
+	day := bookingDay()
+	weekday := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[day.Weekday()]
+	w = dash(t, td, hdl, http.MethodPut, base+"/"+staffID+"/hours",
+		map[string]any{"hours": map[string]any{weekday: map[string]any{"working": true, "opens_at": "10:00", "closes_at": "12:00"}}}, owner)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "10:00") {
+		t.Errorf("hours: status = %d: %s", w.Code, w.Body.String())
+	}
+
+	// Availability narrows to that person, and an unknown staff id is a 404.
+	path := "/api/v1/businesses/" + b.ID + "/availability?product_id=" + p.ID + "&date=" + day.Format("2006-01-02")
+	w = httptest.NewRecorder()
+	hdl.ServeHTTP(w, authReq(t, http.MethodGet, path+"&staff_id="+staffID, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("availability for staff: status = %d: %s", w.Code, w.Body.String())
+	}
+	var avail struct {
+		Slots []struct {
+			StartsAt time.Time `json:"starts_at"`
+		} `json:"slots"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &avail)
+	// A 10:00-12:00 shift with one-hour services leaves two starts.
+	if len(avail.Slots) != 2 {
+		t.Errorf("staff slots = %d, want 2: %s", len(avail.Slots), w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	hdl.ServeHTTP(w, authReq(t, http.MethodGet, path+"&staff_id="+util.NewUUID(), nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown staff: status = %d, want 404", w.Code)
+	}
+
+	// Booking with a named staff member records them on the appointment.
+	w = dash(t, td, hdl, http.MethodPost, "/api/v1/businesses/"+b.ID+"/appointments",
+		map[string]any{"product_id": p.ID, "starts_at": day.Add(10 * time.Hour).Format(time.RFC3339), "staff_id": staffID}, customer)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("book with staff: status = %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), staffID) {
+		t.Errorf("the appointment does not name the staff member: %s", w.Body.String())
+	}
+
+	if w := dash(t, td, hdl, http.MethodDelete, base+"/"+staffID, nil, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger delete: status = %d, want 403", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodDelete, base+"/"+staffID, nil, owner); w.Code != http.StatusNoContent {
+		t.Errorf("delete: status = %d, want 204", w.Code)
+	}
+}
