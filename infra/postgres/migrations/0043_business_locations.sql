@@ -44,7 +44,8 @@ INSERT INTO business_locations (id, business_id, name, address, city, country, l
 SELECT gen_random_uuid(), b.id, b.name, b.address, b.city, b.country, b.lat, b.lng,
        coalesce(nullif(b.timezone, ''), 'UTC'), b.hours, b.special_hours, true
   FROM businesses b
- WHERE NOT EXISTS (SELECT 1 FROM business_locations l WHERE l.business_id = b.id);
+ WHERE NOT EXISTS (SELECT 1 FROM business_locations l WHERE l.business_id = b.id)
+ON CONFLICT DO NOTHING;
 
 UPDATE businesses b
    SET primary_location_id = l.id,
