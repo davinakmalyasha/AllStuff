@@ -80,7 +80,7 @@ func scanStaff(row pgx.Row) (*domain.Staff, error) {
 
 func (r *StaffRepo) loadQualifications(ctx context.Context, s *domain.Staff) error {
 	s.Services = []string{}
-	s.Hours = map[string]domain.StaffHour{}
+	s.Hours = map[string]domain.DayHours{}
 
 	rows, err := r.pool.Query(ctx, `SELECT product_id::text FROM staff_services WHERE staff_id = $1`, s.ID)
 	if err != nil {
@@ -108,7 +108,7 @@ func (r *StaffRepo) loadQualifications(ctx context.Context, s *domain.Staff) err
 	defer hrows.Close()
 	for hrows.Next() {
 		var day string
-		var h domain.StaffHour
+		var h domain.DayHours
 		if err := hrows.Scan(&day, &h.Working, &h.OpensAt, &h.ClosesAt); err != nil {
 			return err
 		}
@@ -161,23 +161,17 @@ func (r *StaffRepo) ReplaceServices(ctx context.Context, staffID string, product
 
 // ReplaceHours sets exactly the given weekday rows. A weekday left out of the map
 // inherits the business hours.
-func (r *StaffRepo) ReplaceHours(ctx context.Context, staffID string, hours map[string]domain.StaffHour) error {
+func (r *StaffRepo) ReplaceHours(ctx context.Context, staffID string, hours map[string]domain.DayHours) error {
 	if _, err := r.pool.Exec(ctx, `DELETE FROM staff_hours WHERE staff_id = $1`, staffID); err != nil {
 		return err
 	}
 	for day, h := range hours {
-		if h.Working {
-			if _, err := r.pool.Exec(ctx, `
-				INSERT INTO staff_hours (staff_id, weekday, is_working, opens_at, closes_at)
-				VALUES ($1, $2, true, $3::time, $4::time)`,
-				staffID, day, h.OpensAt, h.ClosesAt); err != nil {
-				return err
-			}
-			continue
-		}
+		// Times are kept on a day off for the same reason as service hours: the
+		// toggle should not erase what the owner configured.
 		if _, err := r.pool.Exec(ctx, `
-			INSERT INTO staff_hours (staff_id, weekday, is_working) VALUES ($1, $2, false)`,
-			staffID, day); err != nil {
+			INSERT INTO staff_hours (staff_id, weekday, is_working, opens_at, closes_at)
+			VALUES ($1, $2, $3, NULLIF($4, '')::time, NULLIF($5, '')::time)`,
+			staffID, day, h.Working, h.OpensAt, h.ClosesAt); err != nil {
 			return err
 		}
 	}

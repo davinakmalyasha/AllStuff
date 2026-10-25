@@ -424,3 +424,51 @@ func TestLocationRoutes(t *testing.T) {
 		t.Errorf("delete the last location: status = %d, want 400", w.Code)
 	}
 }
+
+func TestServiceHoursRoutes(t *testing.T) {
+	s, h, td := newDBTestServerDeps(t)
+	hdl := s.Handler()
+	b, p, owner := bookingFixture(t, h)
+	stranger := testutil.User(t, h)
+
+	w := dash(t, td, hdl, http.MethodPost, "/api/v1/businesses/"+b.ID+"/locations", map[string]any{
+		"name": "Main", "address": "Jl. Satu", "city": "Jakarta", "country": "ID",
+		"lat": -6.2, "lng": 106.8, "timezone": "UTC",
+	}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create location: %d %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Location struct {
+			ID string `json:"id"`
+		} `json:"location"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	locID := created.Location.ID
+	base := "/api/v1/businesses/" + b.ID + "/locations/" + locID + "/service-hours"
+
+	if w := dash(t, td, hdl, http.MethodGet, base+"?product_id="+p.ID, nil, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger read: status = %d, want 403", w.Code)
+	}
+	// product_id is required for the read: without it there is nothing to describe.
+	if w := dash(t, td, hdl, http.MethodGet, base, nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("missing product: status = %d, want 400", w.Code)
+	}
+
+	w = dash(t, td, hdl, http.MethodPut, base+"/"+p.ID, map[string]any{
+		"hours": map[string]any{"mon": map[string]any{"working": true, "opens_at": "13:00", "closes_at": "15:00"}},
+	}, owner)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("set: status = %d: %s", w.Code, w.Body.String())
+	}
+	w = dash(t, td, hdl, http.MethodGet, base+"?product_id="+p.ID, nil, owner)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "13:00") {
+		t.Errorf("read back: status = %d: %s", w.Code, w.Body.String())
+	}
+	// A bad window is a validation error.
+	if w := dash(t, td, hdl, http.MethodPut, base+"/"+p.ID, map[string]any{
+		"hours": map[string]any{"mon": map[string]any{"working": true, "opens_at": "15:00", "closes_at": "13:00"}},
+	}, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("inverted window: status = %d, want 400", w.Code)
+	}
+}

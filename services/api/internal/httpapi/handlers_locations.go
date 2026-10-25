@@ -130,3 +130,42 @@ func (s *Server) handleLocationPrimary(w http.ResponseWriter, r *http.Request) {
 	}
 	noContent(w)
 }
+
+// Service hours: the window one service runs inside a location's own hours.
+func (s *Server) handleServiceHours(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	businessID := r.PathValue("id")
+	locationID := r.PathValue("locationId")
+
+	if r.Method == http.MethodGet {
+		productID := r.URL.Query().Get("product_id")
+		if productID == "" {
+			fail(w, domain.ErrValidation.WithField("product_id", "product_id is required."))
+			return
+		}
+		hours, err := s.deps.Booking.ServiceHours(r.Context(), user.ID, businessID, locationID, productID)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		ok(w, map[string]any{"hours": hours})
+		return
+	}
+
+	var in struct {
+		Hours map[string]domain.DayHours `json:"hours"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.deps.Booking.SetServiceHours(r.Context(), user.ID, businessID, locationID, r.PathValue("productId"), in.Hours); err != nil {
+		fail(w, err)
+		return
+	}
+	noContent(w)
+}

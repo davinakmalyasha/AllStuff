@@ -186,6 +186,33 @@ func (s *Booking) computeSlots(ctx context.Context, businessID, productID, staff
 	if !ok {
 		return []domain.Slot{}, map[int64][]string{}, nil
 	}
+	// A per-service window NARROWS the place's hours; it never widens them, so a
+	// service cannot be booked while the shop is shut.
+	if place != nil {
+		override, err := s.repos.Locations.ServiceHours(ctx, place.ID, productID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if day, ok := override[bookableDayKeys[dayStart.Weekday()]]; ok {
+			if !day.Working {
+				return []domain.Slot{}, map[int64][]string{}, nil
+			}
+			so, ok1 := clockOn(dayStart, day.OpensAt)
+			sc, ok2 := clockOn(dayStart, day.ClosesAt)
+			if !ok1 || !ok2 || !sc.After(so) {
+				return []domain.Slot{}, map[int64][]string{}, nil
+			}
+			if so.After(open) {
+				open = so
+			}
+			if sc.Before(shut) {
+				shut = sc
+			}
+			if !shut.After(open) {
+				return []domain.Slot{}, map[int64][]string{}, nil
+			}
+		}
+	}
 	dur := time.Duration(*p.DurationMinutes) * time.Minute
 	dayEnd := dayStart.AddDate(0, 0, 1)
 
@@ -548,6 +575,29 @@ func (s *Booking) SetStatus(ctx context.Context, actorID, appointmentID string, 
 	return nil
 }
 
+// validateDayHours checks a weekday map: known keys, and every working day a real
+// interval. label names the thing in the error ("Shift", "Service hours").
+func validateDayHours(hours map[string]domain.DayHours, label string) error {
+	valid := map[string]bool{"mon": true, "tue": true, "wed": true, "thu": true, "fri": true, "sat": true, "sun": true}
+	for day, h := range hours {
+		if !valid[day] {
+			return domain.ErrValidation.WithField("hours", "Unknown weekday "+day+".")
+		}
+		if !h.Working {
+			continue
+		}
+		opens, err1 := time.Parse("15:04", strings.TrimSpace(h.OpensAt))
+		closes, err2 := time.Parse("15:04", strings.TrimSpace(h.ClosesAt))
+		if err1 != nil || err2 != nil {
+			return domain.ErrValidation.WithField("hours", label+" times must be HH:MM.")
+		}
+		if !closes.After(opens) {
+			return domain.ErrValidation.WithField("hours", "A "+strings.ToLower(label)+" must end after it starts.")
+		}
+	}
+	return nil
+}
+
 // ---- staff ----
 
 func (s *Booking) mustManage(ctx context.Context, ownerID, businessID string) error {
@@ -706,29 +756,15 @@ func (s *Booking) SetStaffServices(ctx context.Context, ownerID, businessID, sta
 
 // SetStaffHours replaces the weekly shift. A weekday left out inherits the
 // business hours; a weekday marked not working is a day off.
-func (s *Booking) SetStaffHours(ctx context.Context, ownerID, businessID, staffID string, hours map[string]domain.StaffHour) (*domain.Staff, error) {
+func (s *Booking) SetStaffHours(ctx context.Context, ownerID, businessID, staffID string, hours map[string]domain.DayHours) (*domain.Staff, error) {
 	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
 		return nil, err
 	}
 	if _, err := s.staffInBusiness(ctx, businessID, staffID); err != nil {
 		return nil, err
 	}
-	valid := map[string]bool{"mon": true, "tue": true, "wed": true, "thu": true, "fri": true, "sat": true, "sun": true}
-	for day, h := range hours {
-		if !valid[day] {
-			return nil, domain.ErrValidation.WithField("hours", "Unknown weekday "+day+".")
-		}
-		if !h.Working {
-			continue
-		}
-		opens, err1 := time.Parse("15:04", strings.TrimSpace(h.OpensAt))
-		closes, err2 := time.Parse("15:04", strings.TrimSpace(h.ClosesAt))
-		if err1 != nil || err2 != nil {
-			return nil, domain.ErrValidation.WithField("hours", "Shift times must be HH:MM.")
-		}
-		if !closes.After(opens) {
-			return nil, domain.ErrValidation.WithField("hours", "A shift must end after it starts.")
-		}
+	if err := validateDayHours(hours, "Shift"); err != nil {
+		return nil, err
 	}
 	if err := s.repos.Staff.ReplaceHours(ctx, staffID, hours); err != nil {
 		return nil, err
@@ -975,4 +1011,52 @@ func (s *Booking) SetPrimaryLocation(ctx context.Context, ownerID, businessID, l
 func (s *Booking) SlotsForStaffAt(ctx context.Context, businessID, productID, staffID, locationID string, day time.Time) ([]domain.Slot, error) {
 	slots, _, err := s.computeSlots(ctx, businessID, productID, staffID, locationID, day)
 	return slots, err
+}
+
+// ---- per-service hours ----
+
+// ServiceHours is the override for one service at one place. An empty map means
+// the service follows the place's hours.
+func (s *Booking) ServiceHours(ctx context.Context, ownerID, businessID, locationID, productID string) (map[string]domain.DayHours, error) {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return nil, err
+	}
+	if err := s.serviceHoursTarget(ctx, businessID, locationID, productID); err != nil {
+		return nil, err
+	}
+	return s.repos.Locations.ServiceHours(ctx, locationID, productID)
+}
+
+func (s *Booking) SetServiceHours(ctx context.Context, ownerID, businessID, locationID, productID string, hours map[string]domain.DayHours) error {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return err
+	}
+	if err := s.serviceHoursTarget(ctx, businessID, locationID, productID); err != nil {
+		return err
+	}
+	if err := validateDayHours(hours, "Service hours"); err != nil {
+		return err
+	}
+	return s.repos.Locations.ReplaceServiceHours(ctx, locationID, productID, hours)
+}
+
+// serviceHoursTarget checks the place belongs to this business and the service
+// does too. Both matter: a location id from another business would write hours
+// onto someone else's calendar.
+func (s *Booking) serviceHoursTarget(ctx context.Context, businessID, locationID, productID string) error {
+	loc, err := s.locationFor(ctx, businessID, locationID)
+	if err != nil {
+		return err
+	}
+	if loc == nil || loc.ID != locationID {
+		return domain.ErrNotFound
+	}
+	p, err := s.repos.Products.GetByID(ctx, productID)
+	if err != nil {
+		return err
+	}
+	if p == nil || p.BusinessID != businessID {
+		return domain.ErrNotFound
+	}
+	return nil
 }

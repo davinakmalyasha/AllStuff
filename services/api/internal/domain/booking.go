@@ -68,21 +68,21 @@ type Slot struct {
 // platform account: many shops will never give their staff a login, and
 // requiring one would block the calendar for the businesses that need it most.
 type Staff struct {
-	ID         string               `json:"id"`
-	BusinessID string               `json:"business_id"`
-	UserID     string               `json:"user_id,omitempty"`
-	Name       string               `json:"name"`
-	Email      string               `json:"email,omitempty"`
-	Phone      string               `json:"phone,omitempty"`
-	Active     bool                 `json:"active"`
-	Services   []string             `json:"services"` // product ids this person performs
-	Hours      map[string]StaffHour `json:"hours"`    // weekday -> shift; absent means "inherit the business hours"
-	CreatedAt  time.Time            `json:"created_at"`
+	ID         string              `json:"id"`
+	BusinessID string              `json:"business_id"`
+	UserID     string              `json:"user_id,omitempty"`
+	Name       string              `json:"name"`
+	Email      string              `json:"email,omitempty"`
+	Phone      string              `json:"phone,omitempty"`
+	Active     bool                `json:"active"`
+	Services   []string            `json:"services"` // product ids this person performs
+	Hours      map[string]DayHours `json:"hours"`    // weekday -> shift; absent means "inherit the business hours"
+	CreatedAt  time.Time           `json:"created_at"`
 }
 
-// StaffHour is one weekday's shift. A row with Working false is a day off, which
+// DayHours is one weekday's shift. A row with Working false is a day off, which
 // is different from an absent row (inherit the business hours).
-type StaffHour struct {
+type DayHours struct {
 	Working  bool   `json:"working"`
 	OpensAt  string `json:"opens_at,omitempty"`
 	ClosesAt string `json:"closes_at,omitempty"`

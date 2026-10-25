@@ -78,17 +78,17 @@ func TestStaffCRUD(t *testing.T) {
 	}
 
 	// Hours: a shift must be a real interval, and the weekday must exist.
-	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.StaffHour{
+	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.DayHours{
 		"mon": {Working: true, OpensAt: "14:00", ClosesAt: "10:00"},
 	}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("an inverted shift: err = %v, want ErrValidation", err)
 	}
-	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.StaffHour{
+	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.DayHours{
 		"funday": {Working: true, OpensAt: "10:00", ClosesAt: "12:00"},
 	}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("an unknown weekday: err = %v, want ErrValidation", err)
 	}
-	got, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.StaffHour{
+	got, err := svc.SetStaffHours(ctx, owner.ID, b.ID, st.ID, map[string]domain.DayHours{
 		"mon": {Working: true, OpensAt: "10:00", ClosesAt: "12:00"},
 		"tue": {Working: false},
 	})
@@ -167,7 +167,7 @@ func TestStaffAwareSlots(t *testing.T) {
 	if _, err := svc.SetStaffServices(ctx, owner.ID, b.ID, bi.ID, []string{p.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, bi.ID, map[string]domain.StaffHour{
+	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, bi.ID, map[string]domain.DayHours{
 		weekday: {Working: true, OpensAt: "10:00", ClosesAt: "11:00"},
 	}); err != nil {
 		t.Fatal(err)
@@ -225,6 +225,19 @@ func TestStaffAwareSlots(t *testing.T) {
 		// Bima is booked 10:00 and works only 10:00-11:00.
 		t.Errorf("Bima's remaining slots = %v, want none", only)
 	}
+	// A day off is a day off even when the times are still configured - which is
+	// what the dashboard toggle leaves behind.
+	if _, err := svc.SetStaffHours(ctx, owner.ID, b.ID, bi.ID, map[string]domain.DayHours{
+		weekday: {Working: false, OpensAt: "10:00", ClosesAt: "12:00"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if off, err := svc.SlotsForStaff(ctx, b.ID, p.ID, bi.ID, day); err != nil {
+		t.Fatal(err)
+	} else if len(off) != 0 {
+		t.Errorf("a staff member on a day off has %d slots", len(off))
+	}
+
 	if _, err := svc.SlotsForStaff(ctx, b.ID, p.ID, "not-a-staff-id", day); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("unknown staff: err = %v, want ErrNotFound", err)
 	}

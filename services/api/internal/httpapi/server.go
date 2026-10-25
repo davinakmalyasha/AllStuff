@@ -199,6 +199,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("PATCH /api/v1/businesses/{id}/locations/{locationId}", s.handleLocationUpdate)
 	mux.HandleFunc("DELETE /api/v1/businesses/{id}/locations/{locationId}", s.handleLocationUpdate)
 	mux.HandleFunc("POST /api/v1/businesses/{id}/locations/{locationId}/primary", s.handleLocationPrimary)
+	mux.HandleFunc("GET /api/v1/businesses/{id}/locations/{locationId}/service-hours", s.handleServiceHours)
+	mux.HandleFunc("PUT /api/v1/businesses/{id}/locations/{locationId}/service-hours/{productId}", s.handleServiceHours)
 	mux.HandleFunc("GET /api/v1/businesses/{id}/blackouts", s.handleBlackouts)
 	mux.HandleFunc("POST /api/v1/businesses/{id}/blackouts", s.handleBlackouts)
 	mux.HandleFunc("DELETE /api/v1/businesses/{id}/blackouts/{blackoutId}", s.handleBlackoutDelete)

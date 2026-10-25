@@ -121,3 +121,44 @@ func (r *LocationRepo) SetPrimary(ctx context.Context, businessID, id string) er
 		`UPDATE business_locations SET is_primary = true WHERE id = $1 AND business_id = $2`, id, businessID)
 	return err
 }
+
+// ServiceHours is the per-service override for one place: weekday -> window. An
+// empty map means the service follows the location's own hours.
+func (r *LocationRepo) ServiceHours(ctx context.Context, locationID, productID string) (map[string]domain.DayHours, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT weekday, is_working, COALESCE(to_char(opens_at, 'HH24:MI'), ''), COALESCE(to_char(closes_at, 'HH24:MI'), '')
+		FROM location_service_hours WHERE location_id = $1 AND product_id = $2`, locationID, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]domain.DayHours{}
+	for rows.Next() {
+		var day string
+		var h domain.DayHours
+		if err := rows.Scan(&day, &h.Working, &h.OpensAt, &h.ClosesAt); err != nil {
+			return nil, err
+		}
+		out[day] = h
+	}
+	return out, rows.Err()
+}
+
+func (r *LocationRepo) ReplaceServiceHours(ctx context.Context, locationID, productID string, hours map[string]domain.DayHours) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM location_service_hours WHERE location_id = $1 AND product_id = $2`, locationID, productID); err != nil {
+		return err
+	}
+	for day, h := range hours {
+		// The times are stored even on a day that is switched off: a dashboard
+		// toggle keeps them, and dropping them would make "closed" and "never
+		// configured" indistinguishable the next time the day is switched back on.
+		if _, err := r.pool.Exec(ctx, `
+			INSERT INTO location_service_hours (location_id, product_id, weekday, is_working, opens_at, closes_at)
+			VALUES ($1, $2, $3, $4, NULLIF($5, '')::time, NULLIF($6, '')::time)`,
+			locationID, productID, day, h.Working, h.OpensAt, h.ClosesAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}

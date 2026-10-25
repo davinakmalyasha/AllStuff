@@ -347,7 +347,7 @@ func (s *Server) handleStaffHours(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Hours map[string]domain.StaffHour `json:"hours"`
+		Hours map[string]domain.DayHours `json:"hours"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
