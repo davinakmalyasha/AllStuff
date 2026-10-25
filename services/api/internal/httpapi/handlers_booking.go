@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -359,4 +360,24 @@ func (s *Server) handleStaffHours(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]any{"staff": st})
+}
+
+// handleAppointmentICS serves the booking as an iCalendar file, so a customer
+// can put it in their own calendar without the platform having to write to it.
+func (s *Server) handleAppointmentICS(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	ics, err := s.deps.Booking.CalendarInvite(r.Context(), user.ID, r.PathValue("appointmentId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="booking.ics"`)
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, ics)
 }

@@ -472,3 +472,53 @@ func TestServiceHoursRoutes(t *testing.T) {
 		t.Errorf("inverted window: status = %d, want 400", w.Code)
 	}
 }
+
+func TestAppointmentICSRoute(t *testing.T) {
+	s, h, td := newDBTestServerDeps(t)
+	hdl := s.Handler()
+	b, p, owner := bookingFixture(t, h)
+	customer := testutil.User(t, h)
+	stranger := testutil.User(t, h)
+	day := bookingDay()
+
+	w := dash(t, td, hdl, http.MethodPost, "/api/v1/businesses/"+b.ID+"/appointments",
+		map[string]any{"product_id": p.ID, "starts_at": day.Add(9 * time.Hour).Format(time.RFC3339)}, customer)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("book: %d %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Appointment struct {
+			ID string `json:"id"`
+		} `json:"appointment"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	path := "/api/v1/appointments/" + created.Appointment.ID + "/calendar.ics"
+
+	// Anonymous: unauthenticated (a GET, so 401 rather than a CSRF 403).
+	w = httptest.NewRecorder()
+	hdl.ServeHTTP(w, authReq(t, http.MethodGet, path, nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous: status = %d, want 401", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodGet, path, nil, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger: status = %d, want 403", w.Code)
+	}
+
+	w = dash(t, td, hdl, http.MethodGet, path, nil, customer)
+	if w.Code != http.StatusOK {
+		t.Fatalf("customer: status = %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/calendar") {
+		t.Errorf("Content-Type = %q, want text/calendar", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, `attachment; filename="booking.ics"`) {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	if !strings.Contains(w.Body.String(), "BEGIN:VCALENDAR") {
+		t.Errorf("body is not an iCalendar file: %s", w.Body.String())
+	}
+	// The owner may fetch it too - it is their calendar as well.
+	if w := dash(t, td, hdl, http.MethodGet, path, nil, owner); w.Code != http.StatusOK {
+		t.Errorf("owner: status = %d", w.Code)
+	}
+}
