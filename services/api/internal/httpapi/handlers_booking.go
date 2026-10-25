@@ -45,11 +45,17 @@ func (s *Server) handleAvailability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	staffID := strings.TrimSpace(r.URL.Query().Get("staff_id"))
+	locationID := strings.TrimSpace(r.URL.Query().Get("location_id"))
 	var slots []domain.Slot
 	var err2 error
-	if staffID != "" {
+	switch {
+	case staffID != "" && locationID != "":
+		slots, err2 = s.deps.Booking.SlotsForStaffAt(r.Context(), r.PathValue("id"), productID, staffID, locationID, day)
+	case staffID != "":
 		slots, err2 = s.deps.Booking.SlotsForStaff(r.Context(), r.PathValue("id"), productID, staffID, day)
-	} else {
+	case locationID != "":
+		slots, err2 = s.deps.Booking.SlotsAt(r.Context(), r.PathValue("id"), productID, locationID, day)
+	default:
 		slots, err2 = s.deps.Booking.Slots(r.Context(), r.PathValue("id"), productID, day)
 	}
 	if err2 != nil {
@@ -66,10 +72,11 @@ func (s *Server) handleAppointmentCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var in struct {
-		ProductID string `json:"product_id"`
-		StaffID   string `json:"staff_id"`
-		StartsAt  string `json:"starts_at"`
-		Notes     string `json:"notes"`
+		ProductID  string `json:"product_id"`
+		StaffID    string `json:"staff_id"`
+		LocationID string `json:"location_id"`
+		StartsAt   string `json:"starts_at"`
+		Notes      string `json:"notes"`
 	}
 	if err := decodeBody(w, r, &in); err != nil {
 		fail(w, err)
@@ -80,7 +87,7 @@ func (s *Server) handleAppointmentCreate(w http.ResponseWriter, r *http.Request)
 		fail(w, domain.ErrValidation.WithField("starts_at", "Use an RFC3339 timestamp."))
 		return
 	}
-	a, err := s.deps.Booking.BookWithStaff(r.Context(), user.ID, r.PathValue("id"), in.ProductID, in.StaffID, at, in.Notes)
+	a, err := s.deps.Booking.BookAt(r.Context(), user.ID, r.PathValue("id"), in.ProductID, in.StaffID, in.LocationID, at, in.Notes)
 	if err != nil {
 		fail(w, err)
 		return

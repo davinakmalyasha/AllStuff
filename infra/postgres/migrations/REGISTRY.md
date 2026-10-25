@@ -14,9 +14,9 @@ succeed, so a failure in that window replays the file.
 filename, so a number that has never been applied carries no migration history.
 This is why the reserved list below was renumbered rather than worked around.
 
-`0032`, `0033`, `0044`, `0045`, `0047`, `0048` and `0049` are the exceptions and the reason for this
-note: all seven were reserved, then actually written — `0032` for the slug-release fix,
-`0033` for the pagination total-order fix, `0044` for bookings, `0045` for staff scheduling, `0047` for the
+`0032`, `0033`, `0043`, `0044`, `0045`, `0047`, `0048` and `0049` are the exceptions and the reason for this
+note: all eight were reserved, then actually written — `0032` for the slug-release fix,
+`0033` for the pagination total-order fix, `0043` for business locations, `0044` for bookings, `0045` for staff scheduling, `0047` for the
 `user_2fa.enabled_at` default, `0048` for per-participant message hiding, `0049` for invite
 grants bound to user ids — and everything above them shifted by one each time.
 Remediation migrations will keep eating into this list, so treat a reservation as
@@ -163,7 +163,7 @@ feature that adds or paginations a listing.
 | `0040` | `0040_agent_feed.sql` | `0034`–`0035` | `business_feed_cursor(business_id, changed_at, checksum)` for `changes_token`, `agent_actions(business_id, action_type, provider_business_url, display_name)`, `business_attributes`. Backs `GET /api/v1/agent/businesses`, `/llms.txt` and the MCP server. Replaces the previous reservation of `0037` for generic webhooks: webhooks are a *distribution* mechanism and there is nothing worth distributing until there is an agent-readable surface. Partner `webhook_subscriptions` / `webhook_deliveries` move here too. |
 | `0041` | `0041_least_privilege.sql` | all `CREATE TABLE` above | `bizverse_app` role, `GRANT … ON ALL TABLES IN SCHEMA public`, `REVOKE … FROM PUBLIC`, `ALTER DEFAULT PRIVILEGES`. **The `ALTER DEFAULT PRIVILEGES` clause is what makes ordering irrelevant** — without it, a table created by a later migration ships ungranted and the app 500s on first read. |
 | `0042` | `0042_rls.sql` | `0041` | Row-level security on **tenant and owner tables only** (`media`, `verification_documents`, `billing_webhook_events`, `push_subscriptions`, `collections`, `saved_searches`, `api_keys`, `business_claims`, `chat_*`), keyed on a `SET LOCAL app.user_id` written by `withAuth`. Deliberately **not** on `businesses` / `products` / `trend_snapshots`: every search, leaderboard and SSR query runs without a user context, so blanket RLS breaks the hot path. |
-| `0043` | `0043_business_locations.sql` | `0034`–`0036` | Second and subsequent locations as a child table, with `businesses.primary_location_id` and `location_count`. **Re-scoped**: the previous reservation was "make `businesses.{address,city,lat,lng,hours}` FK-backed", which is exactly what `0034`–`0036` already deliver — doing it twice would mean two authors writing to `businesses.lat`. The existing columns stay as a cached copy, so this is additive. |
+| `0043` | `0043_business_locations.sql` | `0001` | Address, coordinates and hours per place, with `businesses.{address,city,country,lat,lng,timezone,hours,special_hours}` kept as a cached copy of the PRIMARY location. The cache is not laziness: search, the directory, the storefront and the SSR pages all read those columns, and re-pointing nine hand-written scans at a join was a bigger change than the feature. Every location mutation re-mirrors the primary. `location_count` is maintained for the same reason. Appointments gain `location_id` in `0050`, because migrations run in filename order and 0043 sorts before 0044. |
 
 ### Deferred, reserved, not scheduled
 
@@ -175,6 +175,8 @@ feature that adds or paginations a listing.
 | `0049` | `0049_business_invite_accepted_user.sql` | `0048` | `business_invites.accepted_user_id` binds an accepted co-owner/viewer grant to a user id. Both authorisation predicates resolved the holder with `JOIN users u ON u.email = i.email`, so a holder who changed their own email (legitimately - `POST /me/email` re-verifies and alerts the old address) silently lost every grant while the owner still saw them listed. Backfills existing accepted invites by address and leaves genuinely orphaned ones NULL. |
 | `0046` | `0046_business_hours.sql` | Per-department / per-service hours replacing the `hours` jsonb. Only meaningful per-location, so it belongs after `0043`, and per-staff only after `0045`. |
 | `0047` | `0047_user_2fa_enabled_at.sql` | `0001` | `user_2fa.enabled_at` loses `NOT NULL DEFAULT now()`, which marked **every** inserted factor enabled the instant it was written. `UpsertSecret` only cleared the flag on its ON CONFLICT branch, so a first enrollment inherited the default and a re-enrollment did not - the pending/enabled distinction existed nowhere in the database. `Confirm2FA` refuses an already-enabled factor, so first-time enrollment could never be confirmed; abandoning enrollment left 2FA genuinely active with an unconfirmed secret. Repair clears `enabled_at` only where `recovery_codes_hash` is empty, which identifies unconfirmed factors exactly and never disables a confirmed one. Found by the 2FA integration tests, which had never executed because `TEST_DATABASE_URL` was unset wherever they were added. |
+
+| `0050` | `0050_appointment_location.sql` | `0043` | `appointments.location_id`, backfilled to the business's primary location. Its own file rather than part of `0043` because migrations run in lexical order and `0043` sorts BEFORE `0044`, which creates `appointments` - a migration may not depend on a table that a later number creates. |
 
 Do not create a file whose number is listed here for a different purpose.
 

@@ -336,3 +336,91 @@ func TestStaffRoutes(t *testing.T) {
 		t.Errorf("delete: status = %d, want 204", w.Code)
 	}
 }
+
+func TestLocationRoutes(t *testing.T) {
+	s, h, td := newDBTestServerDeps(t)
+	hdl := s.Handler()
+	b, _, owner := bookingFixture(t, h)
+	stranger := testutil.User(t, h)
+	base := "/api/v1/businesses/" + b.ID + "/locations"
+
+	// Public read, and empty until the owner adds one.
+	w := httptest.NewRecorder()
+	hdl.ServeHTTP(w, authReq(t, http.MethodGet, base, nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"locations"`) {
+		t.Fatalf("public list: status = %d: %s", w.Code, w.Body.String())
+	}
+	if w := dash(t, td, hdl, http.MethodPost, base, map[string]any{"name": "Main"}, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("stranger create: status = %d, want 403", w.Code)
+	}
+	// A blank address is refused.
+	if w := dash(t, td, hdl, http.MethodPost, base, map[string]any{"name": "Main", "city": "Jakarta", "country": "ID", "lat": -6.2, "lng": 106.8, "timezone": "UTC"}, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("blank address: status = %d, want 400", w.Code)
+	}
+
+	w = dash(t, td, hdl, http.MethodPost, base, map[string]any{
+		"name": "Main", "address": "Jl. Satu", "city": "Jakarta", "country": "ID",
+		"lat": -6.2, "lng": 106.8, "timezone": "UTC",
+	}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d: %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Location struct {
+			ID        string `json:"id"`
+			IsPrimary bool   `json:"is_primary"`
+		} `json:"location"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Location.ID == "" || !created.Location.IsPrimary {
+		t.Fatalf("location = %+v", created.Location)
+	}
+	mainID := created.Location.ID
+
+	w = dash(t, td, hdl, http.MethodPost, base, map[string]any{
+		"name": "Branch", "address": "Jl. Dua", "city": "Bandung", "country": "ID",
+		"lat": -6.9, "lng": 107.6, "timezone": "UTC",
+	}, owner)
+	var second struct {
+		Location struct {
+			ID        string `json:"id"`
+			IsPrimary bool   `json:"is_primary"`
+		} `json:"location"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &second)
+	if w.Code != http.StatusCreated || second.Location.IsPrimary {
+		t.Fatalf("second create: status = %d, primary=%v", w.Code, second.Location.IsPrimary)
+	}
+
+	// Promoting the branch moves the business's cached address with it.
+	if w := dash(t, td, hdl, http.MethodPost, base+"/"+second.Location.ID+"/primary", nil, owner); w.Code != http.StatusNoContent {
+		t.Errorf("promote: status = %d, want 204", w.Code)
+	}
+	var addr string
+	if err := h.QueryRow(t, `SELECT address FROM businesses WHERE id=$1`, b.ID).Scan(&addr); err != nil {
+		t.Fatal(err)
+	}
+	if addr != "Jl. Dua" {
+		t.Errorf("cached address = %q after promoting the branch", addr)
+	}
+
+	if w := dash(t, td, hdl, http.MethodPatch, base+"/"+second.Location.ID, map[string]any{"address": "Jl. Dua No. 5"}, owner); w.Code != http.StatusOK {
+		t.Errorf("patch: status = %d: %s", w.Code, w.Body.String())
+	}
+	if err := h.QueryRow(t, `SELECT address FROM businesses WHERE id=$1`, b.ID).Scan(&addr); err != nil {
+		t.Fatal(err)
+	}
+	if addr != "Jl. Dua No. 5" {
+		t.Errorf("cached address = %q after editing the primary", addr)
+	}
+
+	// Deleting the primary promotes the other one; deleting the last is refused.
+	if w := dash(t, td, hdl, http.MethodDelete, base+"/"+second.Location.ID, nil, owner); w.Code != http.StatusNoContent {
+		t.Errorf("delete primary: status = %d, want 204", w.Code)
+	}
+	if w := dash(t, td, hdl, http.MethodDelete, base+"/"+mainID, nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("delete the last location: status = %d, want 400", w.Code)
+	}
+}

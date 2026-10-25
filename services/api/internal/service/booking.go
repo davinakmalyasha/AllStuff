@@ -31,8 +31,8 @@ const maxSlotsPerDay = 96
 
 var bookableDayKeys = [7]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 
-func businessLocation(b *domain.Business) *time.Location {
-	loc, err := time.LoadLocation(strings.TrimSpace(b.Timezone))
+func loadTimezone(tz string) *time.Location {
+	loc, err := time.LoadLocation(strings.TrimSpace(tz))
 	if err != nil || loc == nil {
 		return time.UTC
 	}
@@ -50,8 +50,8 @@ func clockOn(day time.Time, v string) (time.Time, bool) {
 // openingFor resolves a calendar day's window: special hours for that date,
 // then the weekday's hours. Closed, missing or half-specified days are not
 // bookable.
-func openingFor(b *domain.Business, day time.Time) (time.Time, time.Time, bool) {
-	if raw, ok := b.SpecialHours[day.Format("2006-01-02")]; ok {
+func openingFor(hours, specialHours map[string]any, day time.Time) (time.Time, time.Time, bool) {
+	if raw, ok := specialHours[day.Format("2006-01-02")]; ok {
 		if m, ok := raw.(map[string]any); ok {
 			if closed, _ := m["closed"].(bool); closed {
 				return time.Time{}, time.Time{}, false
@@ -66,7 +66,7 @@ func openingFor(b *domain.Business, day time.Time) (time.Time, time.Time, bool) 
 			return time.Time{}, time.Time{}, false
 		}
 	}
-	raw, ok := b.Hours[bookableDayKeys[day.Weekday()]]
+	raw, ok := hours[bookableDayKeys[day.Weekday()]]
 	if !ok {
 		return time.Time{}, time.Time{}, false
 	}
@@ -158,18 +158,31 @@ func (s *Booking) qualifiedStaff(ctx context.Context, businessID, productID stri
 
 // computeSlots also returns which staff are free at each start instant, so Book
 // does not have to repeat the queries this scan already ran.
-func (s *Booking) computeSlots(ctx context.Context, businessID, productID, staffFilter string, day time.Time) ([]domain.Slot, map[int64][]string, error) {
+func (s *Booking) computeSlots(ctx context.Context, businessID, productID, staffFilter, locationID string, day time.Time) ([]domain.Slot, map[int64][]string, error) {
 	b, p, err := s.bookableService(ctx, businessID, productID)
 	if err != nil {
 		return nil, nil, err
 	}
-	loc := businessLocation(b)
+	// Where the calendar comes from: the chosen location, else the primary, else
+	// the business's own cached columns. The last case is not a fallback for a
+	// broken database - it is what a listing that has not been split into
+	// locations yet looks like.
+	tz := b.Timezone
+	hours, special := b.Hours, b.SpecialHours
+	place, err := s.locationFor(ctx, businessID, locationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if place != nil {
+		tz, hours, special = place.Timezone, place.Hours, place.SpecialHours
+	}
+	loc := loadTimezone(tz)
 	// The CALENDAR DATE is taken from the caller's year/month/day fields and
 	// rebuilt in the business timezone. Converting the instant instead (day.In(loc))
 	// moves a UTC-midnight request to the previous day for any negative offset,
 	// which would answer "the day before" to a client that asked for a date.
 	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
-	open, shut, ok := openingFor(b, dayStart)
+	open, shut, ok := openingFor(hours, special, dayStart)
 	if !ok {
 		return []domain.Slot{}, map[int64][]string{}, nil
 	}
@@ -255,13 +268,19 @@ func (s *Booking) computeSlots(ctx context.Context, businessID, productID, staff
 // Slots returns the bookable start times for one calendar day, in the
 // business's timezone. day is any instant inside the wanted date.
 func (s *Booking) Slots(ctx context.Context, businessID, productID string, day time.Time) ([]domain.Slot, error) {
-	slots, _, err := s.computeSlots(ctx, businessID, productID, "", day)
+	slots, _, err := s.computeSlots(ctx, businessID, productID, "", "", day)
+	return slots, err
+}
+
+// SlotsAt is Slots for one named place; an empty id means the primary.
+func (s *Booking) SlotsAt(ctx context.Context, businessID, productID, locationID string, day time.Time) ([]domain.Slot, error) {
+	slots, _, err := s.computeSlots(ctx, businessID, productID, "", locationID, day)
 	return slots, err
 }
 
 // SlotsForStaff is the same list restricted to one person's calendar.
 func (s *Booking) SlotsForStaff(ctx context.Context, businessID, productID, staffID string, day time.Time) ([]domain.Slot, error) {
-	slots, _, err := s.computeSlots(ctx, businessID, productID, staffID, day)
+	slots, _, err := s.computeSlots(ctx, businessID, productID, staffID, "", day)
 	return slots, err
 }
 
@@ -280,6 +299,11 @@ func (s *Booking) Book(ctx context.Context, customerID, businessID, productID st
 // EXCLUDE constraints are the real guarantee, and a conflict there is reported as
 // ErrSlotTaken rather than as an internal error.
 func (s *Booking) BookWithStaff(ctx context.Context, customerID, businessID, productID, staffID string, at time.Time, notes string) (*domain.Appointment, error) {
+	return s.BookAt(ctx, customerID, businessID, productID, staffID, "", at, notes)
+}
+
+// BookAt is BookWithStaff at a named place.
+func (s *Booking) BookAt(ctx context.Context, customerID, businessID, productID, staffID, locationID string, at time.Time, notes string) (*domain.Appointment, error) {
 	notes = strings.TrimSpace(notes)
 	if len([]rune(notes)) > 500 {
 		return nil, domain.ErrValidation.WithField("notes", "Notes must be 500 characters or fewer.")
@@ -288,7 +312,15 @@ func (s *Booking) BookWithStaff(ctx context.Context, customerID, businessID, pro
 	if err != nil {
 		return nil, err
 	}
-	slots, free, err := s.computeSlots(ctx, businessID, productID, staffID, at.In(businessLocation(b)))
+	// computeSlots reads the CALENDAR DATE from the time's own fields, so the
+	// instant has to be expressed in the calendar's timezone first.
+	tz := b.Timezone
+	if place, err := s.locationFor(ctx, businessID, locationID); err != nil {
+		return nil, err
+	} else if place != nil {
+		tz = place.Timezone
+	}
+	slots, free, err := s.computeSlots(ctx, businessID, productID, staffID, locationID, at.In(loadTimezone(tz)))
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +350,7 @@ func (s *Booking) BookWithStaff(ctx context.Context, customerID, businessID, pro
 		ProductID:  productID,
 		CustomerID: customerID,
 		StaffID:    staffID,
+		LocationID: locationID,
 		StartsAt:   chosen.StartsAt,
 		EndsAt:     chosen.EndsAt,
 		Status:     domain.AppointmentConfirmed,
@@ -701,4 +734,245 @@ func (s *Booking) SetStaffHours(ctx context.Context, ownerID, businessID, staffI
 		return nil, err
 	}
 	return s.repos.Staff.Get(ctx, staffID)
+}
+
+// ---- locations ----
+
+// locationFor resolves a place: the named one, else the primary, else nil when
+// the business has no location rows yet (which is how a listing looks before it
+// is split into places).
+func (s *Booking) locationFor(ctx context.Context, businessID, locationID string) (*domain.Location, error) {
+	if locationID != "" {
+		l, err := s.repos.Locations.Get(ctx, locationID)
+		if err != nil {
+			return nil, err
+		}
+		if l == nil || l.BusinessID != businessID {
+			return nil, domain.ErrNotFound
+		}
+		return l, nil
+	}
+	return s.repos.Locations.Primary(ctx, businessID)
+}
+
+// mirrorPrimary copies the primary location back onto the business's cached
+// columns. Every existing reader - search, the directory, the storefront, SSR -
+// uses those columns, so a location edit that skipped this would leave the map,
+// the address on the public page and the hours on the SEO shell disagreeing with
+// the location the owner just edited.
+func (s *Booking) mirrorPrimary(ctx context.Context, businessID string) error {
+	loc, err := s.repos.Locations.Primary(ctx, businessID)
+	if err != nil || loc == nil {
+		return err
+	}
+	count, err := s.repos.Locations.Count(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	_, err = s.repos.Exec(ctx, `
+		UPDATE businesses SET
+			address = $2, city = $3, country = $4, lat = $5, lng = $6,
+			timezone = $7, hours = $8, special_hours = $9,
+			primary_location_id = $10, location_count = $11, updated_at = now()
+		 WHERE id = $1`,
+		businessID, loc.Address, loc.City, loc.Country, loc.Lat, loc.Lng,
+		loc.Timezone, loc.Hours, loc.SpecialHours, loc.ID, count)
+	return err
+}
+
+func (s *Booking) validateLocation(in domain.Location) error {
+	if n := len([]rune(strings.TrimSpace(in.Name))); n < 1 || n > 80 {
+		return domain.ErrValidation.WithField("name", "Name must be 1-80 characters.")
+	}
+	for _, f := range []struct {
+		key string
+		val string
+	}{{"address", in.Address}, {"city", in.City}, {"country", in.Country}} {
+		if strings.TrimSpace(f.val) == "" {
+			return domain.ErrValidation.WithField(f.key, "This field is required.")
+		}
+	}
+	if in.Lat < -90 || in.Lat > 90 || in.Lng < -180 || in.Lng > 180 {
+		return domain.ErrValidation.WithField("lat", "Coordinates look wrong.")
+	}
+	if _, err := time.LoadLocation(strings.TrimSpace(in.Timezone)); err != nil {
+		return domain.ErrValidation.WithField("timezone", "Unknown timezone.")
+	}
+	if len([]rune(in.Phone)) > 40 {
+		return domain.ErrValidation.WithField("phone", "Phone must be 40 characters or fewer.")
+	}
+	return nil
+}
+
+// Locations is the public list. Only public listings expose their places.
+func (s *Booking) Locations(ctx context.Context, businessID string) ([]*domain.Location, error) {
+	b, err := s.repos.Businesses.GetByID(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil || (b.Status != domain.BusinessVerified && b.Status != domain.BusinessPaused) {
+		return nil, domain.ErrNotFound
+	}
+	return s.repos.Locations.List(ctx, businessID)
+}
+
+func (s *Booking) ManageLocations(ctx context.Context, ownerID, businessID string) ([]*domain.Location, error) {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return nil, err
+	}
+	return s.repos.Locations.List(ctx, businessID)
+}
+
+// CreateLocation adds a place. The first one becomes primary automatically, and
+// inherits the business's current hours if none were supplied, because a second
+// location with no hours would be bookable for nothing.
+func (s *Booking) CreateLocation(ctx context.Context, ownerID, businessID string, in domain.Location) (*domain.Location, error) {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return nil, err
+	}
+	if err := s.validateLocation(in); err != nil {
+		return nil, err
+	}
+	count, err := s.repos.Locations.Count(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	in.ID = util.NewUUID()
+	in.BusinessID = businessID
+	in.IsPrimary = count == 0
+	// Both columns are NOT NULL: an absent map must be an empty one, not NULL.
+	if in.Hours == nil {
+		in.Hours = map[string]any{}
+	}
+	if in.SpecialHours == nil {
+		in.SpecialHours = map[string]any{}
+	}
+	if len(in.Hours) == 0 {
+		if b, _ := s.repos.Businesses.GetByID(ctx, businessID); b != nil {
+			in.Hours = b.Hours
+			if len(in.SpecialHours) == 0 {
+				in.SpecialHours = b.SpecialHours
+			}
+		}
+	}
+	if err := s.repos.Locations.Create(ctx, &in); err != nil {
+		return nil, err
+	}
+	if in.IsPrimary {
+		if err := s.mirrorPrimary(ctx, businessID); err != nil {
+			return nil, err
+		}
+	}
+	return s.repos.Locations.Get(ctx, in.ID)
+}
+
+func (s *Booking) UpdateLocation(ctx context.Context, ownerID, businessID, locationID string, fields map[string]any) (*domain.Location, error) {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return nil, err
+	}
+	cur, err := s.locationFor(ctx, businessID, locationID)
+	if err != nil {
+		return nil, err
+	}
+	if cur == nil || cur.ID != locationID {
+		return nil, domain.ErrNotFound
+	}
+	if len(fields) == 0 {
+		return nil, domain.ErrValidation.WithField("_", "Nothing to update.")
+	}
+	// Validate the MERGED result: a patch that only moves the coordinates must
+	// still be judged against the address already stored.
+	merged := *cur
+	if v, ok := fields["name"].(string); ok {
+		merged.Name = v
+	}
+	if v, ok := fields["address"].(string); ok {
+		merged.Address = v
+	}
+	if v, ok := fields["city"].(string); ok {
+		merged.City = v
+	}
+	if v, ok := fields["country"].(string); ok {
+		merged.Country = v
+	}
+	if v, ok := fields["timezone"].(string); ok {
+		merged.Timezone = v
+	}
+	if v, ok := fields["phone"].(string); ok {
+		merged.Phone = v
+	}
+	if err := s.validateLocation(merged); err != nil {
+		return nil, err
+	}
+	if v, ok := fields["phone"]; ok {
+		fields["phone"] = nilIfEmpty(strings.TrimSpace(v.(string)))
+	}
+	if err := s.repos.Locations.Update(ctx, locationID, fields); err != nil {
+		return nil, err
+	}
+	if cur.IsPrimary {
+		if err := s.mirrorPrimary(ctx, businessID); err != nil {
+			return nil, err
+		}
+	}
+	return s.repos.Locations.Get(ctx, locationID)
+}
+
+// DeleteLocation refuses to remove the last place - a business must have one -
+// and promotes another when the primary goes.
+func (s *Booking) DeleteLocation(ctx context.Context, ownerID, businessID, locationID string) error {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return err
+	}
+	count, err := s.repos.Locations.Count(ctx, businessID)
+	if err != nil {
+		return err
+	}
+	if count <= 1 {
+		return domain.ErrValidation.WithField("_", "A business must keep at least one location.")
+	}
+	cur, err := s.locationFor(ctx, businessID, locationID)
+	if err != nil {
+		return err
+	}
+	if cur == nil || cur.ID != locationID {
+		return domain.ErrNotFound
+	}
+	ok, err := s.repos.Locations.Delete(ctx, businessID, locationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if cur.IsPrimary {
+		if remaining, err := s.repos.Locations.List(ctx, businessID); err == nil && len(remaining) > 0 {
+			if err := s.repos.Locations.SetPrimary(ctx, businessID, remaining[0].ID); err != nil {
+				return err
+			}
+		}
+		if err := s.mirrorPrimary(ctx, businessID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Booking) SetPrimaryLocation(ctx context.Context, ownerID, businessID, locationID string) error {
+	if err := s.mustManage(ctx, ownerID, businessID); err != nil {
+		return err
+	}
+	if _, err := s.locationFor(ctx, businessID, locationID); err != nil {
+		return err
+	}
+	if err := s.repos.Locations.SetPrimary(ctx, businessID, locationID); err != nil {
+		return err
+	}
+	return s.mirrorPrimary(ctx, businessID)
+}
+
+// SlotsForStaffAt narrows to one person at one place.
+func (s *Booking) SlotsForStaffAt(ctx context.Context, businessID, productID, staffID, locationID string, day time.Time) ([]domain.Slot, error) {
+	slots, _, err := s.computeSlots(ctx, businessID, productID, staffID, locationID, day)
+	return slots, err
 }

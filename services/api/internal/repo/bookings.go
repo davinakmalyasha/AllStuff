@@ -14,13 +14,15 @@ import (
 type BookingRepo struct{ pool pooler }
 
 const appointmentCols = `a.id, a.business_id, b.name, b.slug, a.product_id, pr.name,
-	a.customer_id, u.name, coalesce(a.staff_id::text, ''), coalesce(st.name, ''),
+	a.customer_id, u.name, coalesce(a.location_id::text, ''), coalesce(l.name, ''),
+	coalesce(a.staff_id::text, ''), coalesce(st.name, ''),
 	a.starts_at, a.ends_at, a.status, coalesce(a.notes, ''), a.created_at`
 
 func scanAppointment(row pgx.Row) (*domain.Appointment, error) {
 	var a domain.Appointment
 	if err := row.Scan(&a.ID, &a.BusinessID, &a.BusinessName, &a.BusinessSlug, &a.ProductID,
-		&a.ProductName, &a.CustomerID, &a.CustomerName, &a.StaffID, &a.StaffName,
+		&a.ProductName, &a.CustomerID, &a.CustomerName,
+		&a.LocationID, &a.LocationName, &a.StaffID, &a.StaffName,
 		&a.StartsAt, &a.EndsAt, &a.Status,
 		&a.Notes, &a.CreatedAt); err != nil {
 		return nil, err
@@ -33,7 +35,8 @@ const appointmentFrom = `
 	JOIN businesses b ON b.id = a.business_id
 	JOIN products pr  ON pr.id = a.product_id
 	JOIN users u      ON u.id = a.customer_id
-	LEFT JOIN business_staff st ON st.id = a.staff_id`
+	LEFT JOIN business_staff st ON st.id = a.staff_id
+	LEFT JOIN business_locations l ON l.id = a.location_id`
 
 // CreateAppointment inserts a booking.
 //
@@ -42,9 +45,9 @@ const appointmentFrom = `
 // an internal error, because it is the expected outcome of a race and not a bug.
 func (r *BookingRepo) CreateAppointment(ctx context.Context, a *domain.Appointment) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO appointments (id, business_id, product_id, customer_id, staff_id, starts_at, ends_at, status, notes)
-		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7, $8, $9)`,
-		a.ID, a.BusinessID, a.ProductID, a.CustomerID, a.StaffID,
+		INSERT INTO appointments (id, business_id, product_id, customer_id, staff_id, location_id, starts_at, ends_at, status, notes)
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, '')::uuid, $7, $8, $9, $10)`,
+		a.ID, a.BusinessID, a.ProductID, a.CustomerID, a.StaffID, a.LocationID,
 		a.StartsAt, a.EndsAt, string(a.Status), a.Notes)
 	return err
 }

@@ -162,6 +162,15 @@ func template(t *testing.T) string {
 		defer admin.Close()
 
 		tmplName = fmt.Sprintf("bizverse_tmpl_%d", os.Getpid())
+		// Drop databases abandoned by earlier runs BEFORE creating this one.
+		//
+		// The template is keyed by pid and nothing ever dropped it, so every
+		// `go test` invocation left a full schema clone behind; interrupted runs
+		// left their per-test databases too. A few hundred of those turn crash
+		// recovery from seconds into twenty minutes, because the cluster fsyncs
+		// every file it finds on startup. Two hours is longer than any run, so a
+		// concurrently running suite never loses its own database.
+		dropStaleTestDatabases(ctx, admin, tmplName)
 		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+tmplName+" WITH (FORCE)"); err != nil {
 			tmplErr = err
 			return
@@ -189,6 +198,34 @@ func template(t *testing.T) string {
 		t.Fatalf("building the test template: %v", tmplErr)
 	}
 	return tmplName
+}
+
+// dropStaleTestDatabases removes test databases from abandoned runs.
+//
+// Best-effort by design: a cleanup failure must never fail the suite, and the
+// databases it targets are ones nobody is using. pg_stat_file needs superuser,
+// which the test DSN already is - the same account that issues CREATE DATABASE.
+func dropStaleTestDatabases(ctx context.Context, admin *pgxpool.Pool, keep string) {
+	rows, err := admin.Query(ctx, `
+		SELECT d.datname
+		  FROM pg_database d
+		 WHERE (d.datname LIKE 'bizverse_tmpl_%' OR d.datname LIKE 'bizverse_t%')
+		   AND d.datname <> 'bizverse_tmpl'
+		   AND (pg_stat_file('base/' || d.oid)).modification < now() - interval '2 hours'`)
+	if err != nil {
+		return
+	}
+	var stale []string
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil && name != keep {
+			stale = append(stale, name)
+		}
+	}
+	rows.Close()
+	for _, name := range stale {
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+	}
 }
 
 func connect(ctx context.Context, dsn, dbname string) (*pgxpool.Pool, error) {

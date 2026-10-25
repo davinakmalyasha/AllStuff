@@ -33,6 +33,8 @@ type Appointment struct {
 	ProductName  string            `json:"product_name,omitempty"`
 	CustomerID   string            `json:"customer_id"`
 	CustomerName string            `json:"customer_name,omitempty"`
+	LocationID   string            `json:"location_id,omitempty"`
+	LocationName string            `json:"location_name,omitempty"`
 	StaffID      string            `json:"staff_id,omitempty"`
 	StaffName    string            `json:"staff_name,omitempty"`
 	StartsAt     time.Time         `json:"starts_at"`
@@ -84,4 +86,24 @@ type StaffHour struct {
 	Working  bool   `json:"working"`
 	OpensAt  string `json:"opens_at,omitempty"`
 	ClosesAt string `json:"closes_at,omitempty"`
+}
+
+// Location is one place a business operates from. The business's own address and
+// hours columns stay as a cached copy of the PRIMARY location, so every existing
+// reader (search, directory, storefront, SSR) keeps working unchanged.
+type Location struct {
+	ID           string         `json:"id"`
+	BusinessID   string         `json:"business_id"`
+	Name         string         `json:"name"`
+	Address      string         `json:"address"`
+	City         string         `json:"city"`
+	Country      string         `json:"country"`
+	Lat          float64        `json:"lat"`
+	Lng          float64        `json:"lng"`
+	Timezone     string         `json:"timezone"`
+	Hours        map[string]any `json:"hours"`
+	SpecialHours map[string]any `json:"special_hours"`
+	Phone        string         `json:"phone,omitempty"`
+	IsPrimary    bool           `json:"is_primary"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
