@@ -25,23 +25,26 @@ func (s AppointmentStatus) OccupiesSlot() bool {
 }
 
 type Appointment struct {
-	ID           string            `json:"id"`
-	BusinessID   string            `json:"business_id"`
-	BusinessName string            `json:"business_name,omitempty"`
-	BusinessSlug string            `json:"business_slug,omitempty"`
-	ProductID    string            `json:"product_id"`
-	ProductName  string            `json:"product_name,omitempty"`
-	CustomerID   string            `json:"customer_id"`
-	CustomerName string            `json:"customer_name,omitempty"`
-	LocationID   string            `json:"location_id,omitempty"`
-	LocationName string            `json:"location_name,omitempty"`
-	StaffID      string            `json:"staff_id,omitempty"`
-	StaffName    string            `json:"staff_name,omitempty"`
-	StartsAt     time.Time         `json:"starts_at"`
-	EndsAt       time.Time         `json:"ends_at"`
-	Status       AppointmentStatus `json:"status"`
-	Notes        string            `json:"notes,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
+	ID           string `json:"id"`
+	BusinessID   string `json:"business_id"`
+	BusinessName string `json:"business_name,omitempty"`
+	BusinessSlug string `json:"business_slug,omitempty"`
+	// BusinessTimezone is what a client must render the times in: the booking
+	// belongs to the shop's day, not the viewer's.
+	BusinessTimezone string            `json:"business_timezone,omitempty"`
+	ProductID        string            `json:"product_id"`
+	ProductName      string            `json:"product_name,omitempty"`
+	CustomerID       string            `json:"customer_id"`
+	CustomerName     string            `json:"customer_name,omitempty"`
+	LocationID       string            `json:"location_id,omitempty"`
+	LocationName     string            `json:"location_name,omitempty"`
+	StaffID          string            `json:"staff_id,omitempty"`
+	StaffName        string            `json:"staff_name,omitempty"`
+	StartsAt         time.Time         `json:"starts_at"`
+	EndsAt           time.Time         `json:"ends_at"`
+	Status           AppointmentStatus `json:"status"`
+	Notes            string            `json:"notes,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 // Blackout is time the business is unavailable regardless of its hours.

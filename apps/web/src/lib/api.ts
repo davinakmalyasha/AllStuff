@@ -343,6 +343,9 @@ export interface ProductDTO {
   is_published: boolean
   badge: 'none' | 'new' | 'popular'
   seo_title: string | null
+  // How long one appointment of this service takes. NULL means it is not
+  // bookable - the server refuses a booking without a duration.
+  duration_minutes: number | null
   created_at: string
   updated_at: string
   options?: ProductOptionDTO[]
@@ -601,4 +604,43 @@ export interface BillingStateDTO {
   entitlements: EntitlementsDTO
   /** False when Stripe is not configured on the deployment. */
   enabled: boolean
+}
+
+// ---- bookings ----
+
+export interface SlotDTO {
+  starts_at: string
+  ends_at: string
+  /** How many qualified staff are free at this time; 0 is never offered. */
+  staff_available?: number
+}
+
+export type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
+
+export interface AppointmentDTO {
+  id: string
+  business_id: string
+  business_name?: string
+  business_slug?: string
+  /** The timezone the times must be rendered in - the shop's, not the viewer's. */
+  business_timezone?: string
+  product_id: string
+  product_name?: string
+  location_id?: string
+  location_name?: string
+  customer_id: string
+  starts_at: string
+  ends_at: string
+  status: AppointmentStatus
+  notes?: string
+  created_at: string
+}
+
+// apiBlob downloads a file from an authenticated endpoint. The JSON api() helper
+// cannot do this: the calendar file is text/calendar, and parsing it as JSON was
+// never an option.
+export async function apiBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Could not download the file.')
+  return res.blob()
 }

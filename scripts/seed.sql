@@ -33,6 +33,21 @@ VALUES (
   ARRAY['coffee','espresso','wifi','pastries'], 2, 2017, now()
 ) ON CONFLICT (id) DO NOTHING;
 
+-- Products for the café, including one BOOKABLE service: the E2E booking spec
+-- needs something with a duration, and the storefront renders whatever the
+-- public endpoint returns. Seeded after the migrations, so these businesses have
+-- no location rows - the booking service falls back to the business's own hours,
+-- which is exactly the single-location case.
+INSERT INTO products (id, business_id, type, name, description, currency, base_price, is_published, duration_minutes)
+VALUES
+  ('b1000000-0000-4000-8000-000000000001', '5845a5db-02b0-4ce8-a6d1-95f2b4b16396',
+   'product', 'Kopi Susu Senja', 'Cold-brewed milk coffee with palm sugar.', 'USD', 4.50, true, NULL),
+  ('b1000000-0000-4000-8000-000000000002', '5845a5db-02b0-4ce8-a6d1-95f2b4b16396',
+   'product', 'Manual Brew Flight', 'Three single-origin pours, side by side.', 'USD', 9.00, true, NULL),
+  ('b1000000-0000-4000-8000-000000000003', '5845a5db-02b0-4ce8-a6d1-95f2b4b16396',
+   'service', 'Kopi Cupping Session', 'A one-hour guided tasting with the head barista.', 'USD', 25.00, true, 60)
+ON CONFLICT (id) DO NOTHING;
+
 -- Barbershop paired with the café on the compare page.
 INSERT INTO businesses (id, owner_id, name, slug, tagline, description, category_id, status,
 	verification_level, verified_at, currency, address, lat, lng, city, country, hours, contact,

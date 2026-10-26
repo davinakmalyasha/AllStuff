@@ -52,6 +52,9 @@ func New(pool *pgxpool.Pool) *Repos {
 		Community:  &CommunityRepo{pool: pool},
 		TFA:        &TFARepo{pool: pool},
 		Billing:    &BillingRepo{pool: pool},
+		Bookings:   &BookingRepo{pool: pool},
+		Staff:      &StaffRepo{pool: pool},
+		Locations:  &LocationRepo{pool: pool},
 	}
 }
 

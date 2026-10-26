@@ -13,14 +13,14 @@ import (
 
 type BookingRepo struct{ pool pooler }
 
-const appointmentCols = `a.id, a.business_id, b.name, b.slug, a.product_id, pr.name,
+const appointmentCols = `a.id, a.business_id, b.name, b.slug, b.timezone, a.product_id, pr.name,
 	a.customer_id, u.name, coalesce(a.location_id::text, ''), coalesce(l.name, ''),
 	coalesce(a.staff_id::text, ''), coalesce(st.name, ''),
 	a.starts_at, a.ends_at, a.status, coalesce(a.notes, ''), a.created_at`
 
 func scanAppointment(row pgx.Row) (*domain.Appointment, error) {
 	var a domain.Appointment
-	if err := row.Scan(&a.ID, &a.BusinessID, &a.BusinessName, &a.BusinessSlug, &a.ProductID,
+	if err := row.Scan(&a.ID, &a.BusinessID, &a.BusinessName, &a.BusinessSlug, &a.BusinessTimezone, &a.ProductID,
 		&a.ProductName, &a.CustomerID, &a.CustomerName,
 		&a.LocationID, &a.LocationName, &a.StaffID, &a.StaffName,
 		&a.StartsAt, &a.EndsAt, &a.Status,

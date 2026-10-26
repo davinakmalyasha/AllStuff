@@ -1,0 +1,63 @@
+import { expect, test } from '@playwright/test'
+import { register, seededBusinessBySlug, uniqueSuffix } from './fixtures'
+
+/**
+ * The customer booking journey: find a service, pick a time, book it, take it
+ * with you, and cancel.
+ *
+ * It runs against the seeded café, whose "Kopi Cupping Session" is the one
+ * product with a duration. If that product disappears from scripts/seed.sql this
+ * test fails at the panel, with a message naming what it expected - not by
+ * silently passing on a page with nothing to book.
+ */
+const PASSWORD = 'E2ePassword1'
+
+test('book a service, add it to the calendar, then cancel', async ({ page, request }) => {
+  const biz = await seededBusinessBySlug(request, 'rumah-kopi-senja')
+  const uid = uniqueSuffix()
+  await register(page, {
+    email: `book${uid}@example.test`,
+    username: `bk${uid}`.slice(0, 20),
+    password: PASSWORD,
+  })
+  await page.waitForURL(/\/me$/)
+
+  await page.goto(`/b/${biz.slug}`)
+
+  // The panel only appears for a bookable service, so its presence is also the
+  // assertion that the seed carries duration_minutes.
+  await expect(
+    page.getByRole('heading', { name: /^Book Kopi Cupping Session$/ }),
+  ).toBeVisible()
+
+  // Tomorrow rather than today: today's slots depend on the time of the run.
+  const days = page.getByRole('group', { name: 'Choose a day' }).getByRole('button')
+  await days.nth(1).click()
+
+  const times = page.getByRole('group', { name: 'Choose a time' }).getByRole('button')
+  await expect(times.first()).toBeVisible()
+  await times.first().click()
+
+  // The confirmation replaces the picker, so a second booking needs a deliberate
+  // "book another time".
+  await expect(page.getByText(/^Booked for /)).toBeVisible()
+
+  await page.goto('/me/bookings')
+  await expect(page.getByRole('heading', { name: 'My bookings' })).toBeVisible()
+  await expect(page.getByText('Kopi Cupping Session')).toBeVisible()
+  await expect(page.getByText('Confirmed')).toBeVisible()
+
+  // Add-to-calendar downloads a real .ics.
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Add to calendar' }).click()
+  expect((await download).suggestedFilename()).toBe('booking.ics')
+
+  // Cancelling asks first. The booking does not vanish - a cancellation is part
+  // of the customer's history - it moves to Past and its status says Cancelled,
+  // which is also why the Upcoming section disappears.
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Cancel booking' }).click()
+  await expect(page.getByText('Cancelled')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Upcoming' })).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Past' })).toBeVisible()
+})

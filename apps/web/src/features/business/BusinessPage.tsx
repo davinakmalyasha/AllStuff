@@ -18,6 +18,7 @@ import { cap, FONTS } from '@/lib/format'
 import { safeExternalUrl } from '@/lib/url'
 import { MiniMapLive } from '@/components/map/MiniMapLive'
 import { ProductModal } from '@/components/engagement/ProductModal'
+import { BookingPanel } from './BookingPanel'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -323,6 +324,11 @@ export function BusinessPage() {
                     </button>
                 ))}
               </div>
+              {products
+                .filter((p) => p.type === 'service' && p.duration_minutes && p.is_published)
+                .map((p) => (
+                  <BookingPanel key={p.id} business={b} product={p} />
+                ))}
             </section>
           )}
 

@@ -54,6 +54,7 @@ const NotificationsPage = lazy(() => import('@/features/me/NotificationsPage').t
 const MyReviewsPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.MyReviewsPage })))
 const ExportPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.ExportPage })))
 const SecurityPage = lazy(() => import('@/features/me/SecurityPage').then((m) => ({ default: m.SecurityPage })))
+const MyBookingsPage = lazy(() => import('@/features/me/MyBookingsPage').then((m) => ({ default: m.MyBookingsPage })))
 const InboxPage = lazy(() => import('@/features/chat/InboxPage').then((m) => ({ default: m.InboxPage })))
 const ThreadPage = lazy(() => import('@/features/chat/ThreadPage').then((m) => ({ default: m.ThreadPage })))
 const DashboardChatsPage = lazy(() => import('@/features/chat/DashboardChatsPage').then((m) => ({ default: m.DashboardChatsPage })))
@@ -225,6 +226,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Lazy><MePage /></Lazy> },
       { path: 'collections', element: <Lazy><CollectionsPage /></Lazy> },
+      { path: 'bookings', element: <Lazy><MyBookingsPage /></Lazy> },
       { path: 'security', element: <Lazy><SecurityPage /></Lazy> },
       { path: 'notifications', element: <Lazy><NotificationsPage /></Lazy> },
       { path: 'reviews', element: <Lazy><MyReviewsPage /></Lazy> },
