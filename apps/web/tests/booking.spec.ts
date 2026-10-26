@@ -30,12 +30,22 @@ test('book a service, add it to the calendar, then cancel', async ({ page, reque
     page.getByRole('heading', { name: /^Book Kopi Cupping Session$/ }),
   ).toBeVisible()
 
-  // Tomorrow rather than today: today's slots depend on the time of the run.
+  // Walk forward until a day actually has a free slot. A fixed day is a hidden
+  // dependency on the clock: today may be over, and a day near a boundary can
+  // legitimately hold nothing once the business's timezone is applied.
   const days = page.getByRole('group', { name: 'Choose a day' }).getByRole('button')
-  await days.nth(1).click()
-
   const times = page.getByRole('group', { name: 'Choose a time' }).getByRole('button')
-  await expect(times.first()).toBeVisible()
+  let found = false
+  for (let i = 0; i < 6 && !found; i++) {
+    await days.nth(i).click()
+    try {
+      await expect(times.first()).toBeVisible({ timeout: 4_000 })
+      found = true
+    } catch {
+      // No times left on that day; try the next one.
+    }
+  }
+  expect(found, 'no bookable slot in the next six days').toBe(true)
   await times.first().click()
 
   // The confirmation replaces the picker, so a second booking needs a deliberate
@@ -57,7 +67,7 @@ test('book a service, add it to the calendar, then cancel', async ({ page, reque
   // which is also why the Upcoming section disappears.
   await page.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('button', { name: 'Cancel booking' }).click()
-  await expect(page.getByText('Cancelled')).toBeVisible()
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Upcoming' })).toBeHidden()
   await expect(page.getByRole('heading', { name: 'Past' })).toBeVisible()
 })

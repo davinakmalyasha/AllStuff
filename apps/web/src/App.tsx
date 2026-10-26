@@ -52,6 +52,7 @@ const MePage = lazy(() => import('@/features/me/MePage').then((m) => ({ default:
 const CollectionsPage = lazy(() => import('@/features/me/CollectionsPage').then((m) => ({ default: m.CollectionsPage })))
 const NotificationsPage = lazy(() => import('@/features/me/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
 const MyReviewsPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.MyReviewsPage })))
+const BookingsPage = lazy(() => import('@/features/dashboard/BookingsPage').then((m) => ({ default: m.BookingsPage })))
 const ExportPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.ExportPage })))
 const SecurityPage = lazy(() => import('@/features/me/SecurityPage').then((m) => ({ default: m.SecurityPage })))
 const MyBookingsPage = lazy(() => import('@/features/me/MyBookingsPage').then((m) => ({ default: m.MyBookingsPage })))
@@ -253,6 +254,7 @@ const router = createBrowserRouter([
       { path: 'chats/:id', element: <Lazy><ThreadPage businessMode /></Lazy> },
       { path: 'settings', element: <Lazy><SettingsPage /></Lazy> },
       { path: 'settings/verification', element: <Lazy><VerificationSettingsPage /></Lazy> },
+      { path: 'bookings', element: <Lazy><BookingsPage /></Lazy> },
       { path: 'analytics', element: <Lazy><AnalyticsPage /></Lazy> },
       { path: 'billing', element: <Lazy><BillingPage /></Lazy> },
       { path: 'reviews', element: <Lazy><DashboardReviewsPage /></Lazy> },
