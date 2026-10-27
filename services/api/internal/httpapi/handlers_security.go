@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"bizverse/api/internal/domain"
@@ -452,16 +453,24 @@ func (s *Server) handleClientError(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	in.Message = truncateRunes(in.Message, 2000)
+	// Trimmed before the emptiness check: a client that reports "   " has
+	// reported nothing, and the row would otherwise sit in the moderation queue
+	// with no content to act on.
+	in.Message = strings.TrimSpace(truncateRunes(in.Message, 2000))
 	in.Stack = truncateRunes(in.Stack, 8000)
 	in.URL = truncateRunes(in.URL, 500)
 	if in.Message == "" {
 		fail(w, domain.ErrValidation.WithField("message", "Message is required."))
 		return
 	}
+	// The placeholders are numbered 1-3, not 1/3/4. reporter_id became NULL when
+	// migration 0025 allowed anonymous inbound reports, and the old numbering
+	// left $2 unreferenced - Postgres then could not infer its type and rejected
+	// EVERY client-error report with 42P18. The endpoint had never been called
+	// by a test, which is why the failure was invisible.
 	_, err := s.deps.Repos.Exec(r.Context(), `
 		INSERT INTO reports (id, reporter_id, target_type, target_id, reason, evidence)
-		VALUES ($1, NULL, 'error', 'client', $3, $4)`,
+		VALUES ($1, NULL, 'error', 'client', $2, $3)`,
 		util.NewUUID(), in.Message, map[string]any{"stack": in.Stack, "url": in.URL})
 	if err != nil {
 		fail(w, err)
@@ -544,6 +553,16 @@ func (s *Server) handleCompareSync(w http.ResponseWriter, r *http.Request) {
 		if err := decodeBody(w, r, &in); err != nil {
 			fail(w, err)
 			return
+		}
+		// compare_ids is uuid[]. A literal that is not a UUID used to reach
+		// Postgres and come back as a 500 - the same class as the directory's
+		// ?category= filter. Validate every id, not just the four that are kept,
+		// so a malformed value is reported instead of silently discarded.
+		for _, id := range in.IDs {
+			if !uuidPattern.MatchString(id) {
+				fail(w, domain.ErrValidation.WithField("ids", "Each id must be a UUID."))
+				return
+			}
 		}
 		if len(in.IDs) > 4 {
 			in.IDs = in.IDs[:4]

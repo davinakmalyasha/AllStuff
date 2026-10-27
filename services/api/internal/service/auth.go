@@ -1493,10 +1493,19 @@ func (a *Auth) SaveSearch(ctx context.Context, userID, name string, query map[st
 
 // SetSearchAlert toggles the daily email alert on a saved search.
 func (a *Auth) SetSearchAlert(ctx context.Context, userID, id string, on bool) error {
-	_, err := a.repos.Exec(ctx, `
+	tag, err := a.repos.Exec(ctx, `
 		UPDATE saved_searches SET notify_daily = $3, updated_at = now() WHERE id = $1 AND user_id = $2`,
 		id, userID, on)
-	return err
+	if err != nil {
+		return err
+	}
+	// The WHERE clause protects the row either way; this makes the ANSWER honest.
+	// Zero rows means the id is not this user's (or does not exist), and a 204
+	// told a stranger their edit had been applied when nothing happened.
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (a *Auth) ListSavedSearches(ctx context.Context, userID string) ([]*SavedSearch, error) {
@@ -1521,9 +1530,15 @@ func (a *Auth) ListSavedSearches(ctx context.Context, userID string) ([]*SavedSe
 }
 
 func (a *Auth) DeleteSavedSearch(ctx context.Context, userID, id string) error {
-	_, err := a.repos.Exec(ctx,
+	tag, err := a.repos.Exec(ctx,
 		`DELETE FROM saved_searches WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (a *Auth) checkUserStatus(u *domain.User) error {
