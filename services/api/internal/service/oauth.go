@@ -31,11 +31,23 @@ func (o *OAuth) Enabled() bool {
 	return o.cfg.GoogleOAuthClientID != "" && o.cfg.GoogleOAuthSecret != ""
 }
 
+// redirectURI is the callback Google sends the browser back to. It must be
+// byte-identical to the redirect_uri used at exchange time, and it must be a
+// route the API actually serves.
+//
+// It previously omitted /api/v1. The browser was therefore sent to
+// {PUBLIC_URL}/auth/oauth/google/callback, which is the web origin's path, has
+// no SPA route, and is not covered by the /api/* rewrite - so the authorization
+// code was dropped on the floor and Google sign-in could not complete.
+func (o *OAuth) redirectURI() string {
+	return strings.TrimRight(o.cfg.PublicURL, "/") + "/api/v1/auth/oauth/google/callback"
+}
+
 // AuthURL builds the Google consent URL.
 func (o *OAuth) AuthURL(state string) string {
 	params := url.Values{}
 	params.Set("client_id", o.cfg.GoogleOAuthClientID)
-	params.Set("redirect_uri", o.cfg.PublicURL+"/auth/oauth/google/callback")
+	params.Set("redirect_uri", o.redirectURI())
 	params.Set("response_type", "code")
 	params.Set("scope", "openid email profile")
 	params.Set("state", state)
@@ -53,7 +65,7 @@ func (o *OAuth) Exchange(ctx context.Context, code string) (*domain.User, error)
 			"code":          {code},
 			"client_id":     {o.cfg.GoogleOAuthClientID},
 			"client_secret": {o.cfg.GoogleOAuthSecret},
-			"redirect_uri":  {o.cfg.PublicURL + "/auth/oauth/google/callback"},
+			"redirect_uri":  {o.redirectURI()},
 			"grant_type":    {"authorization_code"},
 		}.Encode()))
 	if err != nil {
@@ -95,6 +107,14 @@ func (o *OAuth) Exchange(ctx context.Context, code string) (*domain.User, error)
 	}
 	if err := json.Unmarshal(body, &info); err != nil || info.Email == "" {
 		return nil, domain.ErrTokenInvalid
+	}
+	// userinfo reports whether Google has verified the address. The field was
+	// decoded and then ignored, which made an unverified provider address
+	// enough to auto-link to a local account with the same email. The
+	// local-side check below only proves the LOCAL account is verified; it
+	// cannot vouch for Google's half of the link.
+	if !info.EmailVerified {
+		return nil, domain.ErrValidation.WithField("_", "Verify your Google email before signing in.")
 	}
 
 	email := strings.ToLower(info.Email)

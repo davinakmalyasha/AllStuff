@@ -5,8 +5,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -55,7 +57,7 @@ func happyOAuth(email string, verified bool) oauthRoundTripper {
 		if strings.Contains(r.URL.Host, "oauth2.googleapis.com") {
 			return oauthJSON(200, `{"access_token":"at-123"}`), nil
 		}
-		return oauthJSON(200, `{"email":"`+email+`","email_verified":true,"name":"Google Person"}`), nil
+		return oauthJSON(200, fmt.Sprintf(`{"email":%q,"email_verified":%v,"name":"Google Person"}`, email, verified)), nil
 	}
 }
 
@@ -121,7 +123,7 @@ func TestOAuthExchangeSendsTheRightTokenRequest(t *testing.T) {
 			sawForm = string(b)
 			return oauthJSON(200, `{"access_token":"at-123"}`), nil
 		}
-		return oauthJSON(200, `{"email":"fresh@example.test","name":"Fresh"}`), nil
+		return oauthJSON(200, `{"email":"fresh@example.test","email_verified":true,"name":"Fresh"}`), nil
 	})
 
 	svc := testOAuth(t, h)
@@ -234,5 +236,59 @@ func TestOAuthExchangeUsernamesStayUnique(t *testing.T) {
 	}
 	if first.Username == second.Username {
 		t.Errorf("both accounts got the username %q", first.Username)
+	}
+}
+
+// The redirect_uri is the one value that must agree between the consent URL and
+// the token exchange, and it must name a route the API serves. It used to omit
+// /api/v1, so Google returned the browser to a frontend path with no handler.
+func TestOAuthRedirectURIUsesTheAPIRoute(t *testing.T) {
+	h := testutil.New(t)
+	svc := testOAuth(t, h)
+	// A trailing slash on PUBLIC_URL must not produce a doubled separator.
+	svc.cfg.PublicURL = "https://bizverse.test/"
+	const want = "https://bizverse.test/api/v1/auth/oauth/google/callback"
+
+	u, err := url.Parse(svc.AuthURL("state-1"))
+	if err != nil {
+		t.Fatalf("parse AuthURL: %v", err)
+	}
+	if got := u.Query().Get("redirect_uri"); got != want {
+		t.Errorf("AuthURL redirect_uri = %q, want %q", got, want)
+	}
+
+	var form url.Values
+	stubOAuth(t, func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Host, "oauth2.googleapis.com") {
+			b, _ := io.ReadAll(r.Body)
+			form, _ = url.ParseQuery(string(b))
+			return oauthJSON(200, `{"access_token":"at-123"}`), nil
+		}
+		return oauthJSON(200, `{"email":"redirect@example.test","email_verified":true}`), nil
+	})
+	if _, err := svc.Exchange(context.Background(), "the-code"); err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if got := form.Get("redirect_uri"); got != want {
+		t.Errorf("token redirect_uri = %q, want %q", got, want)
+	}
+}
+
+// userinfo carries email_verified. Ignoring it let an unverified provider
+// address auto-link to a verified local account with the same email - the local
+// half being verified says nothing about Google's half.
+func TestOAuthExchangeRefusesUnverifiedGoogleEmail(t *testing.T) {
+	h := testutil.New(t)
+	ctx := context.Background()
+	victim := testutil.UserOpts_(t, h, testutil.UserOpts{})
+	h.Exec(t, `UPDATE users SET email='victim@example.test' WHERE id=$1`, victim.ID)
+
+	stubOAuth(t, happyOAuth("victim@example.test", false))
+	if _, err := testOAuth(t, h).Exchange(ctx, "c"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("unverified provider email: err = %v, want ErrValidation", err)
+	}
+	after, err := h.Repos.Users.GetByEmail(ctx, "victim@example.test")
+	if err != nil || after == nil || after.ID != victim.ID {
+		t.Errorf("the existing account was modified by a refused link: %+v, %v", after, err)
 	}
 }

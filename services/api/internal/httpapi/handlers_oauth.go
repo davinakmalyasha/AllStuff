@@ -34,29 +34,34 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrValidation.WithField("_", "Google sign-in is not configured."))
 		return
 	}
+	// Every redirect out of the callback expires the state cookie in the SAME
+	// response. A deferred SetCookie cannot do this: http.Redirect writes the
+	// header before returning, so a cookie added afterwards is discarded. The
+	// cookie used to survive every failure redirect despite a comment claiming
+	// otherwise; putting the clear in front of each WriteHeader fixes the
+	// ordering rather than restating the intent.
+	redirect := func(target string) {
+		http.SetCookie(w, &http.Cookie{
+			Name: oauthStateCookie, Value: "", Path: "/", MaxAge: -1,
+			HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.deps.Config.CookieSecure,
+		})
+		http.Redirect(w, r, target, http.StatusFound)
+	}
 	ck, err := r.Cookie(oauthStateCookie)
 	if err != nil || ck.Value == "" || ck.Value != r.URL.Query().Get("state") {
-		http.Redirect(w, r, "/login?error=oauth_state", http.StatusFound)
+		redirect("/login?error=oauth_state")
 		return
 	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		http.Redirect(w, r, "/login?error=oauth_denied", http.StatusFound)
+		redirect("/login?error=oauth_denied")
 		return
 	}
 	user, err := s.deps.OAuth.Exchange(r.Context(), code)
 	if err != nil {
-		http.Redirect(w, r, "/login?error=oauth_failed", http.StatusFound)
+		redirect("/login?error=oauth_failed")
 		return
 	}
-	// The state cookie is cleared on every exit from here, not only the success
-	// path. It previously survived all four failure redirects, so a stale state
-	// cookie outlived the flow it belonged to.
-	defer http.SetCookie(w, &http.Cookie{
-		Name: oauthStateCookie, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.deps.Config.CookieSecure,
-	})
-
 	tokens, err := s.deps.Auth.IssueSessionForUser(r.Context(), user, r.UserAgent())
 	if err != nil {
 		// A 2FA challenge is a SUCCESSFUL first factor. Treating it as a failure
@@ -70,12 +75,12 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		// Referer headers on outbound navigation, or proxy history - which is the
 		// same class of leak the WebSocket JWT-in-query fix closed.
 		if domain.FromError(err) == domain.Err2FARequired && tokens != nil && tokens.RefreshToken != "" {
-			http.Redirect(w, r, "/2fa#challenge="+url.QueryEscape(tokens.RefreshToken), http.StatusFound)
+			redirect("/2fa#challenge=" + url.QueryEscape(tokens.RefreshToken))
 			return
 		}
-		http.Redirect(w, r, "/login?error=oauth_failed", http.StatusFound)
+		redirect("/login?error=oauth_failed")
 		return
 	}
 	s.setSessionCookies(w, tokens.AccessToken, tokens.RefreshToken, tokens.CSRFToken)
-	http.Redirect(w, r, "/me", http.StatusFound)
+	redirect("/me")
 }
