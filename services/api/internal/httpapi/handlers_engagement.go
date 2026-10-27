@@ -67,11 +67,15 @@ func (s *Server) handleToggleRecommend(w http.ResponseWriter, r *http.Request) {
 	}
 	businessID := r.PathValue("id")
 	on := r.Method == http.MethodPut
-	if _, err := s.deps.Engagement.ToggleRecommend(r.Context(), user.ID, businessID, on); err != nil {
+	// Report what was STORED, not what was requested. The owner's own
+	// recommendation is deliberately suppressed, and answering `on` told the UI
+	// the toggle had stuck while no row existed - it came back false on reload.
+	stored, err := s.deps.Engagement.ToggleRecommend(r.Context(), user.ID, businessID, on)
+	if err != nil {
 		fail(w, err)
 		return
 	}
-	ok(w, map[string]any{"recommended": on})
+	ok(w, map[string]any{"recommended": stored})
 }
 
 // ---- collections ----
@@ -564,6 +568,14 @@ func (s *Server) handleRising(w http.ResponseWriter, r *http.Request) {
 
 // ---- reports (PRD §5.5.4) ----
 
+// reportTargetTypes mirrors the CHECK on reports.target_type. Kept in the
+// handler because Postgres is the authority for the column and there is no
+// report service to own the set.
+var reportTargetTypes = map[string]bool{
+	"review": true, "comment": true, "message": true, "attachment": true,
+	"product": true, "business": true, "user": true, "reaction": true,
+}
+
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {
@@ -581,6 +593,13 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.TargetType == "" || in.TargetID == "" || in.Reason == "" {
 		fail(w, domain.ErrValidation.WithField("_", "target_type, target_id, and reason are required."))
+		return
+	}
+	// target_type is a CHECK constraint on reports. An unknown value used to
+	// reach Postgres and surface as a 500; the database's set is the API's set, so
+	// name it here.
+	if !reportTargetTypes[in.TargetType] {
+		fail(w, domain.ErrValidation.WithField("target_type", "Unknown target_type."))
 		return
 	}
 	_, err := s.deps.Repos.Exec(r.Context(), `

@@ -88,7 +88,19 @@ func (s *Engagement) ToggleRecommend(ctx context.Context, userID, businessID str
 	if err != nil || b == nil {
 		return false, domain.ErrNotFound
 	}
-	if on && b.OwnerID != userID { // lint:allow: not authorisation - routes the event, and only the OWNER's own recommendation is suppressed
+	// CO-OWNER PARITY. This compared b.OwnerID directly, so a co-owner
+	// recommending the business they run wrote a recommend event and moved the
+	// score - exactly the self-inflation the suppression exists to prevent.
+	// Whether someone manages the business is the question, and CanManageBusiness
+	// is the predicate every other business-scoped path asks.
+	canManage := false
+	if on {
+		canManage, err = s.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
+		if err != nil {
+			return false, err
+		}
+	}
+	if on && !canManage {
 		if err := s.repos.Engagement.SetRecommend(ctx, userID, businessID, true); err != nil {
 			return false, err
 		}
@@ -192,8 +204,26 @@ func (s *Engagement) ListCollections(ctx context.Context, userID string) ([]*dom
 	return s.repos.Engagement.ListCollections(ctx, userID)
 }
 
+// ownedCollection resolves a collection by id AND owner.
+//
+// GetCollection returns (nil, nil) when the row exists but belongs to someone
+// else - that is its contract, and the nil IS the answer. Three callers checked
+// only the error, so the nil slipped through to the read or mutation beneath:
+// any signed-in user who knew a collection id could rename it, page through its
+// items, or delete them. The last one is not a disclosure bug, it is data loss.
+func (s *Engagement) ownedCollection(ctx context.Context, userID, id string) (*domain.Collection, error) {
+	c, err := s.repos.Engagement.GetCollection(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, domain.ErrNotFound
+	}
+	return c, nil
+}
+
 func (s *Engagement) UpdateCollection(ctx context.Context, userID, id string, name *string, isPublic *bool, coverItemID *string) (*domain.Collection, error) {
-	if _, err := s.repos.Engagement.GetCollection(ctx, userID, id); err != nil {
+	if _, err := s.ownedCollection(ctx, userID, id); err != nil {
 		return nil, err
 	}
 	fields := map[string]any{}
@@ -238,12 +268,8 @@ func (s *Engagement) UpdateCollection(ctx context.Context, userID, id string, na
 }
 
 func (s *Engagement) DeleteCollection(ctx context.Context, userID, id string) error {
-	c, err := s.repos.Engagement.GetCollection(ctx, userID, id)
-	if err != nil {
+	if _, err := s.ownedCollection(ctx, userID, id); err != nil {
 		return err
-	}
-	if c == nil {
-		return domain.ErrNotFound
 	}
 	return s.repos.Engagement.DeleteCollection(ctx, id)
 }
@@ -253,14 +279,14 @@ func (s *Engagement) DeleteCollection(ctx context.Context, userID, id string) er
 // The ownership check runs before the page is read, so a non-owner cannot use
 // pagination to probe another user's collection one page at a time.
 func (s *Engagement) ListItems(ctx context.Context, userID, collectionID string, limit, offset int) ([]*domain.CollectionItem, error) {
-	if _, err := s.repos.Engagement.GetCollection(ctx, userID, collectionID); err != nil {
+	if _, err := s.ownedCollection(ctx, userID, collectionID); err != nil {
 		return nil, err
 	}
 	return s.repos.Engagement.ListItems(ctx, collectionID, limit, offset)
 }
 
 func (s *Engagement) RemoveItem(ctx context.Context, userID, collectionID, itemID string) error {
-	if _, err := s.repos.Engagement.GetCollection(ctx, userID, collectionID); err != nil {
+	if _, err := s.ownedCollection(ctx, userID, collectionID); err != nil {
 		return err
 	}
 	return s.repos.Engagement.RemoveItem(ctx, collectionID, itemID)
