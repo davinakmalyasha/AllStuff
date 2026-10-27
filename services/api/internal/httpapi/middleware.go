@@ -154,9 +154,21 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 			fail(w, domain.ErrNotAuthenticated)
 			return
 		}
-		// Banned users lose API access like session auth does (withAuth).
-		if u.Status == domain.UserStatusBanned {
-			fail(w, domain.ErrAccountBanned)
+		// Moderation applies to API keys exactly as it does to sessions. This
+		// used to check only `banned`, so a suspended account kept read access
+		// to the whole public API - and unlike a 15-minute access token, an API
+		// key does not expire, so the suspension had no effect at all.
+		// degradedBy is the same allow-list the session path consults, and the
+		// error distinguishes a ban from a suspension the way Login does.
+		if s.degradedBy(u, time.Now()) {
+			switch u.Status {
+			case domain.UserStatusBanned:
+				fail(w, domain.ErrAccountBanned)
+			case domain.UserStatusSuspended:
+				fail(w, domain.ErrAccountSuspended)
+			default:
+				fail(w, domain.ErrValidation.WithField("status", "Account status is not recognised."))
+			}
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, u))

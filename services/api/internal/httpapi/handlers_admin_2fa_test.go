@@ -22,7 +22,7 @@ import (
 // that fixes the problem, and an over-broad entry hands the dashboard to an
 // admin who never enrolled.
 
-func adminErrorCode(t *testing.T, w *httptest.ResponseRecorder) string {
+func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()
 	var env struct {
 		Error struct {
@@ -37,9 +37,9 @@ func adminErrorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 
 func requireAdmin2FABlocked(t *testing.T, w *httptest.ResponseRecorder) {
 	t.Helper()
-	if w.Code != http.StatusForbidden || adminErrorCode(t, w) != "admin_2fa_required" {
+	if w.Code != http.StatusForbidden || errorCode(t, w) != "admin_2fa_required" {
 		t.Fatalf("status = %d, code = %q; want the admin_2fa_required 403: %s",
-			w.Code, adminErrorCode(t, w), w.Body.String())
+			w.Code, errorCode(t, w), w.Body.String())
 	}
 }
 
@@ -76,13 +76,13 @@ func TestAdmin2FAGate(t *testing.T) {
 	}
 	if w := dash(t, td, hdl, http.MethodPost, "/api/v1/auth/refresh", nil, admin); w.Code != http.StatusUnauthorized {
 		t.Errorf("refresh without a cookie: status = %d, want 401, not the 2FA gate: %s", w.Code, w.Body.String())
-	} else if code := adminErrorCode(t, w); code == "admin_2fa_required" {
+	} else if code := errorCode(t, w); code == "admin_2fa_required" {
 		t.Error("refresh was blocked by the admin 2FA gate")
 	}
 	if w := dash(t, td, hdl, http.MethodPost, "/api/v1/auth/2fa/verify",
 		map[string]any{"challenge": "not-a-token", "code": "000000"}, admin); w.Code == http.StatusForbidden {
 		t.Errorf("2fa verify: status = %d, not the 2FA gate: %s", w.Code, w.Body.String())
-	} else if code := adminErrorCode(t, w); code != "token_invalid" {
+	} else if code := errorCode(t, w); code != "token_invalid" {
 		t.Errorf("2fa verify error = %q, want token_invalid from the verifier: %s", code, w.Body.String())
 	}
 	if w := dash(t, td, hdl, http.MethodGet, "/api/v1/ws", nil, admin); w.Code == http.StatusForbidden {
@@ -94,7 +94,7 @@ func TestAdmin2FAGate(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Errorf("non-admin settings: status = %d, want 403", w.Code)
 	}
-	if code := adminErrorCode(t, w); code == "admin_2fa_required" {
+	if code := errorCode(t, w); code == "admin_2fa_required" {
 		t.Error("a non-admin was told to enroll in 2FA instead of being refused as non-admin")
 	}
 }
