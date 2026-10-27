@@ -9,6 +9,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/repo"
+	"bizverse/api/internal/util"
 )
 
 // Engagement — likes, recommends, collections, comments, reviews, helpful
@@ -554,6 +555,12 @@ func (s *Engagement) UpdateReview(ctx context.Context, userID, reviewID string, 
 }
 
 func (s *Engagement) DeleteReview(ctx context.Context, userID, reviewID string) error {
+	// Same reason as Businesses.owned: GetReview compares against a uuid
+	// column, so a malformed path id is a 22P02 and a 500 rather than the 404
+	// an unknown id gets.
+	if !util.IsUUID(reviewID) {
+		return domain.ErrNotFound
+	}
 	rw, err := s.repos.Engagement.GetReview(ctx, reviewID)
 	if err != nil {
 		return err

@@ -337,7 +337,7 @@ jobs:
           # ignored rather than fixed. Set them meaningfully lower only if a real
           # regression is preferable to a false alarm.
           failed=0
-          for entry in "internal/service/:64.3" "internal/repo/:75.7" "internal/httpapi/:68.6"; do
+          for entry in "internal/service/:65.7" "internal/repo/:76.2" "internal/httpapi/:71.0"; do
             pkg=${entry%:*}
             floor=${entry#*:}
             got=$(printf '%s\n' "$PERPKG" | awk -v p="$pkg" '$1 == p { gsub(/%/, "", $2); print $2 }')

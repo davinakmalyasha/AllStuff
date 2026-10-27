@@ -726,6 +726,12 @@ func (s *Businesses) Close(ctx context.Context, ownerID, id string) (*domain.Bus
 }
 
 func (s *Businesses) owned(ctx context.Context, ownerID, id string) (*domain.Business, error) {
+	// A path id that is not a UUID can never name a listing. Without this
+	// check it reaches a uuid column, Postgres rejects it with SQLSTATE 22P02,
+	// and a client-side typo surfaces as a 500.
+	if !util.IsUUID(id) {
+		return nil, domain.ErrNotFound
+	}
 	b, err := s.repos.Businesses.GetByID(ctx, id)
 	if err != nil {
 		return nil, err

@@ -1,6 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"image"
+	"image/jpeg"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"bizverse/api/internal/domain"
@@ -83,5 +88,26 @@ func TestExtensionFor(t *testing.T) {
 		if got := extensionFor(mime); got != want {
 			t.Errorf("extensionFor(%q) = %q, want %q", mime, got, want)
 		}
+	}
+}
+
+// makeThumb is only called after Upload has measured the image, so a nil
+// dimension pair cannot currently reach it. That is exactly why the guard needs
+// its own test: it is the difference between "no thumbnail" and a nil
+// dereference if a future caller skips the measurement, and the upload path's
+// fixtures cannot exercise it (an undecodable file fails image.Decode first).
+func TestMakeThumbRequiresDimensions(t *testing.T) {
+	dir := t.TempDir()
+	full := filepath.Join(dir, "source.jpg")
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 20, 20)), nil); err != nil {
+		t.Fatalf("encode jpeg: %v", err)
+	}
+	if err := os.WriteFile(full, buf.Bytes(), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	m := NewMedia(nil, dir, "/media", "", "")
+	if got := m.makeThumb(full, &domain.MediaItem{Path: "logo/source.jpg"}); got != nil {
+		t.Errorf("thumbnail URL = %q for an item with no dimensions", *got)
 	}
 }
