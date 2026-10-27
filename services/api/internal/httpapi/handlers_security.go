@@ -67,6 +67,10 @@ func (s *Server) handle2FAConfirm(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// withAdmin2FA memoizes the enrollment decision. A negative entry from a
+	// dashboard request made before enrolling would keep this admin blocked for
+	// the rest of the cache TTL.
+	adminTFAEnrollment.Delete(user.ID)
 	ok(w, map[string]any{"enabled": true, "recovery_codes": codes})
 }
 
@@ -88,6 +92,11 @@ func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// Invalidate the memoized "enabled" decision in this process. Without it a
+	// disabled second factor still opens the admin dashboard until the TTL
+	// expires; another replica may lag by one TTL, which is why the cache TTL
+	// is kept short.
+	adminTFAEnrollment.Delete(user.ID)
 	noContent(w)
 }
 
