@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/rand"
 	"fmt"
+	"regexp"
 )
 
 // Itoa converts a non-negative int to its decimal string.
@@ -38,3 +39,10 @@ func NewUUID() string {
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
+
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// IsUUID reports whether s is a well-formed UUID. Handlers use it before a
+// string reaches a uuid column: an arbitrary literal otherwise fails inside
+// Postgres (SQLSTATE 22P02) and surfaces as a 500 for what is a client error.
+func IsUUID(s string) bool { return uuidRe.MatchString(s) }

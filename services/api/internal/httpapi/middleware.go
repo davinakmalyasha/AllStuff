@@ -579,6 +579,16 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			return
 		}
 		if s.degradedBy(user, time.Now()) {
+			// A suspended or banned account still has to be able to appeal, and
+			// the contact form is the PRD's support route for that state. Dropping
+			// the identity for EVERY route - which is what the moderation fix did -
+			// made both endpoints answer 401 to the only users they exist for.
+			//
+			// The exemption is an exact-path allowlist, so a degraded account keeps
+			// none of its ordinary access: no reads, no writes, no admin routes.
+			if moderatedSelfService(r.URL.Path) {
+				r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user))
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -586,6 +596,17 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// moderatedSelfService is the complete set of routes a suspended or banned
+// account may call. It is matched by exact path, not prefix, so adding a nested
+// route later cannot widen the exemption by accident.
+func moderatedSelfService(path string) bool {
+	switch path {
+	case "/api/v1/me/appeal", "/api/v1/support/contact":
+		return true
+	}
+	return false
 }
 
 // degradedBy reports whether a user may not act, given their moderation state.

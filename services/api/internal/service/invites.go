@@ -33,6 +33,9 @@ func NewInvites(repos *repo.Repos, cfg config.Config, sender mail.Sender, ents E
 var inviteEmailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role string) error {
+	if !util.IsUUID(businessID) {
+		return domain.ErrNotFound
+	}
 	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
 	if err != nil {
 		return err
@@ -44,8 +47,18 @@ func (s *Invites) Create(ctx context.Context, ownerID, businessID, email, role s
 	if !inviteEmailRe.MatchString(email) {
 		return domain.ErrValidation.WithField("email", "Enter a valid email address.")
 	}
-	if role != "co_owner" && role != "viewer" {
+	// Fail CLOSED on an unknown role. The previous shape defaulted anything that
+	// was not exactly "viewer" to co_owner, so a client typo ("viewr", "admin")
+	// silently granted the highest collaborator role instead of reporting the
+	// mistake. An absent role is the only value that keeps the historical
+	// default, and that default is the role the dashboard's own form sends.
+	role = strings.TrimSpace(role)
+	switch role {
+	case "":
 		role = "co_owner"
+	case "co_owner", "viewer":
+	default:
+		return domain.ErrValidation.WithField("role", "Role must be co_owner or viewer.")
 	}
 	if err := s.checkSeatCapacity(ctx, businessID); err != nil {
 		return err
@@ -150,6 +163,9 @@ func (s *Invites) Preview(ctx context.Context, token string) (map[string]any, er
 }
 
 func (s *Invites) List(ctx context.Context, ownerID, businessID string) ([]*repo.BusinessInvite, error) {
+	if !util.IsUUID(businessID) {
+		return nil, domain.ErrNotFound
+	}
 	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
 	if err != nil {
 		return nil, err
@@ -161,6 +177,12 @@ func (s *Invites) List(ctx context.Context, ownerID, businessID string) ([]*repo
 }
 
 func (s *Invites) Revoke(ctx context.Context, ownerID, businessID, inviteID string) error {
+	// Both ids reach uuid comparisons in SQL. Checking here keeps a malformed
+	// one from becoming a 22P02 and a 500, and answers the same 404 an unknown
+	// id gets.
+	if !util.IsUUID(businessID) || !util.IsUUID(inviteID) {
+		return domain.ErrNotFound
+	}
 	can, err := s.repos.Businesses.CanManageBusiness(ctx, ownerID, businessID)
 	if err != nil {
 		return err

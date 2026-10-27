@@ -661,10 +661,20 @@ func (r *BusinessRepo) CountActiveSeats(ctx context.Context, businessID string) 
 }
 
 func (r *BusinessRepo) RevokeInvite(ctx context.Context, businessID, inviteID string) error {
-	_, err := r.pool.Exec(ctx, `
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE business_invites SET revoked_at = now() WHERE id = $1 AND business_id = $2 AND accepted_at IS NULL`,
 		inviteID, businessID)
-	return err
+	if err != nil {
+		return err
+	}
+	// An accepted invite is no longer revocable: the collaborator holds the
+	// grant, and there is no per-member removal endpoint. The WHERE clause
+	// therefore matches nothing, and a 204 told the owner access had been
+	// withdrawn while the co-owner kept it. Report the row as missing instead.
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *BusinessRepo) GetInviteByToken(ctx context.Context, token string) (*BusinessInvite, error) {
