@@ -263,6 +263,10 @@ func (s *Server) handleMessageForward(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	if strings.TrimSpace(in.ThreadID) == "" {
+		fail(w, domain.ErrValidation.WithField("thread_id", "thread_id is required."))
+		return
+	}
 	msg, err := s.deps.Chat.Forward(r.Context(), user.ID, in.ThreadID, parseID(r.PathValue("messageId")))
 	if err != nil {
 		fail(w, err)

@@ -618,12 +618,20 @@ func (r *ChatRepo) SearchMessages(ctx context.Context, threadID, viewer, q strin
 // SearchAllMessages searches across every thread the user participates in.
 func (r *ChatRepo) SearchAllMessages(ctx context.Context, userID, q string, limit int) ([]*domain.ChatMessage, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT `+messageCols+` FROM chat_messages m
-		JOIN chat_participants cp ON cp.thread_id = m.thread_id AND cp.user_id = $1 AND cp.left_at IS NULL
-		WHERE m.deleted_for <> 'everyone'
-		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id AND h.user_id = $1)
-		  AND to_tsvector('simple', coalesce(m.body,'')) @@ plainto_tsquery('simple', $2)
-		ORDER BY m.id DESC LIMIT $3`, userID, q, limit)
+		-- No JOIN on chat_participants here. Both tables have an id column, and
+		-- the shared messageCols list is unqualified, so the join made every
+		-- SELECT ambiguous: global search answered 500 to every query. Membership
+		-- is an EXISTS instead, which keeps the select list unambiguous and reads
+		-- the same as the hide filter beside it.
+		SELECT `+messageCols+` FROM chat_messages
+		WHERE deleted_for <> 'everyone'
+		  AND EXISTS (
+		      SELECT 1 FROM chat_participants cp
+		      WHERE cp.thread_id = chat_messages.thread_id
+		        AND cp.user_id = $1 AND cp.left_at IS NULL)
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_hides h WHERE h.message_id = chat_messages.id AND h.user_id = $1)
+		  AND to_tsvector('simple', coalesce(body,'')) @@ plainto_tsquery('simple', $2)
+		ORDER BY id DESC LIMIT $3`, userID, q, limit)
 	if err != nil {
 		return nil, err
 	}
