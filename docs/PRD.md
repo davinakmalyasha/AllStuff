@@ -487,6 +487,9 @@ All under `/dashboard` shell (sidebar + business switcher):
 | `/dashboard/register` | Business creation wizard (§5.4.1) |
 | `/dashboard/storefront` | Layout & design editor with live preview (§5.4.2) |
 | `/dashboard/products` | Product/service CRUD, bulk actions (§5.4.3) |
+| `/dashboard/bookings` | Appointment calendar; confirm, complete, no-show, cancel |
+| `/dashboard/locations` | Places, their hours and per-service windows |
+| `/dashboard/staff` | Staff, service qualification and weekly shifts |
 | `/dashboard/chats` | Unified inbox across businesses (filtered by switcher) |
 | `/dashboard/chats/:threadId` | Thread view with quick replies (§5.5) |
 | `/dashboard/reviews` | Reviews for my businesses + reply management |
