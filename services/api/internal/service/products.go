@@ -361,7 +361,17 @@ func (s *Products) notifyRestock(ctx context.Context, productID, businessID stri
 // ToggleStockAlert subscribes/unsubscribes a user to restock alerts.
 func (s *Products) ToggleStockAlert(ctx context.Context, userID, productID string, on bool) error {
 	if on {
-		_, err := s.repos.Exec(ctx, `
+		// The insert is foreign-keyed to products. Without this lookup an id that
+		// does not exist surfaced as a 23503 and a 500 - a client mistake reported
+		// as a server fault.
+		p, err := s.repos.Products.GetByID(ctx, productID)
+		if err != nil {
+			return err
+		}
+		if p == nil {
+			return domain.ErrNotFound
+		}
+		_, err = s.repos.Exec(ctx, `
 			INSERT INTO product_stock_alerts (id, user_id, product_id) VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, product_id) DO NOTHING`, util.NewUUID(), userID, productID)
 		return err
