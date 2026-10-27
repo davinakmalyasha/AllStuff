@@ -281,3 +281,59 @@ func TestSearchTotalIsNotComputedUnlessAskedFor(t *testing.T) {
 		t.Errorf("last-page total = %d, want 12; offset + rows returned is exact and costs nothing", total)
 	}
 }
+
+// TestSearchEmptyResultIsAnEmptySlice pins the SHAPE of an empty result, which
+// no result-set assertion can see.
+//
+// The HTTP layer already normalises nil collections in writeJSON, so this looks
+// cosmetic from the browser. It is not: the nightly saved-search alert and the
+// API v2 callers marshal the slice themselves, and a nil []*Business encodes as
+// `null` where the contract says `[]`. A mutation from `[]*domain.Business{}` to
+// `nil` survived the handler test for exactly this reason - nonNilLists repaired
+// it one layer above - so the service contract needs its own test.
+func TestSearchEmptyResultIsAnEmptySlice(t *testing.T) {
+	h := testutil.New(t)
+	h.UsePool()
+	ctx := context.Background()
+	cat := testutil.Category(t, h, "Cafe")
+	search := service.NewSearch(h.Repos)
+	searchFixture(t, h, 3, cat)
+
+	// No match at all.
+	res, total, err := search.Businesses(ctx, service.SearchParams{
+		Q: "zzzz-no-such-business", Sort: "newest", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Error("an empty result is a nil slice; callers that marshal it get null, not []")
+	}
+	if len(res) != 0 || total != 0 {
+		t.Errorf("no-match result = %d rows, total %d; want 0 and 0", len(res), total)
+	}
+
+	// A page past the end proves the page is empty, NOT the result set. Without
+	// WithTotal the total is unknown and must stay negative; reporting 0 makes a
+	// pager render "101-100 of 0" when rows vanish between two requests.
+	res, total, err = search.Businesses(ctx, service.SearchParams{
+		Sort: "newest", Limit: 10, Offset: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Error("an empty page is a nil slice; callers that marshal it get null, not []")
+	}
+	if total >= 0 {
+		t.Errorf("empty page past the end reported total %d without being asked for one", total)
+	}
+	if res, total, err = search.Businesses(ctx, service.SearchParams{
+		Sort: "newest", Limit: 10, Offset: 50, WithTotal: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || total != 3 {
+		t.Errorf("forced total on an empty page = %d rows, total %d; want 0 and 3", len(res), total)
+	}
+}

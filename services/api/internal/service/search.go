@@ -57,6 +57,18 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 		p.Limit = 24
 	}
 
+	// An unknown sort must not reach the ORDER BY. Every branch below is written
+	// as a closed set, but the DEFAULT branch ranks by trend - and the trend join
+	// is only added when the sort is empty or "trending". A crafted
+	// ?sort=anything-else therefore produced `missing FROM-clause entry for "ts"`
+	// and a 500. Normalising here covers every caller, including saved searches,
+	// not just the HTTP handler.
+	switch p.Sort {
+	case "", "trending", "rating", "newest", "nearest", "relevance":
+	default:
+		p.Sort = ""
+	}
+
 	q := strings.TrimSpace(p.Q)
 	where := []string{"b.status = 'verified'", "b.deleted_at IS NULL"}
 	args := []any{}
@@ -235,7 +247,24 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 		ids = ids[:p.Limit]
 	}
 	if len(ids) == 0 {
-		return nil, 0, nil
+		// An empty page at a non-zero offset proves the page is past the end, not
+		// that the result set is empty. Reporting 0 would make a pager say
+		// "101-100 of 0" after the results shrank between two requests; -1 is the
+		// same "not computed" signal the caller already understands.
+		if p.Offset > 0 {
+			if !p.WithTotal {
+				return []*domain.Business{}, -1, nil
+			}
+			total, cerr := s.countMatching(ctx, where, trendJoin, whereArgs)
+			if cerr != nil {
+				slog.Warn("search count fallback", "err", cerr)
+				return []*domain.Business{}, -1, nil
+			}
+			return []*domain.Business{}, total, nil
+		}
+		// An empty slice, not nil: JSON must say [] so a client can iterate the
+		// result without a null check.
+		return []*domain.Business{}, 0, nil
 	}
 
 	// Phase 2: hydrate the full row shape for exactly the page's ids.
@@ -282,18 +311,26 @@ func (s *Search) Businesses(ctx context.Context, p SearchParams) ([]*domain.Busi
 	}
 	// Exact total for callers that asked for one (first page of a paged view).
 	// Deliberately first-page-only in practice: see SearchParams.WithTotal.
-	var total int
-	countSQL := `
-		SELECT count(*) FROM businesses b
-		JOIN categories cat ON cat.id = b.category_id` + trendJoin + `
-		WHERE ` + strings.Join(where, " AND ")
-	if err := s.repos.QueryRow(ctx, countSQL, whereArgs...).Scan(&total); err != nil {
+	total, cerr := s.countMatching(ctx, where, trendJoin, whereArgs)
+	if cerr != nil {
 		// Best-effort: fall back to the page size, but leave a trace — silent
 		// wrong counts are indistinguishable from real ones.
-		slog.Warn("search count fallback", "err", err)
+		slog.Warn("search count fallback", "err", cerr)
 		return out, len(out), nil
 	}
 	return out, total, nil
+}
+
+// countMatching runs the exact count for the predicate Businesses built. Both
+// the pager and the empty-page path use it, so the count cannot drift from the
+// query it describes.
+func (s *Search) countMatching(ctx context.Context, where []string, trendJoin string, args []any) (int, error) {
+	var total int
+	err := s.repos.QueryRow(ctx, `
+		SELECT count(*) FROM businesses b
+		JOIN categories cat ON cat.id = b.category_id`+trendJoin+`
+		WHERE `+strings.Join(where, " AND "), args...).Scan(&total)
+	return total, err
 }
 
 // Suggestions - autocomplete (PRD §5.1.2): business prefixes + category names.

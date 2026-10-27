@@ -50,10 +50,19 @@ func (s *Server) handleBusinessPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	// Preview as guest: the owner can see their draft theme/layout (PRD §5.4.2).
+	// Preview as guest: a manager can see their draft theme/layout (PRD §5.4.2).
+	//
+	// CO-OWNER PARITY, the recurring defect. This compared b.OwnerID directly,
+	// which is false for an accepted co-owner even though the whole storefront
+	// editor is open to them. The observable effect was that a co-owner could
+	// edit their draft and then not preview it, and the page told the UI they
+	// were a stranger - so the owner reply and announcement affordances vanished
+	// too. CanManageBusiness is the predicate every other business-scoped path
+	// uses (Engagement.isOwner, products.own, analytics, chat).
 	isOwner := false
 	if user, found := currentUser(r); found {
-		isOwner = b.OwnerID == user.ID
+		can, cerr := s.deps.Repos.Businesses.CanManageBusiness(r.Context(), user.ID, b.ID)
+		isOwner = cerr == nil && can
 	}
 	if r.URL.Query().Get("draft") == "1" && isOwner {
 		// Overlay the draft onto the payload as `preview` — the public page
@@ -87,13 +96,12 @@ func (s *Server) handleBusinessPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	// View event (deduped per user/day, PRD §5.6.3).
-	if user, found := currentUser(r); found {
-		isOwner = b.OwnerID == user.ID
-		if !isOwner {
-			key := user.ID + ":business:" + b.ID + ":view:" + time.Now().Format("2006-01-02")
-			_, _ = s.deps.Repos.Engagement.InsertEvent(r.Context(), user.ID, "business", b.ID, "view", 1, key)
-		}
+	// View event (deduped per user/day, PRD §5.6.3). Managers are not
+	// customers of their own listing: recording their visits inflated the
+	// engagement that feeds trending.
+	if user, found := currentUser(r); found && !isOwner {
+		key := user.ID + ":business:" + b.ID + ":view:" + time.Now().Format("2006-01-02")
+		_, _ = s.deps.Repos.Engagement.InsertEvent(r.Context(), user.ID, "business", b.ID, "view", 1, key)
 	}
 	// Trend flags from the latest 24h snapshot (PRD §5.3.1 badges).
 	var booming, rising bool
@@ -145,8 +153,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		WithTotal: q.Get("with_total") == "1" ||
 			(q.Get("with_total") != "0" && parseOffset(q.Get("offset"), 0) == 0),
 	}
-	if cats := q["category"]; len(cats) > 0 {
-		p.CategoryIDs = cats
+	// `category` is repeated (?category=a&category=b) and is copied straight out
+	// of the address bar by the discover page, so it is attacker-controlled. It
+	// lands in a uuid[] column: an invalid literal used to reach Postgres and
+	// surface as a 500. An empty value is what URLSearchParams sends for an
+	// unset filter and means "no filter".
+	for _, id := range q["category"] {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !uuidPattern.MatchString(id) {
+			fail(w, domain.ErrValidation.WithField("category", "Each category must be a UUID."))
+			return
+		}
+		p.CategoryIDs = append(p.CategoryIDs, id)
 	}
 	if lat, ok := parseFloatPtr(q.Get("lat")); ok {
 		p.Lat = lat
