@@ -13,7 +13,13 @@ import (
 func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 	businessID := r.PathValue("id")
 	if r.Method == http.MethodGet {
-		list, err := s.deps.Booking.Locations(r.Context(), businessID)
+		// A signed-in viewer may be the manager; the service decides which rule
+		// applies, so a draft's owner still sees their own places.
+		viewerID := ""
+		if u, ok := currentUser(r); ok {
+			viewerID = u.ID
+		}
+		list, err := s.deps.Booking.Locations(r.Context(), businessID, viewerID)
 		if err != nil {
 			fail(w, err)
 			return

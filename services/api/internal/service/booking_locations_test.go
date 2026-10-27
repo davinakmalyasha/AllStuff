@@ -209,13 +209,21 @@ func TestLocationsArePublicOnlyForPublicListings(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	list, err := svc.Locations(ctx, b.ID)
+	list, err := svc.Locations(ctx, b.ID, "")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("public list: %d locations, err=%v", len(list), err)
 	}
 
 	h.Exec(t, `UPDATE businesses SET status='draft' WHERE id=$1`, b.ID)
-	if _, err := svc.Locations(ctx, b.ID); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.Locations(ctx, b.ID, ""); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("a draft listing: err = %v, want ErrNotFound", err)
+	}
+	// ...but its OWNER still sees them: a business in review still has places to
+	// configure, and the only route used to be the public one.
+	if got, err := svc.Locations(ctx, b.ID, owner.ID); err != nil || len(got) != 1 {
+		t.Errorf("the owner of a draft: %d locations, err = %v", len(got), err)
+	}
+	if _, err := svc.Locations(ctx, b.ID, testutil.User(t, h).ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("a stranger on a draft: err = %v, want ErrNotFound", err)
 	}
 }

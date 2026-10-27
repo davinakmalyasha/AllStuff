@@ -840,8 +840,22 @@ func (s *Booking) validateLocation(in domain.Location) error {
 	return nil
 }
 
-// Locations is the public list. Only public listings expose their places.
-func (s *Booking) Locations(ctx context.Context, businessID string) ([]*domain.Location, error) {
+// Locations lists a business's places.
+//
+// A manager sees them regardless of the listing's status - an owner configuring
+// a draft has to be able to see what they just added - while everybody else is
+// held to the public rule. Before this, the only route was the public one, so an
+// owner of a business still in review got a 404 for their own locations.
+func (s *Booking) Locations(ctx context.Context, businessID, viewerID string) ([]*domain.Location, error) {
+	if viewerID != "" {
+		can, err := s.repos.Businesses.CanManageBusiness(ctx, viewerID, businessID)
+		if err != nil {
+			return nil, err
+		}
+		if can {
+			return s.repos.Locations.List(ctx, businessID)
+		}
+	}
 	b, err := s.repos.Businesses.GetByID(ctx, businessID)
 	if err != nil {
 		return nil, err

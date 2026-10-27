@@ -645,3 +645,20 @@ export async function apiBlob(path: string): Promise<Blob> {
   if (!res.ok) throw new Error('Could not download the file.')
   return res.blob()
 }
+
+export interface LocationDTO {
+  id: string
+  business_id: string
+  name: string
+  address: string
+  city: string
+  country: string
+  lat: number
+  lng: number
+  timezone: string
+  hours: Record<string, unknown>
+  special_hours: Record<string, unknown>
+  phone?: string
+  is_primary: boolean
+  created_at: string
+}

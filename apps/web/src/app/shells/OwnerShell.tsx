@@ -13,6 +13,7 @@ const links = [
   { to: '/dashboard/storefront', label: 'Storefront' },
   { to: '/dashboard/products', label: 'Products' },
   { to: '/dashboard/bookings', label: 'Bookings' },
+  { to: '/dashboard/locations', label: 'Locations' },
   { to: '/dashboard/chats', label: 'Chats' },
   { to: '/dashboard/analytics', label: 'Analytics' },
   { to: '/dashboard/reviews', label: 'Reviews' },
