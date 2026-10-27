@@ -14,6 +14,7 @@ const links = [
   { to: '/dashboard/products', label: 'Products' },
   { to: '/dashboard/bookings', label: 'Bookings' },
   { to: '/dashboard/locations', label: 'Locations' },
+  { to: '/dashboard/staff', label: 'Staff' },
   { to: '/dashboard/chats', label: 'Chats' },
   { to: '/dashboard/analytics', label: 'Analytics' },
   { to: '/dashboard/reviews', label: 'Reviews' },

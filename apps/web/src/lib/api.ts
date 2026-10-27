@@ -656,9 +656,36 @@ export interface LocationDTO {
   lat: number
   lng: number
   timezone: string
-  hours: Record<string, unknown>
-  special_hours: Record<string, unknown>
+  hours: Record<string, { open?: string; close?: string; closed?: boolean }>
+  special_hours: Record<string, { open?: string; close?: string; closed?: boolean }>
   phone?: string
   is_primary: boolean
+  created_at: string
+}
+
+/** One weekday's shift.
+ *
+ *  An ABSENT weekday means "inherit the business's hours for that day"; a
+ *  weekday present with working:false is an explicit day off. Those are
+ *  different states, so the editor has three options per day, not a checkbox.
+ */
+export interface DayHoursDTO {
+  working: boolean
+  opens_at?: string
+  closes_at?: string
+}
+
+export interface StaffDTO {
+  id: string
+  business_id: string
+  user_id?: string
+  name: string
+  email?: string
+  phone?: string
+  active: boolean
+  /** Product ids this person performs. No entries means they are bookable for
+   *  nothing - qualification is explicit by design. */
+  services: string[] | null
+  hours: Record<string, DayHoursDTO> | null
   created_at: string
 }

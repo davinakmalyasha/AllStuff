@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MapPin, Star, Trash2 } from 'lucide-react'
-import { api, type LocationDTO } from '@/lib/api'
+import { api, type DayHoursDTO, type LocationDTO, type ProductDTO } from '@/lib/api'
 import { useActiveBusiness } from '@/app/shells/OwnerShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -10,6 +10,7 @@ import { Confirm, Modal } from '@/components/ui/Modal'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
+import { HoursEditor } from './HoursEditor'
 
 type Draft = {
   name: string
@@ -43,6 +44,10 @@ export function LocationsPage() {
   const [editing, setEditing] = useState<LocationDTO | 'new' | null>(null)
   const [draft, setDraft] = useState<Draft>(draftFrom(null, ''))
   const [deleteTarget, setDeleteTarget] = useState<LocationDTO | null>(null)
+  const [hoursFor, setHoursFor] = useState<LocationDTO | null>(null)
+  const [hoursProduct, setHoursProduct] = useState('')
+  const [hours, setHours] = useState<Record<string, DayHoursDTO>>({})
+  const seededFor = useRef<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['locations', business?.id],
@@ -51,6 +56,56 @@ export function LocationsPage() {
   })
   const locations = data?.locations ?? []
   const refresh = () => qc.invalidateQueries({ queryKey: ['locations', business?.id] })
+
+  const { data: productsData } = useQuery({
+    queryKey: ['products', business?.id],
+    queryFn: () => api<{ products: ProductDTO[] }>(`/businesses/${business!.id}/products`),
+    enabled: !!business,
+  })
+  const services = useMemo(
+    () => (productsData?.products ?? []).filter((p) => p.type === 'service'),
+    [productsData],
+  )
+
+  // An empty map means "runs whenever the location does", so the editor must not
+  // seed itself with the location's hours - that would turn inheritance into an
+  // explicit narrow window the first time somebody pressed Save.
+  const { data: savedHours } = useQuery({
+    queryKey: ['service-hours', hoursFor?.id, hoursProduct],
+    queryFn: () =>
+      api<{ hours: Record<string, DayHoursDTO> | null }>(
+        `/businesses/${business!.id}/locations/${hoursFor!.id}/service-hours?product_id=${hoursProduct}`,
+      ),
+    enabled: !!business && !!hoursFor && !!hoursProduct,
+    staleTime: Infinity,
+  })
+  useEffect(() => {
+    if (savedHours && seededFor.current !== hoursProduct) {
+      setHours(savedHours.hours ?? {})
+      seededFor.current = hoursProduct
+    }
+  }, [savedHours, hoursProduct])
+
+  const saveHours = useMutation({
+    mutationFn: () =>
+      api(`/businesses/${business!.id}/locations/${hoursFor!.id}/service-hours/${hoursProduct}`, {
+        method: 'PUT',
+        body: { hours },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['service-hours', hoursFor?.id, hoursProduct] })
+      setHoursFor(null)
+      toast.success('Service hours updated')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not update the service hours.'),
+  })
+
+  const openHours = (loc: LocationDTO) => {
+    seededFor.current = null
+    setHours({})
+    setHoursProduct(services[0]?.id ?? '')
+    setHoursFor(loc)
+  }
 
   const save = useMutation({
     mutationFn: () => {
@@ -113,6 +168,15 @@ export function LocationsPage() {
     setDraft(draftFrom(loc === 'new' ? null : loc, business.timezone ?? 'UTC'))
   }
 
+  const locationDefaults = () => {
+    const h = hoursFor?.hours ?? {}
+    for (const key of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      const day = h[key]
+      if (day?.open && day?.close) return { opens_at: day.open, closes_at: day.close }
+    }
+    return { opens_at: '09:00', closes_at: '17:00' }
+  }
+
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -159,6 +223,9 @@ export function LocationsPage() {
                     <span className="sr-only">Make {loc.name} the primary location</span>
                   </Button>
                 )}
+                <Button size="sm" variant="secondary" onClick={() => openHours(loc)}>
+                  Service hours
+                </Button>
                 <Button size="sm" variant="secondary" onClick={() => openForm(loc)}>
                   Edit
                 </Button>
@@ -206,6 +273,58 @@ export function LocationsPage() {
             <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
             <Button onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!hoursFor}
+        onClose={() => setHoursFor(null)}
+        title={hoursFor ? `Service hours at ${hoursFor.name}` : 'Service hours'}
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-4">
+          {services.length === 0 ? (
+            <p className="text-sm text-ink3">
+              No services yet. Add one under Products, with a duration, to give it hours here.
+            </p>
+          ) : (
+            <>
+              <div>
+                <label htmlFor="service-hours-product" className="mb-1.5 block text-sm font-medium text-ink">
+                  Service
+                </label>
+                <select
+                  id="service-hours-product"
+                  value={hoursProduct}
+                  onChange={(e) => {
+                    seededFor.current = null
+                    setHours({})
+                    setHoursProduct(e.target.value)
+                  }}
+                  className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink"
+                >
+                  {services.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-ink3">
+                Leave a day on Inherit to run whenever the location is open. A narrower window is for a
+                service that only runs part of the day; Off stops it being offered on that day entirely.
+              </p>
+              <HoursEditor value={hours} onChange={setHours} defaults={locationDefaults()} label="service" />
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setHoursFor(null)}>
+                  Cancel
+                </Button>
+                <Button onClick={() => saveHours.mutate()} disabled={saveHours.isPending || !hoursProduct}>
+                  Save
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

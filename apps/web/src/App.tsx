@@ -54,6 +54,7 @@ const NotificationsPage = lazy(() => import('@/features/me/NotificationsPage').t
 const MyReviewsPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.MyReviewsPage })))
 const BookingsPage = lazy(() => import('@/features/dashboard/BookingsPage').then((m) => ({ default: m.BookingsPage })))
 const LocationsPage = lazy(() => import('@/features/dashboard/LocationsPage').then((m) => ({ default: m.LocationsPage })))
+const StaffPage = lazy(() => import('@/features/dashboard/StaffPage').then((m) => ({ default: m.StaffPage })))
 const ExportPage = lazy(() => import('@/features/me/ActivityPages').then((m) => ({ default: m.ExportPage })))
 const SecurityPage = lazy(() => import('@/features/me/SecurityPage').then((m) => ({ default: m.SecurityPage })))
 const MyBookingsPage = lazy(() => import('@/features/me/MyBookingsPage').then((m) => ({ default: m.MyBookingsPage })))
@@ -257,6 +258,7 @@ const router = createBrowserRouter([
       { path: 'settings/verification', element: <Lazy><VerificationSettingsPage /></Lazy> },
       { path: 'bookings', element: <Lazy><BookingsPage /></Lazy> },
       { path: 'locations', element: <Lazy><LocationsPage /></Lazy> },
+      { path: 'staff', element: <Lazy><StaffPage /></Lazy> },
       { path: 'analytics', element: <Lazy><AnalyticsPage /></Lazy> },
       { path: 'billing', element: <Lazy><BillingPage /></Lazy> },
       { path: 'reviews', element: <Lazy><DashboardReviewsPage /></Lazy> },
