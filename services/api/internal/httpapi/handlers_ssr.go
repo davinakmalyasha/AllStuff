@@ -527,10 +527,18 @@ func (s *Server) handleSSRCity(w http.ResponseWriter, r *http.Request) {
 
 // handleSSRCategory renders a category landing page.
 func (s *Server) handleSSRCategory(w http.ResponseWriter, r *http.Request) {
-	cat, children, err := s.deps.Categories.GetBySlug(r.Context(), r.PathValue("slug"))
+	cat, _, err := s.deps.Categories.GetBySlug(r.Context(), r.PathValue("slug"))
 	if err != nil || cat == nil {
 		s.ssr.notFound(w, "We don't have that category yet.")
 		return
+	}
+	// The second GetBySlug return is the breadcrumb, not the subtree. Ask for
+	// direct children separately so a parent page actually links downward.
+	children, err := s.deps.Categories.Children(r.Context(), cat.ID)
+	if err != nil {
+		// The page itself resolved; a taxonomy read failure must not turn an
+		// indexable page into a 500. Render without the child links.
+		children = nil
 	}
 	path := href("c", cat.Slug)
 	title := cat.Name + " near you | BizVerse"

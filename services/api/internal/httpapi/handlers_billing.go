@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bizverse/api/internal/domain"
+	"bizverse/api/internal/util"
 )
 
 // ---- billing / subscriptions (Phase 7.1) ----
@@ -150,6 +151,12 @@ func (s *Server) requireManagedBusiness(w http.ResponseWriter, r *http.Request, 
 	businessID := strings.TrimSpace(r.PathValue("businessId"))
 	if businessID == "" {
 		fail(w, domain.ErrValidation.WithField("business_id", "Business is required."))
+		return "", false
+	}
+	// The id is compared against a uuid column. A malformed one would be
+	// SQLSTATE 22P02 and a 500; it names no business, so answer 404.
+	if !util.IsUUID(businessID) {
+		fail(w, domain.ErrNotFound)
 		return "", false
 	}
 	// Reuses the repo predicate every other co-owner-aware path uses

@@ -166,6 +166,31 @@ func TestBillingRequiresManagedBusiness(t *testing.T) {
 			}
 		}
 	}
+
+	// The portal is a POST on the same gate, and it had never been executed.
+	// Without a Stripe key the service answers 404 "not configured"; what must
+	// not happen is a 500 or a portal URL for a stranger.
+	portal := "/api/v1/businesses/" + biz.ID + "/billing/portal"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, authReq(t, http.MethodPost, portal, nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("portal anonymous: status = %d, want 401", w.Code)
+	}
+	if w := dash(t, td, handler, http.MethodPost, portal, nil, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("portal stranger: status = %d, want 403", w.Code)
+	}
+	for name, u := range map[string]*domain.User{"owner": owner, "co-owner": coOwner} {
+		w := dash(t, td, handler, http.MethodPost, portal, nil, u)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "not configured") {
+			t.Errorf("portal %s: status = %d, want the unconfigured-deployment 404: %s", name, w.Code, w.Body.String())
+		}
+	}
+	// A malformed id cannot name a business. It used to reach a uuid column and
+	// surface as a 500 (SQLSTATE 22P02).
+	if w := dash(t, td, handler, http.MethodPost,
+		"/api/v1/businesses/not-a-uuid/billing/portal", nil, owner); w.Code != http.StatusNotFound {
+		t.Errorf("portal malformed id: status = %d, want 404: %s", w.Code, w.Body.String())
+	}
 }
 
 func TestBillingInvoicesForANewBusiness(t *testing.T) {

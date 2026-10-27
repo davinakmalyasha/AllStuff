@@ -66,6 +66,26 @@ func (s *Categories) GetBySlug(ctx context.Context, slug string) (*domain.Catego
 	return cat, path, nil
 }
 
+// Children returns the direct children of a category, in display order.
+//
+// GetBySlug's second return is the BREADCRUMB (root -> category), and the SSR
+// category page treated it as the child taxonomy: a parent page therefore never
+// linked its subcategories, while a child page listed only its ancestors. The
+// two shapes are different questions, so they get different methods.
+func (s *Categories) Children(ctx context.Context, parentID string) ([]*domain.Category, error) {
+	flat, err := s.repos.Categories.ListWithCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []*domain.Category
+	for _, c := range flat {
+		if c.ParentID != nil && *c.ParentID == parentID {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 type CategoryInput struct {
 	Name        *string `json:"name"`
 	Slug        *string `json:"slug"`
