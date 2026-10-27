@@ -172,6 +172,16 @@ func (s *Community) FollowingFeed(ctx context.Context, userID string, limit int)
 
 func (s *Community) FollowCategory(ctx context.Context, userID, categoryID string, on bool) error {
 	if on {
+		// The follow row has a foreign key, so without this lookup an id for a
+		// deleted category reached the INSERT and surfaced as a 500. Following
+		// something that does not exist is a 404 the caller can act on.
+		c, err := s.repos.Categories.GetByID(ctx, categoryID)
+		if err != nil {
+			return err
+		}
+		if c == nil {
+			return domain.ErrNotFound
+		}
 		if _, err := s.repos.Exec(ctx, `
 			INSERT INTO user_category_follows (id, user_id, category_id) VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, category_id) DO NOTHING`,
