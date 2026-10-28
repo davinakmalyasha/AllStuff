@@ -601,10 +601,17 @@ func (r *BusinessRepo) ListInvites(ctx context.Context, businessID string) ([]*B
 // business, for the plan's team_seats cap.
 //
 // The owner counts as one seat. An invite counts once it is ACCEPTED and counts
-// as nothing while it is pending, revoked, or expired — a pending invitation is
+// as nothing while it is pending or revoked — a pending invitation is
 // an intention, not a seat, and blocking on it would let a business fill its
 // allowance with invitations nobody has accepted and then be unable to invite
 // anyone who actually turns up.
+//
+// Expiry does NOT end an accepted seat. AcceptInvite leaves expires_at at its
+// original 7-day value, and CanManageBusiness grants on accepted+not-revoked
+// without consulting expiry — so an accepted collaborator keeps access after
+// the row "expires". Counting them out here while the permission check counts
+// them in would be a cap the user pays for and cannot use, in reverse: seats
+// that look free but are occupied.
 //
 // The accepted-invite arm matches CanManageBusiness and IsBusinessViewer
 // exactly, including their citext email comparison. A seat that the permission
@@ -633,6 +640,12 @@ func (r *BusinessRepo) CountLiveByOwner(ctx context.Context, ownerID string) (in
 // acceptance - each one sees the same accepted count - accept them all, and end
 // up past the plan's limit. That is the exact sequence the send-time gate exists
 // to prevent, and it was reachable whenever the plan had a seat cap.
+//
+// An accepted invitation reserves its seat even after expires_at passes.
+// AcceptInvite leaves the original 7-day expiry in place, and expiry only ever
+// limited the window to ACCEPT — it never revoked access. Letting the row age
+// out of this count freed a seat the collaborator still occupies, so the owner
+// could invite past the plan cap while everyone retained access.
 func (r *BusinessRepo) CountReservedSeats(ctx context.Context, businessID string) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx, `
@@ -642,7 +655,7 @@ func (r *BusinessRepo) CountReservedSeats(ctx context.Context, businessID string
 		  + (SELECT count(*) FROM business_invites i
 		      WHERE i.business_id = $1
 		        AND i.revoked_at IS NULL
-		        AND i.expires_at > now())`, businessID).Scan(&n)
+		        AND (i.accepted_at IS NOT NULL OR i.expires_at > now()))`, businessID).Scan(&n)
 	return n, err
 }
 
@@ -655,8 +668,7 @@ func (r *BusinessRepo) CountActiveSeats(ctx context.Context, businessID string) 
 		  + (SELECT count(*) FROM business_invites i
 		      WHERE i.business_id = $1
 		        AND i.accepted_at IS NOT NULL
-		        AND i.revoked_at IS NULL
-		        AND i.expires_at > now())`, businessID).Scan(&n)
+		        AND i.revoked_at IS NULL)`, businessID).Scan(&n)
 	return n, err
 }
 

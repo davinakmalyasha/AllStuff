@@ -145,6 +145,15 @@ npm run typecheck && npm run lint
 npx playwright install chromium && npx playwright test
 ```
 
+## Test scope
+
+`go test ./...` covers the API wall to wall (the ratchet above fails the build
+on any drop). Playwright covers the public and auth journeys end to end —
+landing, discover, booking as a customer, chat, notifications — plus axe
+accessibility across the surfaces. The owner dashboard happy path, admin, and
+billing flows need a verified email, an enrolled 2FA factor, or real Stripe
+keys, so those are covered by Go tests, not by the browser suite.
+
 ## Documentation
 
 | File | What it is |
