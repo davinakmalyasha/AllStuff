@@ -407,9 +407,9 @@ func (b *Billing) HandleWebhook(ctx context.Context, rawBody []byte, signature s
 	if err := b.dispatch(ctx, ev); err != nil {
 		_ = b.repos.Billing.MarkWebhookFailed(ctx, ev.ID, truncate(err.Error(), 500))
 		// Returning an error makes Stripe retry, which is what we want for a
-		// transient failure. The ledger's PK means the retry re-claims nothing
-		// and re-runs the handler — so the handler must be idempotent, which
-		// the upserts below are.
+		// transient failure. ClaimWebhookEvent re-claims a row whose handler
+		// failed, so the retry actually re-runs it; the handlers below are
+		// upserts for exactly that reason.
 		return err
 	}
 	if err := b.repos.Billing.MarkWebhookProcessed(ctx, ev.ID); err != nil {
@@ -563,6 +563,7 @@ func (b *Billing) onInvoice(ctx context.Context, ev *security.StripeEvent) error
 	}
 	inv := &repo.Invoice{
 		ID:               util.NewUUID(),
+		StripeInvoiceID:  rec.ID,
 		BusinessID:       businessID,
 		Number:           optional(rec.Number),
 		Status:           optional(rec.Status),

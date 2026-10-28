@@ -71,7 +71,13 @@ func (s *Subscription) GrantsEntitlements() bool {
 
 // Invoice mirrors a row of `invoices`.
 type Invoice struct {
-	ID               string     `json:"id"`
+	ID string `json:"id"`
+	// StripeInvoiceID is the provider's id, and the column the ledger's
+	// uniqueness actually depends on. It is separate from ID because the
+	// primary key is a local uuid; passing the local uuid here made every
+	// invoice event insert a fresh row and left operators unable to match a
+	// row to the invoice in Stripe.
+	StripeInvoiceID  string     `json:"-"`
 	BusinessID       string     `json:"business_id"`
 	SubscriptionID   *string    `json:"subscription_id,omitempty"`
 	Number           *string    `json:"number,omitempty"`
@@ -248,7 +254,7 @@ func (r *BillingRepo) UpsertInvoice(ctx context.Context, inv *Invoice, stripeSub
 			period_start, period_end, paid_at)
 		VALUES ($1,$2,
 			(SELECT id FROM subscriptions WHERE stripe_subscription_id = NULLIF($3,'')),
-			$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (stripe_invoice_id) DO UPDATE SET
 			status            = EXCLUDED.status,
 			amount_cents      = EXCLUDED.amount_cents,
@@ -258,7 +264,7 @@ func (r *BillingRepo) UpsertInvoice(ctx context.Context, inv *Invoice, stripeSub
 			period_start      = COALESCE(EXCLUDED.period_start, invoices.period_start),
 			period_end        = COALESCE(EXCLUDED.period_end, invoices.period_end),
 			paid_at           = COALESCE(EXCLUDED.paid_at, invoices.paid_at)`,
-		inv.ID, inv.BusinessID, stripeSubID, inv.ID, inv.Number, inv.Status,
+		inv.ID, inv.BusinessID, stripeSubID, inv.StripeInvoiceID, inv.Number, inv.Status,
 		inv.AmountCents, inv.Currency, inv.HostedInvoiceURL, inv.InvoicePDFURL,
 		inv.PeriodStart, inv.PeriodEnd, inv.PaidAt)
 	return err
@@ -267,14 +273,29 @@ func (r *BillingRepo) UpsertInvoice(ctx context.Context, inv *Invoice, stripeSub
 // ---- webhook idempotency ledger ----
 
 // ClaimWebhookEvent inserts the event id, returning false when it was already
-// present. This is the single point of truth for "have I handled this?".
+// present and already handled. This is the single point of truth for "have I
+// handled this?".
+//
+// A row whose handler FAILED (processed_at NULL, error non-null) is re-claimed:
+// Stripe's retry is the only automatic path back to a successful apply, and
+// answering it as a duplicate acknowledged an event that was never applied.
+// The condition deliberately excludes in-flight rows (error NULL) so a
+// concurrent second delivery cannot run the handler at the same time, and a
+// successful row (processed_at non-null) stays a duplicate forever.
 //
 // The caller MUST return 2xx for a duplicate: Stripe retries until it gets
 // one, so a duplicate is a success, not an error.
 func (r *BillingRepo) ClaimWebhookEvent(ctx context.Context, eventID, eventType, objectID string, payload []byte) (bool, error) {
 	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO billing_webhook_events (provider_event_id, type, object_id, payload)
-		VALUES ($1,$2,$3,$4) ON CONFLICT (provider_event_id) DO NOTHING`,
+		VALUES ($1,$2,$3,$4)
+		ON CONFLICT (provider_event_id) DO UPDATE SET
+			type      = EXCLUDED.type,
+			object_id = EXCLUDED.object_id,
+			payload   = EXCLUDED.payload,
+			error     = NULL
+		WHERE billing_webhook_events.processed_at IS NULL
+		  AND billing_webhook_events.error IS NOT NULL`,
 		eventID, eventType, objectID, payload)
 	if err != nil {
 		return false, err
