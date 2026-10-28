@@ -651,29 +651,7 @@ var urlRe = regexp.MustCompile(`https?://[^\s]+`)
 var previewClient = &http.Client{
 	Timeout: 4 * time.Second,
 	Transport: &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			if port != "80" && port != "443" {
-				return nil, fmt.Errorf("link preview: port %s not allowed", port)
-			}
-			if net.ParseIP(host) == nil && !strings.Contains(host, ".") {
-				return nil, fmt.Errorf("link preview: bare hostname rejected")
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, ia := range ips {
-				if !security.IsPublicIP(ia.IP) {
-					return nil, fmt.Errorf("link preview: private address blocked")
-				}
-			}
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
+		DialContext: previewDialContext,
 	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 3 {
@@ -681,6 +659,37 @@ var previewClient = &http.Client{
 		}
 		return nil // target validation happens at dial time for every hop
 	},
+}
+
+// previewDialContext is the SSRF guard for link previews, as a named function
+// rather than a closure so it is directly unit-testable. The order is
+// load-bearing: nothing may dial before the address is validated. Port first
+// (no resolve, no dial), then the bare-hostname reject (a single-label name
+// resolves via search domains or the loopback, never the public internet),
+// then every resolved address checked - per dial, so each redirect hop and
+// each DNS rebinding answer is checked again.
+func previewDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	if port != "80" && port != "443" {
+		return nil, fmt.Errorf("link preview: port %s not allowed", port)
+	}
+	if net.ParseIP(host) == nil && !strings.Contains(host, ".") {
+		return nil, fmt.Errorf("link preview: bare hostname rejected")
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ia := range ips {
+		if !security.IsPublicIP(ia.IP) {
+			return nil, fmt.Errorf("link preview: private address blocked")
+		}
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
 }
 
 // fetchLinkPreview extracts og: metadata from the first URL in a message.
@@ -692,6 +701,10 @@ func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 		return nil, false
 	}
 	u, err := url.Parse(m)
+	// The scheme half is unreachable through urlRe, which only matches strings
+	// beginning with http:// or https:// - it is defense-in-depth for a future
+	// regex change, and deliberately has no test of its own. (Verified by
+	// mutation: removing it changes no observable behavior.)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, false
 	}
