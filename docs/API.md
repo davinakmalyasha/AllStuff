@@ -141,11 +141,13 @@ only ever written by a signature-verified webhook or the 6-hourly reconciliation
 job — never by the client.
 
 Entitlements are capability strings on the plan (`analytics`,
-`analytics_advanced`, `featured_placement`, `verified_badge`, `api_access`,
-`webhooks`, `embeddable_widget`, `support_priority`) plus numeric caps
+`analytics_advanced`, `api_access`, `support_priority`) plus numeric caps
 (`product_limit:N`, `gallery_limit:N`, `team_seats:N`). The strings are a
 storage format: the API exposes them resolved into a booleans-and-caps object so
-a client never has to parse them.
+a client never has to parse them. `verified_badge` and `featured_placement`
+were removed on purpose — trust and placement are not for sale, and a policy
+test fails the build if either returns. `webhooks` and `embeddable_widget` are
+reserved for when the features behind them land.
 
 - `GET /plans` — **public**, no auth. The active catalogue plus `enabled: bool`
   (false when Stripe is not configured on the deployment). `purchasable` is

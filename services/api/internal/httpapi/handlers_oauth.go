@@ -13,7 +13,11 @@ const oauthStateCookie = "bv_oauth_state"
 
 func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if !s.deps.OAuth.Enabled() {
-		fail(w, domain.ErrValidation.WithField("_", "Google sign-in is not configured."))
+		// This endpoint is only ever hit by browser navigation (the Google
+		// button links straight at it), so a JSON 400 would render as a dead
+		// error page. Redirect to the login page with the reason instead, the
+		// same way every callback failure already behaves.
+		http.Redirect(w, r, "/login?error=oauth_disabled", http.StatusFound)
 		return
 	}
 	state := make([]byte, 24)

@@ -30,6 +30,7 @@ import (
 func main() {
 	migrateOnly := flag.Bool("migrate", false, "run pending migrations and exit")
 	vapidGen := flag.Bool("vapid", false, "generate a VAPID keypair for web push and exit")
+	devLogin := flag.Bool("dev-login", false, "set documented dev passwords on the seed demo accounts and exit (refused in prod)")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -126,6 +127,13 @@ func main() {
 
 	notifier := service.NewNotifier(repos, cfg, sender, hub, logger)
 	authSvc := service.NewAuth(repos, cfg, sender, logger)
+	if *devLogin {
+		if err := runDevLogin(ctx, cfg, repos, authSvc, logger); err != nil {
+			logger.Error("dev-login", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	userSvc := service.NewUsers(repos)
 	categorySvc := service.NewCategories(repos)
 

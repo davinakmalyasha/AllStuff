@@ -25,8 +25,10 @@ it splits `CREATE INDEX CONCURRENTLY` out of the transaction, and it records
 each version only after that version's concurrent statements succeed.
 
 `scripts/seed.sql` loads a small Indonesian/Jakarta fixture set — two verified
-businesses, a category tree, and a user per role. The Playwright suite depends
-on it.
+businesses, a category tree, engagement signals, and two users (the demo owner
+and a platform admin, both with placeholder password hashes). The Playwright
+suite depends on it. `go run ./cmd/api -dev-login` turns the seed users into
+working dev logins; see the README's seed section.
 
 ## Toolchain
 

@@ -34,14 +34,14 @@ export function usePageMeta(title: string, description?: string, og?: { image?: 
     const locale = ogLocale(lang)
     setMeta('property', 'og:locale', locale)
     setMeta('property', 'og:locale:alternate', locale === 'id_ID' ? 'en_US' : 'id_ID')
-    const image = og?.image ?? `${window.location.origin}/icon-512.svg`
+    // The default is the static 1200x630 card, not the SVG brand mark: image
+    // scrapers generally do not render SVG, and the static index.html carries
+    // the same default for crawlers that never run this script.
+    const image = og?.image ?? `${window.location.origin}/og-default.png`
     setMeta('property', 'og:image', image)
-    if (og?.image) {
-      setMeta('property', 'og:image:width', '1200')
-      setMeta('property', 'og:image:height', '630')
-    } else {
-      document.querySelectorAll('meta[property="og:image:width"], meta[property="og:image:height"]').forEach((m) => m.remove())
-    }
+    // Both the default card and per-page images are 1200x630.
+    setMeta('property', 'og:image:width', '1200')
+    setMeta('property', 'og:image:height', '630')
     setMeta('name', 'twitter:card', 'summary_large_image')
     setMeta('name', 'twitter:title', title || DEFAULT_TITLE)
     setMeta('name', 'twitter:description', desc)

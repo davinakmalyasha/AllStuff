@@ -2,7 +2,22 @@
 -- Idempotent: safe to run after every migrate. Run with:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed.sql
 
--- Demo owner (verified so digest/login flows work).
+-- Seed admin (verified; the admin dashboard requires an enrolled 2FA factor,
+-- so use `go run ./cmd/api -dev-login` after seeding to set its documented dev
+-- password and enroll 2FA - never craft credentials by hand here).
+INSERT INTO users (id, email, name, username, password_hash, email_verified_at, role, status)
+VALUES (
+  '22222222-2222-4222-8222-222222222222',
+  'admin@bizverse.test',
+  'Seed Admin',
+  'seedadmin',
+  '$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA', -- 'seed-only-no-login'
+  now(), 'admin', 'active'
+) ON CONFLICT (id) DO NOTHING;
+
+-- Demo owner (verified so digest/login flows work). The password hash below is
+-- a placeholder, not a login: use `go run ./cmd/api -dev-login` to set the
+-- documented dev password (dev only - the flag refuses APP_ENV=prod).
 INSERT INTO users (id, email, name, username, password_hash, email_verified_at, role, status)
 VALUES (
   '11111111-1111-4111-8111-111111111111',

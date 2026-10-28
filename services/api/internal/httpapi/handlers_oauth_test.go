@@ -162,8 +162,13 @@ func TestOAuthHandlersDisabled(t *testing.T) {
 			})
 
 			w := oauthStart(t, hdl)
-			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "not configured") {
-				t.Errorf("start: status = %d, body = %s; want the not-configured 400", w.Code, w.Body.String())
+			// The button is a plain link, so an unconfigured provider redirects
+			// back to login with the reason rather than rendering a JSON 400.
+			if w.Code != http.StatusFound {
+				t.Fatalf("start: status = %d, want 302: %s", w.Code, w.Body.String())
+			}
+			if got := w.Header().Get("Location"); got != "/login?error=oauth_disabled" {
+				t.Errorf("Location = %q, want the disabled-provider login redirect", got)
 			}
 			if c := oauthCookie(t, w, oauthStateCookie); c != nil {
 				t.Errorf("a disabled provider set a state cookie: %+v", c)

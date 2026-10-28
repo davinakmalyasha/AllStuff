@@ -63,6 +63,11 @@ Stated here rather than discovered later:
   only *mandatory* for the `admin` role.
 - **Facebook, Apple and GitHub OAuth are not implemented.** Google only, despite
   what `docs/PRD.md` §5.9.1 says. See "Documentation drift" below.
+- **`npm audit` is non-blocking in CI by policy.** It reports on transitive
+  dev-only advisories unreachable from shipped code; a gate that fails on those
+  trains people to re-run it until green, which is how real advisories get
+  ignored. Production dependencies are still listed and visible. Backend
+  equivalents (`govulncheck`, gitleaks, CodeQL) do fail the build.
 
 ## Audit-trail invariants
 

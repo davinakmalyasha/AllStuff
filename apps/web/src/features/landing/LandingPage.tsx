@@ -165,7 +165,17 @@ export function LandingPage() {
             label={t('landing.stats.categories')}
           />
           <Stat value="100%" label={t('landing.stats.free')} />
-          <Stat value="2" label={t('landing.stats.verified')} />
+          {/*
+            Same source as the category tiles above: each top-level count is
+            its subtree's verified-business total, so the sum is the directory
+            size with no extra request. It was a hardcoded "2" while the seed
+            alone has two businesses and production has more - the same class
+            of homepage overstatement the category count fixed above.
+          */}
+          <Stat
+            value={catData?.categories?.length ? `${catData.categories.reduce((n, c) => n + (c.count ?? 0), 0)}` : '—'}
+            label={t('landing.stats.verified')}
+          />
           <Stat value="∞" label={t('landing.stats.messages')} />
           </div>
         </div>
