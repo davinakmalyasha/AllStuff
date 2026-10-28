@@ -33,6 +33,12 @@ func (o *Ops) PruneSnapshots(ctx context.Context) error {
 	return err
 }
 
+// thumbName mirrors Media.makeThumb and Media.ServeThumbPath: the thumbnail
+// of row path p lives at <p without extension>_thumb.jpg.
+func thumbName(p string) string {
+	return strings.TrimSuffix(p, filepath.Ext(p)) + "_thumb.jpg"
+}
+
 // softDeleteReclaimWindow is how long a moderation-hidden file is kept before
 // its bytes are reclaimed. Soft delete exists to make "hide" reversible, so the
 // window has to be long enough for an operator to notice a mistake and restore
@@ -96,6 +102,15 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 		onDisk[r.path] = true
 		// Encrypted documents (stored with a .enc suffix) map to the row path.
 		onDisk[r.path+".enc"] = true
+		// Thumbnails live next to the original under the extensionless base
+		// name (see Media.makeThumb): <base>_thumb.jpg, NOT <path>_thumb.jpg.
+		// The walk used to strip the suffix off the walked file and look the
+		// base up in this set, which dropped the extension and could never
+		// match a row path — so every live thumbnail older than the 24h grace
+		// was deleted on the next nightly run and ServeThumbPath started
+		// 404ing. Marking the exact thumb name is what lets a reclaimed row
+		// take its thumbnail with it while a live row keeps its own.
+		onDisk[thumbName(r.path)] = true
 	}
 
 	// Files without rows → delete, but only after a 24h grace so an
@@ -110,15 +125,11 @@ func (o *Ops) CleanupOrphanMedia(ctx context.Context) error {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		// A thumbnail survives only while its row does. Keying the skip off
-		// onDisk (rather than the suffix alone) is what lets a reclaimed row
-		// take its thumbnail with it; skipping every _thumb.jpg unconditionally
-		// leaked one file per deleted image forever.
-		if strings.HasSuffix(rel, "_thumb.jpg") {
-			if onDisk[strings.TrimSuffix(rel, "_thumb.jpg")] {
-				return nil
-			}
-		}
+		// A thumbnail survives only while its row does: the row's exact
+		// thumb name is in onDisk (see above), so a live row's thumbnail
+		// skips here and a reclaimed row's falls through to the age check.
+		// Skipping every _thumb.jpg unconditionally would leak one file per
+		// deleted image forever.
 		if !onDisk[rel] && time.Since(info.ModTime()) > 24*time.Hour {
 			_ = os.Remove(path)
 		}
