@@ -486,6 +486,24 @@ func (s *Businesses) AddDocument(ctx context.Context, ownerID, businessID, kind,
 	if !validKinds[kind] {
 		return nil, domain.ErrValidation.WithField("kind", "Invalid document kind.")
 	}
+	// The media must be this caller's own verification upload. Without this, a
+	// draft listing could be pointed at any media id - including another user's
+	// private chat attachment or identity document - and eager to guess or leak
+	// an id through a shared thread. The admin reviewer is the one who would be
+	// shown the bytes, so the victim's private file would leak to a third party
+	// under the guise of verification.
+	if !util.IsUUID(mediaID) {
+		return nil, domain.ErrValidation.WithField("media_id", "Upload the document first.")
+	}
+	media, err := s.repos.Media.GetByID(ctx, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	if media == nil || media.UploaderID != ownerID || media.Kind != domain.MediaDocVerif || media.DeletedAt != nil {
+		// One answer for missing, foreign, deleted and wrong-kind media: telling
+		// them apart would turn this into an oracle for other users' media ids.
+		return nil, domain.ErrValidation.WithField("media_id", "Upload the document first.")
+	}
 	d := &domain.VerificationDocument{
 		ID:         util.NewUUID(),
 		BusinessID: businessID,
@@ -506,6 +524,11 @@ func (s *Businesses) RemoveDocument(ctx context.Context, ownerID, businessID, do
 	}
 	if b.Status != domain.BusinessDraft && b.Status != domain.BusinessRejected {
 		return domain.ErrValidation.WithField("_", "Documents can only be managed on drafts.")
+	}
+	// A malformed id can never name a document and would otherwise reach a uuid
+	// column as SQLSTATE 22P02, surfacing as a 500.
+	if !util.IsUUID(docID) {
+		return domain.ErrNotFound
 	}
 	return s.repos.Businesses.RemoveDocument(ctx, docID, businessID)
 }

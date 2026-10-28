@@ -44,7 +44,13 @@ func TestBusinessDocuments(t *testing.T) {
 	if w := dash(t, td, hdl, http.MethodGet, base, nil, stranger); w.Code == http.StatusOK {
 		t.Error("a stranger listed another owner's documents")
 	}
-	body := map[string]any{"kind": "license", "media_id": util.NewUUID()}
+	// Attached media must be the caller's own verification upload, so the add
+	// below uses a real one rather than a bare UUID.
+	code, mediaID := uploadMedia(t, td, hdl, owner, string(domain.MediaDocVerif), "license.pdf", pdfBytes)
+	if code != http.StatusCreated || mediaID == "" {
+		t.Fatalf("upload: status = %d, id = %q", code, mediaID)
+	}
+	body := map[string]any{"kind": "license", "media_id": mediaID}
 	if w := dash(t, td, hdl, http.MethodPost, base, body, stranger); w.Code == http.StatusCreated {
 		t.Error("a stranger added a document to another owner's business")
 	}

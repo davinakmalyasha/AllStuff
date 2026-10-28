@@ -242,3 +242,15 @@ func TestParseOffsetIsNotCappedLikeALimit(t *testing.T) {
 		t.Errorf("parseOffset and parsePositiveInt agree at 101 (%d); offset must not share the LIMIT ceiling", got)
 	}
 }
+
+func TestETagRecorderEmptyWriteIsNotAStatusZero(t *testing.T) {
+	rr := httptest.NewRecorder()
+	rec := newEtagRecorder(rr)
+	rec.Header().Set("Content-Type", "application/pdf")
+	if _, err := rec.Write(nil); err != nil {
+		t.Fatalf("Write(nil): %v", err)
+	}
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; an empty write must not call WriteHeader(0)", rr.Code)
+	}
+}

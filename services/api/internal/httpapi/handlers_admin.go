@@ -7,6 +7,7 @@ import (
 
 	"bizverse/api/internal/domain"
 	"bizverse/api/internal/service"
+	"bizverse/api/internal/util"
 )
 
 // ---- admin: categories (PRD §5.8.3) ----
@@ -156,8 +157,16 @@ func (s *Server) handleAdminDocFile(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotAuthenticated)
 		return
 	}
+	businessID := r.PathValue("id")
 	docID := r.PathValue("docId")
-	docs, err := s.deps.Businesses.ListDocuments(r.Context(), r.PathValue("id"))
+	// ListDocuments binds both into uuid comparisons. A malformed path segment
+	// is SQLSTATE 22P02 behind a 500; neither id can name a document, so answer
+	// 404 before touching the database.
+	if !util.IsUUID(businessID) || !util.IsUUID(docID) {
+		fail(w, domain.ErrNotFound)
+		return
+	}
+	docs, err := s.deps.Businesses.ListDocuments(r.Context(), businessID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -173,8 +182,15 @@ func (s *Server) handleAdminDocFile(w http.ResponseWriter, r *http.Request) {
 		fail(w, domain.ErrNotFound)
 		return
 	}
-	// Audit: who viewed which document when.
-	_ = s.deps.Admin.LogDocumentView(r.Context(), admin.ID, target.ID)
+	// Audit: who viewed which document when. Fail closed. This is the only
+	// record of privileged access to identity documents, and serving the bytes
+	// without it would make the control optional exactly when the database is
+	// unhealthy. The document has not been read yet, so nothing leaks on this
+	// path.
+	if err := s.deps.Admin.LogDocumentView(r.Context(), admin.ID, target.ID); err != nil {
+		fail(w, err)
+		return
+	}
 
 	item, path, err := s.deps.Media.DocumentPath(r.Context(), target.MediaID)
 	if err != nil {

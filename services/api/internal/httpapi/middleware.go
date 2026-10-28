@@ -525,7 +525,13 @@ func (r *etagRecorder) WriteHeader(code int) {
 }
 
 func (r *etagRecorder) Write(b []byte) (int, error) {
-	if r.status == 0 && len(b) > 0 {
+	// A Write implies 200 even when it carries no bytes. Guarding this with
+	// len(b) > 0 left status at 0 for an empty write, and the non-JSON branch
+	// below then called WriteHeader(0), which net/http panics on. Any handler
+	// that sets a non-JSON Content-Type and writes an empty body - a decrypted
+	// document that fails to produce bytes, for example - became a recovered
+	// 500 instead of an empty 200.
+	if r.status == 0 {
 		r.status = http.StatusOK
 	}
 	if r.passthrough {
