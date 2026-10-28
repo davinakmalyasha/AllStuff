@@ -100,6 +100,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Inject API origin into vercel.json
+        # The committed vercel.json points every rewrite at https://api.example.com
+        # ON PURPOSE - it is a template, and deploying it verbatim would silently
+        # proxy the app to someone else's API. This step substitutes the real
+        # origin from the API_ORIGIN repo variable and fails BEFORE `vercel build`
+        # when the variable is missing or still the placeholder. The script, not
+        # the YAML, owns the validation so the same check runs locally.
+        working-directory: apps/web
+        run: node scripts/inject-api-origin.mjs "$API_ORIGIN"
+        env:
+          API_ORIGIN: ${{ vars.API_ORIGIN }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}

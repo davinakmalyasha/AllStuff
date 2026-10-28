@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "//": [
     "REPLACE `https://api.example.com` with your own API origin before deploying.",
+    "In CI deploys this is done by scripts/inject-api-origin.mjs from the",
+    "API_ORIGIN repo variable, which fails the deploy rather than shipping the",
+    "template. Only hand-edit this file for local `vercel dev` use.",
     "The original value pointed at a real third-party host, so deploying without",
     "editing it silently proxied the app to someone else's API.",
     "",

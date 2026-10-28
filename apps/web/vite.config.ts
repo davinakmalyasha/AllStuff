@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
+import { injectSiteUrl } from './scripts/site-url.mjs'
 
 // Where the dev/preview server forwards /api and /ws.
 //
@@ -29,7 +30,22 @@ const proxy = {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Absolute OG/canonical URLs for crawlers that never run JavaScript.
+    // index.html carries __SITE_URL__ sentinels; this replaces them at build
+    // time from SITE_URL (falling back to PUBLIC_URL). When neither is set the
+    // sentinel becomes the empty string and the tags stay relative, which is
+    // today's dev/E2E behavior - an unset SITE_URL is supported, not an error.
+    // App behavior must never depend on this: meta.ts sets the same tags from
+    // window.location at runtime for real browsers.
+    {
+      name: 'site-url',
+      transformIndexHtml(html: string) {
+        return injectSiteUrl(html, process.env.SITE_URL ?? process.env.PUBLIC_URL)
+      },
+    },
+  ],
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },

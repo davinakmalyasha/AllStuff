@@ -84,9 +84,22 @@ defaults.
 ### Web (Vercel)
 
 No framework env required beyond `vercel.json`, which rewrites `/api/*`,
-`/og/*` and the three SSR paths to the Railway domain. `STRIPE_PUBLISHABLE_KEY`
+`/og/*` and the three SSR paths to the API origin. `STRIPE_PUBLISHABLE_KEY`
 is the one value the browser needs, and it is served from `/api/v1/meta` rather
 than a build-time variable.
+
+Two build/deploy-time values (everything else is runtime):
+
+- `SITE_URL` (Vercel environment variable, e.g. `https://bizverse.app`):
+  absolute `og:url` / `og:image` / canonical in the built `index.html`, for
+  link scrapers that never run JavaScript. Optional: when unset the tags stay
+  relative (dev and E2E behavior), and the SPA sets absolute tags from
+  `window.location` at runtime for real browsers anyway.
+- `API_ORIGIN` (GitHub repo variable, e.g. `https://api.bizverse.app`): the
+  deploy workflow substitutes it into `vercel.json` before `vercel build` and
+  **fails the deploy** when it is missing or still the `api.example.com`
+  template. The committed `vercel.json` intentionally keeps the placeholder so
+  a fork cannot deploy a proxy to someone else's API by accident.
 
 ## 2. Postgres
 
