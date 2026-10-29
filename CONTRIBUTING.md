@@ -34,7 +34,7 @@ working dev logins; see the README's seed section.
 
 | Tool | Version | Source of truth |
 |---|---|---|
-| Go | 1.26 | `services/api/go.mod`, pinned in `.github/workflows/ci.yml` |
+| Go | 1.27 | `services/api/go.mod`, pinned in `.github/workflows/ci.yml` |
 | Node | 24 | `.github/workflows/ci.yml` |
 | PostgreSQL | 17 | `infra/docker/docker-compose.yml` |
 

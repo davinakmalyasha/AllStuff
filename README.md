@@ -22,7 +22,7 @@ hand-rolled. No proprietary APIs, no per-seat pricing, no data resale.
 
 ```
 apps/web/       React 18 + TypeScript + Vite + Tailwind (light/dark, en/id)
-services/api/   Go 1.26 — REST + WebSocket, 256 routes, 26 services
+services/api/   Go 1.27 — REST + WebSocket, 256 routes, 26 services
 infra/          docker compose, 43 versioned SQL migrations
 docs/           PRD (frozen), API (authoritative), ARCHITECTURE, RUNBOOK, DEPLOYMENT
 ```
@@ -75,7 +75,7 @@ grep -n "verified_badge\|featured_placement" services/api/internal/service/billi
 
 ## Run it
 
-Requires Go 1.26, Node 24, and Docker (or a local PostgreSQL 17).
+Requires Go 1.27, Node 24, and Docker (or a local PostgreSQL 17).
 
 ```bash
 # 1. backing services

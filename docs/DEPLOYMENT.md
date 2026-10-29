@@ -9,7 +9,7 @@ Targets per PRD §10.6: **Vercel** (frontend) + **Railway** (API, Postgres, Redi
 
 ## Prerequisites
 
-- Node 24+, Go 1.26+ (both pinned in `.github/workflows/ci.yml`), a GitHub repo.
+- Node 24+, Go 1.27+ (both pinned in `.github/workflows/ci.yml`), a GitHub repo.
 - Accounts: Vercel, Railway, Resend (email), and Google Cloud Console if you
   want OAuth. **No object-storage account is needed** — there is no S3/R2
   adapter, so media is local disk (see §5). An earlier version of this guide
@@ -137,7 +137,7 @@ COPY apps/web/ ./
 RUN npm run build
 
 # ---- api build ----
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 WORKDIR /app
 COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
