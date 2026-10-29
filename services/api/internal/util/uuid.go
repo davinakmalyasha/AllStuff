@@ -1,9 +1,8 @@
 package util
 
 import (
-	"crypto/rand"
-	"fmt"
-	"regexp"
+	"strings"
+	"uuid"
 )
 
 // Itoa converts a non-negative int to its decimal string.
@@ -29,20 +28,32 @@ func Itoa(n int) string {
 	return string(b[i:])
 }
 
-// NewUUID returns a random (v4) UUID string.
+// NewUUID returns a random (v4) UUID string. Deliberately v4, not v7:
+// ARCHITECTURE documents v4 as the choice, and the version nibble is pinned
+// by TestNewUUID_IsValidVersion4.
 func NewUUID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("rand: " + err.Error())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	return uuid.NewV4().String()
 }
-
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // IsUUID reports whether s is a well-formed UUID. Handlers use it before a
 // string reaches a uuid column: an arbitrary literal otherwise fails inside
 // Postgres (SQLSTATE 22P02) and surfaces as a 500 for what is a client error.
-func IsUUID(s string) bool { return uuidRe.MatchString(s) }
+//
+// uuid.Parse alone is too lenient for this job: it also accepts braces,
+// urn: prefixes and dash-less forms, none of which the previous
+// implementation accepted. The lowercase-canonical comparison re-narrows it
+// to exactly the old set — canonical 8-4-4-4-12 hex in either case, pinned
+// by TestIsUUID_*. The length pre-check is a fast path only: dropping it
+// changes nothing observable (the comparison already implies length 36),
+// which mutation testing confirmed — the compare flip is killable, the
+// pre-check is not.
+func IsUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	u, err := uuid.Parse(s)
+	if err != nil {
+		return false
+	}
+	return u.String() == strings.ToLower(s)
+}

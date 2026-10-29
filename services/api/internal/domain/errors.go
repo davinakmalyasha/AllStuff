@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 )
 
@@ -41,9 +42,7 @@ func (e *Error) Is(target error) bool {
 // writes across requests (and cross-request field leakage).
 func (e *Error) WithField(field, msg string) *Error {
 	fields := make(map[string]string, len(e.Fields)+1)
-	for k, v := range e.Fields {
-		fields[k] = v
-	}
+	maps.Copy(fields, e.Fields)
 	fields[field] = msg
 	return &Error{Code: e.Code, Message: e.Message, Status: e.Status, Fields: fields}
 }
@@ -76,8 +75,7 @@ func FromError(err error) *Error {
 	if err == nil {
 		return nil
 	}
-	var de *Error
-	if errors.As(err, &de) {
+	if de, ok := errors.AsType[*Error](err); ok {
 		return de
 	}
 	return &Error{Code: ErrInternal.Code, Message: ErrInternal.Message, Status: ErrInternal.Status}

@@ -93,6 +93,45 @@ func TestErrorsIsSeesThroughWrapping(t *testing.T) {
 	}
 }
 
+// FromError normalizes any error for the HTTP layer: nil stays nil, a domain
+// error (even wrapped) comes back as itself, and anything foreign becomes the
+// internal-error shape. If the unwrap regresses, wrapped domain errors surface
+// as 500s with the internal code instead of their real status.
+func TestFromError(t *testing.T) {
+	t.Parallel()
+
+	if got := FromError(nil); got != nil {
+		t.Errorf("FromError(nil) = %v, want nil", got)
+	}
+	if got := FromError(ErrNotFound); got != ErrNotFound {
+		t.Errorf("FromError(ErrNotFound) = %v, want the sentinel itself", got)
+	}
+	wrapped := fmt.Errorf("load business: %w", ErrValidation.WithField("id", "bad"))
+	if got := FromError(wrapped); got == nil || got.Code != ErrValidation.Code || got.Status != ErrValidation.Status {
+		t.Errorf("FromError(wrapped validation) = %+v, want the validation shape", got)
+	}
+	foreign := FromError(errors.New("boom"))
+	if foreign.Code != ErrInternal.Code || foreign.Status != ErrInternal.Status {
+		t.Errorf("FromError(foreign) = %+v, want the internal-error shape", foreign)
+	}
+}
+
+// WithField must carry over the existing fields, not just the new one —
+// otherwise chaining WithField (or cloning an already-fielded error) silently
+// drops context the handler attached upstream.
+func TestWithFieldPreservesExistingFields(t *testing.T) {
+	t.Parallel()
+
+	base := ErrValidation.WithField("a", "1")
+	clone := base.WithField("b", "2")
+	if clone.Fields["a"] != "1" || clone.Fields["b"] != "2" {
+		t.Errorf("clone Fields = %v, want both a=1 and b=2", clone.Fields)
+	}
+	if _, ok := base.Fields["b"]; ok {
+		t.Error("WithField leaked the new field back into the base error")
+	}
+}
+
 // A non-domain target must never match, including a nil target.
 func TestErrorsIsIgnoresForeignTargets(t *testing.T) {
 	t.Parallel()

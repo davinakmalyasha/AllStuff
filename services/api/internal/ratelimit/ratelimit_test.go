@@ -7,7 +7,7 @@ import (
 
 func TestAllowWithinWindow(t *testing.T) {
 	l := NewInMemory()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if _, _, ok := l.Allow("k", 5, time.Minute); !ok {
 			t.Fatalf("call %d should be allowed", i+1)
 		}
@@ -38,7 +38,7 @@ func TestWindowReset(t *testing.T) {
 
 func TestKeysAreIndependent(t *testing.T) {
 	l := NewInMemory()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.Allow("a", 3, time.Minute)
 	}
 	if _, _, ok := l.Allow("a", 3, time.Minute); ok {

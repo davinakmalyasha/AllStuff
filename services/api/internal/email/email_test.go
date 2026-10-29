@@ -93,7 +93,7 @@ func TestBuildMessageCannotInjectHeaders(t *testing.T) {
 	// is deliberately not in the list: buildMessage legitimately writes three of
 	// them (the multipart declaration plus one per alternative part), so
 	// flagging it would be flagging the writer's own correct behaviour.
-	for _, line := range strings.Split(string(raw), "\r\n") {
+	for line := range strings.SplitSeq(string(raw), "\r\n") {
 		lower := strings.ToLower(line)
 		for _, forbidden := range []string{"bcc:", "cc:", "reply-to:", "resent-", "return-path:", "sender:"} {
 			if strings.HasPrefix(lower, forbidden) {
@@ -190,7 +190,7 @@ func TestBuildMessageIsWellFormed(t *testing.T) {
 // entropy source is how that happens.
 func TestMimeBoundaryIsUniqueAndSafe(t *testing.T) {
 	seen := make(map[string]bool, 64)
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		b := mimeBoundary()
 		if seen[b] {
 			t.Fatalf("boundary repeated after %d draws: %q", i, b)

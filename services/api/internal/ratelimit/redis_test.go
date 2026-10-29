@@ -145,7 +145,7 @@ func TestZeroLimitFailsOpen(t *testing.T) {
 	l := NewInMemory()
 	// Repeat each call: a guard that only covers the first call would still
 	// deny on the second, which is the case that actually breaks traffic.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, _, ok := l.Allow("k", 0, time.Minute); !ok {
 			t.Fatalf("limit=0 call %d denied; want allow", i+1)
 		}

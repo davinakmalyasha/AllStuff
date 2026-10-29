@@ -27,6 +27,31 @@ import (
 	"bizverse/api/internal/ws"
 )
 
+// maxHeaderBytes caps request HEADERS (not bodies — uploads are unaffected).
+// The stdlib default is 1MB; 256KB is still two orders of magnitude above any
+// legitimate request (the largest header set is cookies, low single KBs) while
+// bounding the memory a slowloris-style header flood can hold per connection.
+const maxHeaderBytes = 256 << 10
+
+// newHTTPServer builds the listener. Extracted from main so the limits are
+// testable: TestServerHeaderLimits pins them against a live socket rather
+// than asserting struct fields that nothing reads.
+func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    maxHeaderBytes,
+		// Pinned to the stdlib default deliberately: a silent upstream change
+		// to DefaultMaxHeaderValueCount would otherwise move our header-flood
+		// bound without a diff anywhere in this repo.
+		MaxHeaderValueCount: http.DefaultMaxHeaderValueCount,
+	}
+}
+
 func main() {
 	migrateOnly := flag.Bool("migrate", false, "run pending migrations and exit")
 	vapidGen := flag.Bool("vapid", false, "generate a VAPID keypair for web push and exit")
@@ -219,20 +244,13 @@ func main() {
 		Hub:         hub,
 	})
 
-	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           api.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
 	backgroundWG.Add(1)
 	go func() {
 		defer backgroundWG.Done()
 		jobs.Run(ctx, logger, repos, cfg, sender, notifier, billingSvc)
 	}()
+
+	srv := newHTTPServer(cfg, api.Handler())
 
 	go func() {
 		logger.Info("api listening", "addr", srv.Addr)

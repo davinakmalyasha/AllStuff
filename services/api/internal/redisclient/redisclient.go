@@ -186,7 +186,7 @@ func ReadReply(br *bufio.Reader) (any, error) {
 			return nil, nil // null array
 		}
 		out := make([]any, 0, n)
-		for i := 0; i < n; i++ {
+		for range n {
 			v, err := ReadReply(br)
 			if err != nil {
 				return nil, err

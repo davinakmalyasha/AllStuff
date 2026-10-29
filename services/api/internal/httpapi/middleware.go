@@ -748,8 +748,8 @@ func (s *Server) clientIP(r *http.Request) string {
 			// entirely client-controlled. Trusting it hands the attacker one
 			// fresh bucket per request — a total bypass of the 5/min login and
 			// 3/15min 2FA tiers. Fall back to RemoteAddr instead.
-			if i := strings.LastIndexByte(xff, ','); i >= 0 {
-				raw = strings.TrimSpace(xff[i+1:])
+			if _, last, found := strings.CutLast(xff, ","); found {
+				raw = strings.TrimSpace(last)
 			} else {
 				raw = r.RemoteAddr
 			}
