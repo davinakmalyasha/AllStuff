@@ -23,6 +23,12 @@ func NewWaitlist(repos *repo.Repos) *Waitlist { return &Waitlist{repos: repos} }
 // business, and that the requested day has not passed in the BUSINESS's
 // timezone. Asking twice is idempotent.
 func (w *Waitlist) Join(ctx context.Context, userID, businessID, productID, day string) (*domain.WaitlistEntry, error) {
+	// Malformed ids must be a 404, not a Postgres uuid-cast 500 (and, under the
+	// test transaction, an abort that turns every later query in the test into a
+	// misleading 401).
+	if !util.IsUUID(businessID) || !util.IsUUID(productID) {
+		return nil, domain.ErrNotFound
+	}
 	day = strings.TrimSpace(day)
 	parsed, err := time.Parse("2006-01-02", day)
 	if err != nil {
@@ -63,6 +69,9 @@ func (w *Waitlist) Join(ctx context.Context, userID, businessID, productID, day 
 
 // Leave removes one of the caller's own entries.
 func (w *Waitlist) Leave(ctx context.Context, userID, id string) error {
+	if !util.IsUUID(id) {
+		return domain.ErrNotFound
+	}
 	ok, err := w.repos.Waitlist.Leave(ctx, userID, id)
 	if err != nil {
 		return err

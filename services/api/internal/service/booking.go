@@ -400,6 +400,9 @@ func (s *Booking) BookAt(ctx context.Context, customerID, businessID, productID,
 
 // Cancel is available to the customer and to anyone who manages the listing.
 func (s *Booking) Cancel(ctx context.Context, userID, appointmentID string) error {
+	if !util.IsUUID(appointmentID) {
+		return domain.ErrNotFound
+	}
 	a, err := s.repos.Bookings.GetAppointment(ctx, appointmentID)
 	if err != nil {
 		return err
@@ -481,6 +484,9 @@ func (s *Booking) notifyWaitlist(ctx context.Context, a *domain.Appointment) {
 // would treat the moved booking as already reminded and the customer would get
 // nothing for the new time.
 func (s *Booking) Reschedule(ctx context.Context, userID, appointmentID string, at time.Time) (*domain.Appointment, error) {
+	if !util.IsUUID(appointmentID) {
+		return nil, domain.ErrNotFound
+	}
 	a, err := s.repos.Bookings.GetAppointment(ctx, appointmentID)
 	if err != nil {
 		return nil, err
