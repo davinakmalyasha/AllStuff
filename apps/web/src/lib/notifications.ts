@@ -1,3 +1,5 @@
+"use client"
+
 import type { NotificationDTO } from '@/lib/api'
 
 export const NOTIF_LABELS: Record<string, string> = {

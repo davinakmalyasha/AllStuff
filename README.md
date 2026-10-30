@@ -21,8 +21,8 @@ Argon2id, the Redis client, Stripe, Web Push and the Prometheus exposition are a
 hand-rolled. No proprietary APIs, no per-seat pricing, no data resale.
 
 ```
-apps/web/       React 18 + TypeScript + Vite + Tailwind (light/dark, en/id)
-services/api/   Go 1.27 — REST + WebSocket, 256 routes, 26 services
+apps/web/       Next.js 16 + React 19 + TypeScript + Tailwind (light/dark, en/id)
+services/api/   Go 1.27 — REST + WebSocket, 253 routes, 26 services
 infra/          docker compose, 43 versioned SQL migrations
 docs/           PRD (frozen), API (authoritative), ARCHITECTURE, RUNBOOK, DEPLOYMENT
 ```
@@ -90,7 +90,8 @@ go run ./cmd/api -migrate
 # 3. API on :8080
 go run ./cmd/api
 
-# 4. web on :5173, proxying /api and /ws to :8080
+# 4. web on :3000, proxying /api to :8080 (WebSocket: same-origin in prod via
+# the vercel.json WS rule; NEXT_PUBLIC_WS_BASE=ws://localhost:8080 for local dev)
 cd ../../apps/web && npm install && npm run dev
 ```
 

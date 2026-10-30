@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Logo } from '@/components/ui/Logo'

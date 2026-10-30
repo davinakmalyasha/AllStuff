@@ -53,7 +53,7 @@ test('register, land on /me, sign out, sign back in', async ({ page }) => {
 
   await register(page, { email, username: `e2e${uid}`, password: PASSWORD })
   await expect(page).toHaveURL(/\/me$/)
-  await expect(page.getByText('E2E Owner')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'E2E Owner' })).toBeVisible()
 
   await page.getByRole('button', { name: /sign out/i }).click()
   // Wait for the URL instead of calling `page.goto('/login')` afterwards.
@@ -126,12 +126,20 @@ test('landing page renders categories and trending', async ({ page }) => {
   // Shopping has no seeded businesses - and forbidding them would be asserting
   // something untrue about the catalogue. What must hold is that the counts are
   // derived from businesses that exist.
+  //
+  // Wait for a count to render first: the tiles show static fallback notes
+  // until GET /api/v1/categories resolves, and asserting during that window
+  // tests the fallback rather than the rollup. Only real data renders a
+  // "<n> business(es)" string, so this wait is the fetch completing, not a
+  // sleep. (The announcer cannot false-positive this: document titles never
+  // contain a business count.)
   // `business(?:es)?` and not `businesses?`: the latter parses as "businessE"
   // plus an optional "s", so it matches neither "business" nor "businesses" and
   // the assertion silently rejected a page whose counts were perfectly correct.
   // The first run of this test failed with every tile printed and two of them
   // reading "1 business" - which is exactly the behaviour it was written to
   // require. A guard that rejects the fixed state is worse than no guard.
+  await expect(page.getByText(/\b[1-9]\d* business(?:es)?\b/).first()).toBeVisible({ timeout: 15_000 })
   const labels = await tiles.allInnerTexts()
   expect(
     labels.some((l) => /\b[1-9]\d* business(?:es)?\b/.test(l)),
@@ -179,12 +187,15 @@ test('public business page shows the storefront and its trust level', async ({ p
 })
 
 test('business page is server-rendered with JSON-LD', async ({ request }) => {  // The SEO surface is a headline feature, so it gets a direct assertion against
-  // the SSR endpoint rather than trusting that the rewrite is configured.
+  // the raw HTML rather than trusting that hydration fills it in. Next renders
+  // the document (generateMetadata + JSON-LD + ISR); the old Go /ssr/* shell
+  // was deleted at the migration cutover.
   const target = await seededBusinessBySlug(request, 'rumah-kopi-senja')
-  const res = await request.get(`/ssr/b/${target.slug}`)
+  const res = await request.get(`/b/${target.slug}`)
   expect(res.status()).toBe(200)
   const html = await res.text()
   expect(html, 'SSR document must contain a title').toMatch(/<title>/i)
+  expect(html, 'SSR document must name the business in the title').toContain(target.name)
   expect(html, 'SSR document must contain LocalBusiness JSON-LD').toMatch(/application\/ld\+json/)
   expect(html, 'JSON-LD must name the business').toContain(target.name)
 })

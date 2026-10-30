@@ -1,3 +1,5 @@
+"use client"
+
 import { useQuery } from '@tanstack/react-query'
 import { Megaphone } from 'lucide-react'
 import { api } from '@/lib/api'

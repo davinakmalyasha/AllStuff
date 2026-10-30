@@ -69,12 +69,6 @@ type Config struct {
 	StripeWebhookSecret  string
 	StripePublishableKey string
 
-	// WebDistDir points at the built frontend (apps/web/dist). The server-
-	// rendered SEO shell reads .vite/manifest.json from here to reference the
-	// hashed entry script. When empty the shell still serves crawlable HTML,
-	// it just cannot hydrate the SPA.
-	WebDistDir string
-
 	// VAPID (Web Push, PRD §5.5.3); nil when not configured.
 	VAPID *security.VAPIDKeypair
 }
@@ -111,9 +105,8 @@ func Load() Config {
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		// Safe to ship to the browser; only the publishable key belongs in
-		// VITE_-prefixed frontend config.
+		// NEXT_PUBLIC_-prefixed frontend config.
 		StripePublishableKey: os.Getenv("STRIPE_PUBLISHABLE_KEY"),
-		WebDistDir:           os.Getenv("WEB_DIST_DIR"),
 	}
 	// VAPID keys are base64url-encoded raw 65-byte P-256 public key + DER private.
 	if pub := os.Getenv("VAPID_PUBLIC_KEY"); pub != "" && os.Getenv("VAPID_PRIVATE_KEY") != "" {

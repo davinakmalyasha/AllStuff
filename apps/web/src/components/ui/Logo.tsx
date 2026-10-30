@@ -1,3 +1,5 @@
+"use client"
+
 import { Link } from 'react-router-dom'
 
 export function Logo({ className = '' }: { className?: string }) {

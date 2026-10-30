@@ -1,3 +1,5 @@
+"use client"
+
 import { useEffect, useState } from 'react'
 
 /** Debounce a fast-changing value (search inputs) so keystroke-driven

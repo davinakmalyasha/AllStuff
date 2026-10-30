@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+# build outputs
+.next/
+out/
+dist/
+# test artifacts
+test-results/
+playwright-report/
+coverage/
+# production
+*.log
+# misc
+.DS_Store
+*.pem
+# local env
+.env*.local
+# vercel
+.vercel
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+# generated maplibre worker (postinstall copies from node_modules)
+public/maplibre-worker.mjs

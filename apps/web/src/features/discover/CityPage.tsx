@@ -1,3 +1,5 @@
+"use client"
+
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, type BusinessDTO, type TrendEntryDTO } from '@/lib/api'
@@ -35,7 +37,9 @@ export function CityPage() {
   })
 
   const city = data?.city
-  usePageMeta(city ? `Businesses in ${city.name} — BizVerse` : 'Cities', undefined, {
+  const top = city?.top ?? []
+  const topRated = city?.top_rated ?? []
+  usePageMeta(city ? `Businesses in ${city.name}` : 'Cities', undefined, {
     url: city ? `${window.location.origin}/city/${city.slug}` : undefined,
   })
   useJsonLd(
@@ -68,7 +72,7 @@ export function CityPage() {
   const mapCoords =
     city.lat != null && city.lng != null
       ? { lat: city.lat, lng: city.lng }
-      : [city.top_rated, city.top]
+      : [topRated, top]
           .flat()
           .map((e) => e as unknown as BusinessDTO)
           .find((b) => b.lat != null && b.lng != null) ?? null
@@ -86,11 +90,11 @@ export function CityPage() {
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_280px]">
         <div className="space-y-10">
-          {city.top.length > 0 && (
+          {top.length > 0 && (
             <section>
               <h2 className="mono-label mb-3">Trending in {city.name}</h2>
               <div className="grid gap-4 sm:grid-cols-2">
-                {city.top.map((e, i) => (
+                {top.map((e, i) => (
                   <div key={e.id} className="relative">
                     <span className="absolute -left-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-accent font-mono text-xs font-semibold text-accent-ink">
                       {i + 1}
@@ -109,11 +113,11 @@ export function CityPage() {
 
           <section>
             <h2 className="mono-label mb-3">Top rated</h2>
-            {city.top_rated.length === 0 ? (
+            {topRated.length === 0 ? (
               <p className="text-sm text-ink3">No businesses listed here yet.</p>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                {city.top_rated.map((b) => (
+                {topRated.map((b) => (
                   <BusinessCard key={b.id} business={b} />
                 ))}
               </div>

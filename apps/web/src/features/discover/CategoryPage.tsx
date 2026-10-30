@@ -1,3 +1,5 @@
+"use client"
+
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BellPlus, BellRing } from 'lucide-react'
@@ -22,6 +24,7 @@ export function CategoryPage() {
   })
 
   const cat = data?.category
+  const leaderboard = data?.leaderboard ?? []
 
   const { data: followState } = useQuery({
     queryKey: ['cat-follow', cat?.id],
@@ -81,7 +84,7 @@ export function CategoryPage() {
         )}
       </div>
 
-      {data?.leaderboard.length ? (
+      {leaderboard.length ? (
         <section className="mt-10">
           <div className="mb-3 flex items-baseline gap-2">
             <p className="mono-label">Top in {cat.name}</p>
@@ -92,7 +95,7 @@ export function CategoryPage() {
             )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.leaderboard.map((b, i) => (
+            {leaderboard.map((b, i) => (
               <div key={b.id} className="relative">
                 <span className="absolute -left-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-accent font-mono text-xs font-semibold text-accent-ink">
                   {i + 1}

@@ -1,3 +1,5 @@
+"use client"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -85,7 +87,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollBodyRef = useRef<HTMLDivElement>(null)
   const didInitialScroll = useRef(false)
-  const typingTimer = useRef<ReturnType<typeof setTimeout>>()
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // ---- history pagination -------------------------------------------------
   // The API pages by `before` (an exclusive message-id upper bound) and reports

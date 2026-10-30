@@ -1,3 +1,5 @@
+"use client"
+
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
@@ -24,7 +26,7 @@ const links = [
 ]
 
 /** Owner dashboard shell (PRD §6.4) with the universal business switcher. */
-export function OwnerShell() {
+export function OwnerShell({ children }: { children?: React.ReactNode }) {
   const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
   const navigate = useNavigate()
   const { selectedId, setSelected } = useBusiness()
@@ -90,7 +92,7 @@ export function OwnerShell() {
           <MobileNav links={links} />
         </div>
         <main className="px-4 py-8 sm:px-8">
-          <Outlet />
+          {children ?? <Outlet />}
         </main>
       </div>
     </div>

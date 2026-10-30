@@ -1,3 +1,5 @@
+"use client"
+
 import { Coffee, ChefHat, Flame, Croissant, Martini, Scissors, Hand, Flower, Camera, Aperture, Music, Calendar, Shirt, Palette, Cpu, Car, Home, Printer, Dumbbell, Stethoscope, Leaf, Tag, type LucideIcon } from 'lucide-react'
 
 /** Category icon registry (PRD §7.1 categories.icon). */

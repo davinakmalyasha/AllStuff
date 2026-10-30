@@ -1,3 +1,5 @@
+"use client"
+
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -93,6 +95,7 @@ export function BusinessPage() {
   })
 
   const b = data?.business
+  const similar = data?.similar ?? []
   usePageMeta(b ? `${b.name} — ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
     image: b ? `/og/b/${b.slug}` : undefined,
     url: b ? `${window.location.origin}/b/${b.slug}` : undefined,
@@ -417,11 +420,11 @@ export function BusinessPage() {
         </aside>
       </div>
 
-      {data?.similar.length ? (
+      {similar.length ? (
         <div className="mx-auto max-w-6xl px-4 pb-14 sm:px-6 lg:px-8">
           <h2 className="mono-label mb-4">Similar businesses</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.similar.map((s) => (
+            {similar.map((s) => (
               <Link key={s.id} to={`/b/${s.slug}`} className="card flex items-center gap-3 p-4 transition-shadow hover:shadow-cardHover">
                 {s.logo_url ? <img src={s.logo_url} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface2 text-sm font-semibold">{s.name.charAt(0)}</div>}
                 <div className="min-w-0">

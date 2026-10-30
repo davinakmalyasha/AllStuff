@@ -10,5 +10,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src", "tests", "playwright.config.ts", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "app", "tests", "playwright.config.ts", "proxy.ts", "eslint.config.js"]
 }

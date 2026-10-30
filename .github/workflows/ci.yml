@@ -414,7 +414,7 @@ jobs:
 
       - name: Encoding check
         # Mojibake - UTF-8 decoded as cp1252 and re-encoded - is still valid
-        # UTF-8 and still valid TypeScript, so tsc, ESLint and `vite build` all
+        # UTF-8 and still valid TypeScript, so tsc, ESLint and `next build` all
         # pass over it and only a browser shows the damage. That is not
         # hypothetical: 3e4d259 repaired 128 occurrences across 25 files, and the
         # eighteen it could not repair mechanically included a 20-entry emoji
@@ -426,41 +426,30 @@ jobs:
         # than transformed.
         run: node scripts/check-encoding.mjs
 
-      - name: Site URL sentinel check
-        # The __SITE_URL__ sentinel in index.html is replaced at build time from
-        # SITE_URL so crawlers get absolute OG/canonical URLs. A hardcoded
-        # production domain here would leak into dev builds, and a dropped
-        # sentinel would silently ship relative tags to scrapers. The script
-        # self-tests the transform both ways (set and unset) plus the sentinel
-        # set in the real file.
-        run: node scripts/site-url.mjs
+      - name: API origin check
+        # The committed vercel.json points rewrites at https://api.example.com
+        # as a template; deploying it verbatim would silently proxy the app to
+        # someone else's API. The origin now comes from env (API_ORIGIN), not a
+        # substituted file, so this runs the validator's self-test: unit cases
+        # plus the missing-origin failure that is the whole point of the gate.
+        run: node scripts/check-api-origin.mjs --self-test
 
-      - name: API origin inject check
-        # The deploy workflow rewrites vercel.json from vars.API_ORIGIN and
-        # fails when it is missing. This runs the same script's self-test:
-        # unit cases, a real template substitution, and the missing-origin
-        # failure that is the whole point of the gate.
-        run: node scripts/inject-api-origin.mjs --self-test
-
-      - name: CSP check
-        # A <meta> CSP is just a string in an HTML file, so tsc, ESLint and
-        # `vite build` all pass straight over it. Three defects shipped that way
-        # and only a browser console revealed them: a `frame-ancestors` that is
-        # ignored in <meta> (so the page's only clickjacking directive did
-        # nothing), `/api/v1/media` in img-src (a path is not an origin, so it
-        # was silently dropped), and an inline theme script that script-src
-        # blocked - meaning the FOUC guard never ran and every dark-mode user got
-        # a white flash on every load.
-        run: node scripts/check-csp.mjs
+      - name: Headers check
+        # Next sets its CSP per request (proxy.ts, with a hydration nonce); a
+        # static `script-src 'self'` or a second CSP in vercel.json would
+        # intersect it and break hydration. This asserts the nonce policy, the
+        # map-tile origins, frame-ancestors-as-header, and the .map no-store
+        # rule — all without booting a server.
+        run: node scripts/check-headers.mjs && node scripts/check-headers.mjs --self-test
 
       - name: Typecheck
         # `npm run lint` bundles tsc, but the tests/ directory and
         # playwright.config.ts are outside tsconfig's include, so a type error in
         # an E2E spec is invisible to the current gate.
-        run: npx tsc --noEmit -p tsconfig.check.json
+        run: npm run typecheck:all
 
       - name: Lint
-        run: npx eslint src tests playwright.config.ts --max-warnings 0
+        run: npm run lint
 
       - run: npm run build
 

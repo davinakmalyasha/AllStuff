@@ -1,3 +1,5 @@
+"use client"
+
 import { create } from 'zustand'
 import { CheckCircle2, Info, AlertTriangle, XCircle, X } from 'lucide-react'
 

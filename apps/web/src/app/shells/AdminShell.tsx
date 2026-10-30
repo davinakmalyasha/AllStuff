@@ -1,3 +1,5 @@
+"use client"
+
 import { NavLink, Outlet } from 'react-router-dom'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { MobileNav } from '@/components/ui/MobileNav'
@@ -18,7 +20,7 @@ const links = [
 ]
 
 /** Admin shell (PRD §6.5). Landed for real in M6. */
-export function AdminShell() {
+export function AdminShell({ children }: { children?: React.ReactNode }) {
   const { user, loading } = useAuthState((s) => ({ user: s.user, loading: s.loading }))
   if (loading) return <PageSpinner label="Loading admin…" />
   if (!user) return <PageSpinner label="Signing you in…" />
@@ -50,7 +52,7 @@ export function AdminShell() {
           <MobileNav links={links} />
         </div>
         <main className="px-4 py-8 sm:px-8">
-          <Outlet />
+          {children ?? <Outlet />}
         </main>
       </div>
     </div>

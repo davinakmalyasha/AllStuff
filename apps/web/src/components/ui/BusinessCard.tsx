@@ -1,3 +1,5 @@
+"use client"
+
 import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { ShieldCheck, Star } from 'lucide-react'

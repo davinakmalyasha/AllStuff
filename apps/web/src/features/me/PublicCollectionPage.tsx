@@ -1,3 +1,5 @@
+"use client"
+
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, type CollectionItemDTO } from '@/lib/api'

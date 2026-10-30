@@ -1,3 +1,5 @@
+"use client"
+
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, type BillingStateDTO, type InvoiceDTO, type PlanDTO } from '@/lib/api'
 import { formatDate } from '@/lib/format'

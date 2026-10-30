@@ -135,9 +135,10 @@ known gaps are in one place.
 ## 1. Conventions
 
 - Base path: `/api/v1`, with five deliberate exceptions registered at the
-  **origin root**: `/robots.txt`, `/og/b/{slug}`, `/ssr/*`, and the three
+  **origin root**: `/robots.txt`, `/og/b/{slug}`, and the three
   `/metrics` and `/health` paths. `docs/API.md` lists them explicitly, because
-  requesting `/api/v1/robots.txt` returns 404.
+  requesting `/api/v1/robots.txt` returns 404. (`/ssr/*` was the previous
+  Next-migration SEO shell; it was deleted with `handlers_ssr.go`.)
 - **Middleware chain**, outermost to innermost, applied in
   `internal/httpapi/server.go:372`:
 
@@ -172,7 +173,6 @@ known gaps are in one place.
   | `tfa` | 2FA verify | 3/15min | IP |
   | `refresh` | token refresh | 60/min | IP |
   | `search` | search, suggest, user search | 60/min | IP |
-  | `ssr` | `/ssr/*` | 60/min | IP |
   | `sitemap` | sitemap.xml | 10/min | IP |
   | `export` | GDPR export, thread export | 5/h | IP |
   | `media` | uploads | 20/h | user |
@@ -247,12 +247,12 @@ Unauthenticated, and therefore the part that has to be right about abuse limits:
 | Directory | `GET /categories`, `/categories/{slug}`, `/cities`, `/cities/{slug}`, `/search`, `/search/suggest`, `/compare`, `/featured`, `/leaderboards`, `/trending`, `/rising`, `/meta`, `/rates` | search is the heaviest read path; two-phase, see §5 |
 | Businesses | `GET /b/{slug}` | serves verified and paused only; `?draft=1` for the owner |
 | Profiles | `GET /u/{username}`, `/collections/{id}` | public collections only |
-| SEO | `GET /robots.txt`, `/og/b/{slug}`, `/ssr/b/{slug}`, `/ssr/c/{slug}`, `/ssr/city/{slug}`, `/api/v1/sitemap.xml` | the first four are at the **origin root**, not under `/api/v1` |
+| SEO | `GET /robots.txt`, `/og/b/{slug}`, `/api/v1/sitemap.xml` | at the **origin root**, not under `/api/v1`; page HTML/OG/JSON-LD is rendered by Next.js (`apps/web/app`) |
 | Ops | `GET /health`, `/ready`, `/metrics` | `/metrics` is open in non-prod, and in prod needs either an admin session or the `METRICS_TOKEN` bearer |
 | Writes | `POST /api/v1/auth/*`, `/auth/oauth/google`, `/auth/csrf`, `POST /errors`, `/support/contact` | auth-tier and IP-tiered |
 
 `GET /auth/csrf` deserves a callout: it is the bootstrap endpoint that issues the
-`bv_csrf` cookie the SPA needs before its first mutation, and it is required for
+`bv_csrf` cookie the web app needs before its first mutation, and it is required for
 any client to function at all. It was undocumented, which made the API
 unusable by a third party who was not reading the frontend.
 
@@ -470,6 +470,11 @@ is the complete set.
 - Site config: site_config key/value JSONB (announcement banner); exposed at /meta.
 - Currency: currency_rates synced hourly (open.er-api.com); read-time conversion client-side; display currency persisted per user.
 - OG images: /og/b/{slug} generates an SVG share card; referenced by og:image meta.
-- **SEO:** server-rendered by the API, not prerendered. `GET /ssr/b/{slug}`, `/ssr/c/{slug}` and `/ssr/city/{slug}` (`handlers_ssr.go`) return a complete crawlable HTML document with per-row meta, canonical, OG/Twitter and JSON-LD; `apps/web/vercel.json` rewrites `/b/:slug`, `/c/:slug` and `/city/:slug` onto them. The SPA mounts into `#root` and removes `#seo` before first paint. Assets are resolved from `WEB_DIST_DIR/.vite/manifest.json`, and a missing manifest degrades to a no-JS document rather than to an empty page. The old `apps/web/scripts/prerender.mjs` was removed: CI served `vite preview` on `:5173` while the script targeted `:4173`, it wrote into `dist/prerendered/` which nothing served, and its per-route `catch` exited 0, so it produced 0 files in a green run.
+- **SEO:** server-rendered by Next.js (`apps/web/app`), not prerendered and no
+  longer by the API. Public routes export `generateMetadata` (per-row title,
+  description, canonical, OG/Twitter) and inline JSON-LD; ISR keeps HTML fresh.
+  `apps/web/vercel.json` keeps only the WS-first `/api` proxy and headers —
+  `/b/:slug`, `/c/:slug`, `/city/:slug` are Next routes. The Go `/ssr/*` shell
+  (`handlers_ssr.go`, `WEB_DIST_DIR`) was deleted at the migration cutover.
 
 - Support: /support/contact stores a support report for the admin inbox.

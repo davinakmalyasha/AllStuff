@@ -1,8 +1,18 @@
+"use client"
+
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+
+// Bundler-proof worker: maplibre derives its worker URL from its own script
+// location, which breaks once Next inlines the library ("Worker failed to
+// load", empty canvas). The stock worker is copied to public/ on postinstall
+// (scripts/copy-map-worker.mjs); point maplibre at that static file once.
+if (typeof window !== 'undefined' && !maplibregl.config.WORKER_URL) {
+  maplibregl.config.WORKER_URL = '/maplibre-worker.mjs'
+}
 import { api, searchPath, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { escapeHtml } from '@/lib/url'
 import { Badge } from '@/components/ui/Badge'

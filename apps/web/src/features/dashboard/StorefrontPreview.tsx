@@ -1,3 +1,5 @@
+"use client"
+
 import { Clock, MapPin, Phone, Star, Heart, Bolt, Coffee, Wifi, Leaf, Scissors, Camera, Music, Sparkles, Zap } from 'lucide-react'
 import type { BusinessDTO, ProductDTO } from '@/lib/api'
 import { cap, FONTS } from '@/lib/format'

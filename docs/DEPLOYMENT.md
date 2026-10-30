@@ -58,9 +58,6 @@ LOG_LEVEL=info
 # and the default 120 is used, so a unit suffix makes the knob silently inert.
 # An earlier version of this guide showed "120/min".
 RATELIMIT_GLOBAL=120
-# Only set this on a single-container deployment where the API also serves the
-# built web app. Leave EMPTY for the Vercel split below.
-WEB_DIST_DIR=
 
 # --- optional: OAuth, push, billing --------------------------------------
 GOOGLE_OAUTH_CLIENT_ID=
@@ -91,10 +88,9 @@ than a build-time variable.
 Two build/deploy-time values (everything else is runtime):
 
 - `SITE_URL` (Vercel environment variable, e.g. `https://bizverse.app`):
-  absolute `og:url` / `og:image` / canonical in the built `index.html`, for
+  absolute `og:url` / `og:image` / canonical via Next `metadataBase`, for
   link scrapers that never run JavaScript. Optional: when unset the tags stay
-  relative (dev and E2E behavior), and the SPA sets absolute tags from
-  `window.location` at runtime for real browsers anyway.
+  relative (dev and E2E behavior).
 - `API_ORIGIN` (GitHub repo variable, e.g. `https://api.bizverse.app`): the
   deploy workflow substitutes it into `vercel.json` before `vercel build` and
   **fails the deploy** when it is missing or still the `api.example.com`
@@ -127,15 +123,6 @@ Two build/deploy-time values (everything else is runtime):
   hydrated:
 
 ```dockerfile
-# ---- web build (needed for SSR hydration) ----
-FROM node:24-slim AS web
-WORKDIR /web
-COPY apps/web/package.json apps/web/package-lock.json ./
-RUN npm ci
-COPY apps/web/ ./
-# manifest: true is what makes .vite/manifest.json exist for the SSR shell.
-RUN npm run build
-
 # ---- api build ----
 FROM golang:1.27 AS build
 WORKDIR /app
@@ -148,11 +135,11 @@ RUN go build -o /bin/api ./cmd/api
 FROM debian:bookworm-slim
 COPY --from=build /bin/api /bin/api
 COPY --from=build /app/migrations /app/infra/postgres/migrations
-# Only needed if WEB_DIST_DIR is set; omit both lines for the Vercel split.
-COPY --from=web /web/dist /app/web/dist
-ENV WEB_DIST_DIR=/app/web/dist
 ENTRYPOINT ["/bin/api"]
 ```
+
+The web app deploys to Vercel (`apps/web`, `npm run build`); the API never
+serves frontend files. `WEB_DIST_DIR` no longer exists.
 
 - Health check: `GET /api/v1/health` (it queries Postgres, so it is a real
   readiness signal). `GET /api/v1/ready` is the cheaper liveness variant.
@@ -163,29 +150,26 @@ ENTRYPOINT ["/bin/api"]
 
 ## 4. Vercel
 
-- Import the repo, root `apps/web`, build `npm run build`, output `dist`.
-- `vercel.json` carries five rewrites and their order is load-bearing:
+- Import the repo, root `apps/web`, build `npm run build` (Next.js, no static
+  output dir — Vercel detects Next automatically).
+- `vercel.json` carries the WS-first proxy and security headers; order is
+  load-bearing:
   1. `/api/v1/ws` → the API over `wss://`. **Must be first.** Get this wrong and
      the rewrite chain silently breaks chat while everything else looks fine.
-  2. `/b/:slug`, `/c/:slug`, `/city/:slug` → the SSR endpoints.
-  3. `/api/:path*`, `/og/:path*`, `/robots.txt` → the API.
-- **SEO:** no build step and no prerender job. The API renders the crawlable
-  document for those three paths on every request, so a newly published business
-  is indexable immediately — there is no artifact to rebuild. Two things must
-  both hold in production:
-  1. Those three paths rewrite to `https://<your-api-domain>/ssr/...`. Verify
-     the `api.example.com` placeholder has been replaced.
-  2. `WEB_DIST_DIR` on Railway points at a directory containing
-     `.vite/manifest.json`, otherwise the page is crawlable but does not
-     hydrate. If the manifest is absent the renderer degrades to a
-     document-only response rather than an error, so this fails quietly —
-     check the console for a real hydration warning.
+  2. `/ssr/:path*` (transition compat), `/api/:path*`, `/og/:path*`,
+     `/robots.txt` → the API.
+- **SEO:** no prerender job. Next renders the crawlable document per route
+  (`generateMetadata` + JSON-LD, ISR 120–300s), so a newly published business
+  is indexable within minutes — there is no artifact to rebuild. Production
+  checks:
+  1. `API_ORIGIN` repo variable is set (the deploy fails loud otherwise);
+     verify no `api.example.com` placeholder survives.
+  2. `SITE_URL` matches the production domain so canonical/OG tags absolutize.
 
-  `curl -sS "https://<your-api-domain>/ssr/b/<slug>" | head -40` should show
-  `<title>`, `application/ld+json` and body text. A `404` carries
-  `X-Robots-Tag: noindex,follow`. The API serves `/robots.txt` from the origin
-  root — verify the Sitemap URL shows your production domain — and submit
-  `/api/v1/sitemap.xml` in Search Console.
+  `curl -sS "https://<your-domain>/b/<slug>" | head -40` should show
+  `<title>`, `application/ld+json` and body text. The API serves `/robots.txt`
+  from the origin root — verify the Sitemap URL shows your production domain —
+  and submit `/api/v1/sitemap.xml` in Search Console.
 
 ## 5. Media storage
 
@@ -226,8 +210,8 @@ because following it would duplicate and race the real pipeline.
 - [ ] Google OAuth configured with the callback URL registered
 - [ ] VAPID keys set; a test push received on a real device, outside quiet hours
 - [ ] `robots.txt` + sitemap submitted; OG images render on a share
-- [ ] SSR: `curl` one `/ssr/b/<slug>` and confirm the page **hydrates**, not just
-      that it returns HTML
+- [ ] SEO: `curl` one `/b/<slug>` and confirm `<title>` + JSON-LD are in the
+      raw HTML (no JS needed), with no console/CSP errors in a real browser
 - [ ] Domain TLS enforced (Vercel + Railway)
 - [ ] Stripe: plans have `stripe_price_id` bound, and a test checkout +
       cancellation round-trips; verify `/admin/analytics` shows the

@@ -1,3 +1,5 @@
+"use client"
+
 import { useState } from 'react'
 import { Flag, Share2 } from 'lucide-react'
 import { api } from '@/lib/api'

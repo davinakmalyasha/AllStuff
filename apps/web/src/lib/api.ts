@@ -1,3 +1,5 @@
+"use client"
+
 // Typed API client — envelope contract (PRD §11.2), cookie auth, CSRF double-submit.
 
 export interface ApiErrorBody {

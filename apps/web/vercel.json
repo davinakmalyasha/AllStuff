@@ -2,37 +2,23 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "//": [
     "REPLACE `https://api.example.com` with your own API origin before deploying.",
-    "In CI deploys this is done by scripts/inject-api-origin.mjs from the",
-    "API_ORIGIN repo variable, which fails the deploy rather than shipping the",
-    "template. Only hand-edit this file for local `vercel dev` use.",
-    "The original value pointed at a real third-party host, so deploying without",
-    "editing it silently proxied the app to someone else's API.",
+    "In CI deploys this is done from the API_ORIGIN repo variable, which fails",
+    "the deploy rather than shipping the template. Only hand-edit this file for",
+    "local `vercel dev` use.",
     "",
     "REWRITE ORDER MATTERS: Vercel applies the first matching rule. The WebSocket",
     "rule MUST stay above /api/:path* — the client hardcodes",
     "wss://<host>/api/v1/ws, and without an explicit wss:// destination the /api",
-    "rule rewrote it to https://, which silently killed every realtime feature",
+    "rule rewrites it to https://, which silently kills every realtime feature",
     "(chat delivery, typing, live notifications, unread badges, read receipts).",
     "",
-    "Server-rendered SEO routes (Phase 5) sit above /api so a crawler hitting",
-    "/b/:slug gets real HTML instead of <div id=root></div>."
+    "Next owns /b, /c, /city (ISR) — the Go /ssr/* shell was deleted, so no",
+    "SSR rewrites remain."
   ],
   "rewrites": [
     {
       "source": "/api/v1/ws",
       "destination": "wss://api.example.com/api/v1/ws"
-    },
-    {
-      "source": "/b/:slug",
-      "destination": "https://api.example.com/ssr/b/:slug"
-    },
-    {
-      "source": "/c/:slug",
-      "destination": "https://api.example.com/ssr/c/:slug"
-    },
-    {
-      "source": "/city/:slug",
-      "destination": "https://api.example.com/ssr/city/:slug"
     },
     { "source": "/api/:path*", "destination": "https://api.example.com/api/:path*" },
     { "source": "/og/:path*", "destination": "https://api.example.com/og/:path*" },
@@ -54,11 +40,12 @@
           "value": "camera=(), microphone=(self), geolocation=(self), payment=(), usb=(), interest-cohort=()"
         },
         { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
-        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
-        }
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" }
+        // NOTE: no Content-Security-Policy here on purpose. proxy.ts sets a
+        // per-request CSP with a nonce for Next hydration scripts; a second
+        // static CSP header would INTERSECT with it (both enforced) and block
+        // hydration. Static assets under /_next/static are outside the proxy
+        // matcher and inherit only these non-script headers.
       ]
     },
     {

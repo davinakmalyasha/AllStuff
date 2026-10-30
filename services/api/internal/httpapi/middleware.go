@@ -343,14 +343,6 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			// Full-directory scan; keep crawlers on a tight budget.
 			tier = "sitemap"
 			limit, window = 10, time.Minute
-		case strings.HasPrefix(p, "/ssr/"):
-			// Server-rendered SEO shell. Public, cacheable, and reachable by
-			// any crawler, so it gets a crawl-shaped budget rather than the
-			// 120/min interactive default. Slightly looser than /sitemap.xml
-			// because these are the pages a crawler actually walks, and the
-			// handler is a handful of indexed reads.
-			tier = "ssr"
-			limit, window = 60, time.Minute
 		case p == "/api/v1/me/export" ||
 			(strings.HasPrefix(p, "/api/v1/threads/") && strings.HasSuffix(p, "/export")):
 			// Heavy sequential exports: N+1 aggregations / 100k-message dumps

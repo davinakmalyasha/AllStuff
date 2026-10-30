@@ -199,31 +199,24 @@ adds later cannot silently become a paid tier. `past_due` keeps access while
 Stripe retries the card; the `idx_subscriptions_period_end` partial index backs
 the sweep that catches rows the webhook never reached.
 
-## Server-rendered SEO (Phase 5)
+## Server-rendered SEO (Next.js)
 
-Not part of the JSON API. These are HTML responses served from the API origin;
-`apps/web/vercel.json` rewrites `/b/:slug`, `/c/:slug` and `/city/:slug` onto
-them, so a crawler receives a complete document instead of `<div id="root">`.
-
-- `GET /ssr/b/{slug}` — business page: `<title>`, meta description, canonical,
-  Open Graph + Twitter card, `LocalBusiness` + `BreadcrumbList` + `ItemList`
-  JSON-LD, and crawlable body text (about, hours, contact, catalog).
-- `GET /ssr/c/{slug}` — category landing: `CollectionPage` + `BreadcrumbList`.
-- `GET /ssr/city/{slug}` — city landing: `CollectionPage` + `BreadcrumbList`
-  plus the category breakdown and top-rated list.
+SEO HTML is rendered by the Next.js frontend (`apps/web/app`), not by the API.
+Public routes (`/`, `/b/{slug}`, `/c/{slug}`, `/city/{slug}`, `/u/{username}`,
+`/collections/{id}`, …) export `generateMetadata` (per-row `<title>`, meta
+description, canonical, Open Graph + Twitter card) and inline JSON-LD
+(`LocalBusiness` + `BreadcrumbList` + `ItemList` on business pages,
+`CollectionPage` elsewhere). ISR (`revalidate` 120–300s) keeps the HTML fresh
+without a render per crawl; auth routes carry `robots: noindex`.
 
 Behaviour worth relying on:
 
-- The crawlable content lives in a sibling `#seo` node; the SPA mounts into
-  `#root` and removes `#seo` **before** its first render
-  (`apps/web/src/main.tsx`), so nothing is ever visible twice.
-- Only a `verified` business is rendered, matching `GET /b/{slug}` exactly. A
-  404 renders a real 404 with `X-Robots-Tag: noindex,follow`.
-- Every interpolated value is HTML-escaped, and JSON-LD has `<` escaped so a
-  business name containing `</script>` cannot break out. Path segments are
-  percent-encoded, so a slug cannot inject a scheme or a host.
+- Only a `verified` business renders metadata; unknown slugs render the
+  `not-found.tsx` 404.
+- Every interpolated JSON-LD value has `<` escaped so a business name
+  containing `</script>` cannot break out.
 - `aggregateRating` is emitted only when there is at least one review — a zero
   review count is a rich-result spam signal.
-- Assets come from `WEB_DIST_DIR/.vite/manifest.json`. When that is missing the
-  shell still serves the crawlable HTML as a no-JS document: losing hydration
-  must never lose indexability.
+- The API still serves `GET /robots.txt` and `GET /api/v1/sitemap.xml`; Next
+  proxies them (`app/sitemap.xml/route.ts`, `app/robots.ts`) so Go remains the
+  single source of truth for the URL inventory.

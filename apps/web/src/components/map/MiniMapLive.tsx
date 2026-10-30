@@ -1,3 +1,5 @@
+"use client"
+
 import { lazy, Suspense } from 'react'
 
 // Reuses the lazy-loaded maplibre chunk — no extra entry cost.

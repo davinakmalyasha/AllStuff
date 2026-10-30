@@ -1,3 +1,5 @@
+"use client"
+
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Compass, Globe, LayoutDashboard, Map, Store, TrendingUp, User } from 'lucide-react'
@@ -11,7 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { useAuthState } from '@/stores/auth'
 import { setLanguage } from '@/lib/i18n'
 
-export function PublicLayout() {
+export function PublicLayout({ children }: { children?: React.ReactNode }) {
   const { t, i18n } = useTranslation()
   const { user, initialized } = useAuthState((s) => ({ user: s.user, initialized: s.initialized }))
   const navigate = useNavigate()
@@ -84,7 +86,7 @@ export function PublicLayout() {
       </header>
 
       <main className="flex-1">
-        <Outlet />
+        {children ?? <Outlet />}
         <CompareTray />
       </main>
 

@@ -1,3 +1,5 @@
+"use client"
+
 import { QueryClient } from '@tanstack/react-query'
 
 // Shared QueryClient. Living in its own module lets non-React code (e.g. the

@@ -1,3 +1,5 @@
+"use client"
+
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, CheckCircle2, Eye, Loader2, Monitor, Smartphone } from 'lucide-react'

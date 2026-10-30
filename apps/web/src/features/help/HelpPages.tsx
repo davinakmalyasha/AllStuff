@@ -1,3 +1,5 @@
+"use client"
+
 import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react'

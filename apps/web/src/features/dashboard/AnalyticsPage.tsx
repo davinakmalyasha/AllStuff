@@ -1,3 +1,5 @@
+"use client"
+
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AnalyticsDTO } from '@/lib/api'

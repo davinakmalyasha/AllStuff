@@ -4,35 +4,34 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
     "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck:all && eslint app src tests proxy.ts playwright.config.ts --max-warnings 0",
+    "postinstall": "node scripts/copy-map-worker.mjs",
     "typecheck:all": "tsc --noEmit -p tsconfig.check.json",
-    "lint": "npm run typecheck:all && eslint src tests playwright.config.ts --max-warnings 0",
     "test": "playwright test",
-    "test:e2e": "playwright test",
-    "verify": "npm run lint && npm run build"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
     "i18next": "^24.2.0",
     "lucide-react": "^0.469.0",
     "maplibre-gl": "^6.3.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-i18next": "^15.4.0",
-    "react-router-dom": "^7.1.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.19.0",
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@typescript-eslint/parser": "^8.67.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^5.2.0",
@@ -41,7 +40,9 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.67.0",
-    "vite": "^6.0.5"
+    "typescript-eslint": "^8.67.0"
+  },
+  "overrides": {
+    "playwright-core": "1.62.1"
   }
 }

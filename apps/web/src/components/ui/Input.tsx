@@ -1,3 +1,5 @@
+"use client"
+
 import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { AlertCircle } from 'lucide-react'
 

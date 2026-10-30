@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   BizVerse monochrome theme (PRD: monochrome, white default background,
+   dark/light mode). Tokens flip via .dark on <html>.
+
+   `ink-3` is a CONTRAST-CONSTRAINED token, not a free choice of grey.
+
+   It was #a1a1aa light / #63636b dark, which measured 2.33:1 and 2.92:1 against
+   surface-2 - both far below the 4.5:1 that WCAG AA requires for normal text. It is
+   used for the "Verse" half of the wordmark, mono-labels, timestamps and hints, so
+   every one of those was a real barrier for a low-vision reader.
+
+   axe-core caught this on all five public pages as the single serious violation; a
+   regex pass over the JSX had reported zero, because contrast is not visible in
+   source.
+
+   The values below are the LIGHTEST greys that clear AA with margin against the
+   WORST background each mode uses (surface-2, not bg - a darker background lowers
+   the ratio, and surface-2 is the lightest surface in dark mode and the darkest in
+   light mode). Lightening either one needs a recomputation, not an eyeball:
+     #6e6e75 -> 4.60:1 on #f4f4f5, 5.06:1 on #ffffff
+     #83838a -> 4.61:1 on #1a1a1d, 5.26:1 on #0a0a0a
+------------------------------------------------------------------- */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #fafafa;
+  --color-surface-2: #f4f4f5;
+  --color-border: #e4e4e7;
+  --color-ink: #18181b;
+  --color-ink-2: #52525b;
+  --color-ink-3: #6e6e75;
+  --color-accent: #09090b;
+  --color-accent-ink: #fafafa;
+}
+
+.dark {
+  --color-bg: #0a0a0a;
+  --color-surface: #111113;
+  --color-surface-2: #1a1a1d;
+  --color-border: #27272a;
+  --color-ink: #f4f4f5;
+  --color-ink-2: #a1a1aa;
+  --color-ink-3: #83838a;
+  --color-accent: #fafafa;
+  --color-accent-ink: #0a0a0a;
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-bg text-ink font-sans;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-ink);
+    color: var(--color-bg);
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-ink-3);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+  .card {
+    @apply rounded-xl border border-border bg-surface;
+  }
+  .mono-label {
+    @apply font-mono text-[11px] uppercase tracking-[0.18em] text-ink3;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Server-rendered SEO shell (Phase 5).
+-------------------------------------------------------------------
+   #seo is written by the API (services/api/internal/httpapi/handlers_ssr.go)
+   for /b, /c and /city so a crawler that does not execute JS still reads the
+   page. main.tsx removes it before the SPA's first render, so these rules only
+   ever apply to the no-JS view — but they are plain CSS on semantic elements so
+   the markup renders as a clean, readable document if the script never loads.
+------------------------------------------------------------------- */
+.bv-seo {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+  line-height: 1.6;
+}
+.bv-seo h1 {
+  font-size: 1.9rem;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+.bv-seo h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 2rem 0 0.5rem;
+}
+.bv-seo p {
+  margin: 0 0 0.75rem;
+  color: var(--color-ink-2);
+}
+.bv-seo .bv-tagline {
+  font-size: 1.05rem;
+  color: var(--color-ink);
+}
+.bv-seo .bv-cta {
+  margin-top: 2rem;
+  font-weight: 550;
+}
+.bv-seo .bv-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--color-ink-3);
+}
+.bv-seo .bv-crumbs li + li::before {
+  content: '/';
+  margin-right: 0.4rem;
+  color: var(--color-ink-3);
+}
+.bv-seo .bv-crumbs a {
+  color: var(--color-ink-2);
+  text-decoration: underline;
+}
+.bv-seo .bv-hours dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.5rem;
+  margin: 0;
+  font-size: 0.925rem;
+}
+.bv-seo .bv-hours dt {
+  color: var(--color-ink-2);
+}
+.bv-seo .bv-hours dd {
+  margin: 0;
+}
+.bv-seo .bv-products ul,
+.bv-seo .bv-cat-list ul,
+.bv-seo .bv-top ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.bv-seo .bv-products li {
+  margin-bottom: 0.3rem;
+}
+.bv-seo .bv-price {
+  color: var(--color-ink-2);
+}
+
+/* Respect the OS setting. This was absent entirely, and the map's booming
+   marker animation is a genuine vestibular trigger. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

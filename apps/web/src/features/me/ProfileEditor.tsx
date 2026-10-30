@@ -1,3 +1,5 @@
+"use client"
+
 import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Pencil, X } from 'lucide-react'

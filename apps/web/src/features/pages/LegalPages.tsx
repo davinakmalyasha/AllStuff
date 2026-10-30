@@ -1,3 +1,5 @@
+"use client"
+
 import { usePageMeta } from '@/lib/meta'
 
 export function TermsPage() {

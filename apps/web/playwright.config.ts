@@ -9,7 +9,7 @@ const apiPort = process.env.E2E_API_PORT ?? '8080'
 
 export default defineConfig({
   testDir: './tests',
-  // Generous, because the first test after a cold Vite start pays the transform
+  // Generous, because the first test after a cold start pays the compile
   // cost. The suite has few tests, so a per-test budget this high does not
   // meaningfully slow the run.
   timeout: 120_000,
@@ -29,7 +29,7 @@ export default defineConfig({
   reporter: isCI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   outputDir: './test-results',
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -40,18 +40,31 @@ export default defineConfig({
   globalSetup: './tests/global-setup.mjs',
   webServer: [
     {
-      command: 'npm run dev',
-      url: 'http://localhost:5173',
-      // In CI there must be no server to reuse. A stale dev server left on a
+      // Production server, not dev: the suite gates what users get. `next dev`
+      // proved too fragile as a suite dependency (cold-compile wedging left
+      // #__next empty until the assertion timeout, then the process died
+      // mid-run and the whole suite went red without testing anything). The
+      // build runs on every invocation so a stale .next can never be adopted
+      // silently; the `web` CI job also builds, so this is a second compile,
+      // not the only one.
+      command: 'npm run build && npm run start -- --port 3000',
+      url: 'http://localhost:3000',
+      // In CI there must be no server to reuse. A stale server left on a
       // reused runner image would otherwise be adopted silently, and the suite
       // would test whatever that server happened to be running.
       reuseExistingServer: !isCI,
-      timeout: 120_000,
-      // The dev server proxies /api here, so it must agree with the API's port.
-      // Default is unchanged for CI; set E2E_API_PORT to run the suite beside
-      // other work on the same machine.
+      timeout: 420_000,
+      // The Next server proxies /api to Go (next.config.ts rewrites from
+      // API_ORIGIN) and the browser opens its WebSocket at NEXT_PUBLIC_WS_BASE
+      // (same-origin fallback is for Vercel, whose vercel.json WS rule handles
+      // the upgrade — `next dev`/`next start` never proxy upgrades).
+      // Defaults keep CI exactly as it was; set E2E_API_PORT to run the suite
+      // beside other work on the same machine.
       env: {
-        VITE_API_TARGET: `http://localhost:${apiPort}`,
+        API_ORIGIN: `http://localhost:${apiPort}`,
+        API_INTERNAL_URL: `http://localhost:${apiPort}`,
+        NEXT_PUBLIC_WS_BASE: `ws://localhost:${apiPort}`,
+        SITE_URL: 'http://localhost:3000',
       },
     },
     {
@@ -64,7 +77,7 @@ export default defineConfig({
       cwd: '../../services/api',
 env: {
         PORT: apiPort,
-        // Every browser request reaches the API through the Vite proxy, so they
+        // Every browser request reaches the API through the Next rewrite, so they
         // all share one client IP. Lifting the *global* per-IP bucket is
         // required.
         RATELIMIT_GLOBAL: '5000',

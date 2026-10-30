@@ -1,3 +1,5 @@
+"use client"
+
 export function Spinner({ className = '' }: { className?: string }) {
   return (
     <svg

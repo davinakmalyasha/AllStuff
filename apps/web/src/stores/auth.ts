@@ -1,3 +1,5 @@
+"use client"
+
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { api, type UserDTO } from '@/lib/api'

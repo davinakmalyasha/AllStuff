@@ -1,3 +1,5 @@
+"use client"
+
 /** Google sign-in button (PRD §5.9.1). */
 export function GoogleButton({ label = 'Continue with Google' }: { label?: string }) {
   return (

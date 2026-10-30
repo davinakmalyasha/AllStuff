@@ -122,13 +122,15 @@ const SIGNED_IN: Target[] = [
 async function audit(page: Page, name: string): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' })
 
-  // Wait for the SPA to render. `networkidle` is unusable: the app holds a WebSocket
-  // open, so the network never goes idle and the wait would time out rather than report
-  // anything about accessibility.
-  await page.waitForFunction(() => {
-    const root = document.getElementById('root')
-    return !!root && root.children.length > 0
-  })
+  // Wait until the client tree has taken over. `networkidle` is unusable: the
+  // app holds a WebSocket open, so the network never goes idle and the wait
+  // would time out rather than report anything about accessibility.
+  // `document.body.dataset.hydrated` is set by LiveIsland in a post-mount
+  // effect: SSR HTML never carries it, so its presence proves hydration
+  // committed rather than merely that SSR bytes arrived. (`#__next` does not
+  // exist in Next 16 output; `#root` was the Vite id — both are gone, the
+  // attribute is framework-agnostic.)
+  await page.waitForFunction(() => document.body.dataset.hydrated === '1')
 
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

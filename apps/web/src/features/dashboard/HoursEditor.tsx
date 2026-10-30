@@ -1,3 +1,5 @@
+"use client"
+
 import { Input } from '@/components/ui/Input'
 import type { DayHoursDTO } from '@/lib/api'
 

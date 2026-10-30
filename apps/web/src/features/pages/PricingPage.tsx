@@ -1,3 +1,5 @@
+"use client"
+
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api, type PlanDTO } from '@/lib/api'

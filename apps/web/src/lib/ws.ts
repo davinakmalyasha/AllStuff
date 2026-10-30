@@ -1,3 +1,5 @@
+"use client"
+
 // WebSocket client (PRD §5.5.3): cookie-authenticated, reconnect with
 // backoff, subscribe/apply chat events. Single connection per tab.
 
@@ -6,6 +8,20 @@ type WsFrame = { id?: string; type: string; payload?: unknown }
 type Handler = (frame: WsFrame) => void
 
 const MAX_QUEUED = 50
+
+// WebSocket endpoint. Same-origin by default: in production Vercel's
+// vercel.json WS-first rewrite upgrades /api/v1/ws to the Go origin, and
+// plain `next start` never sees the upgrade either way.
+//
+// NEXT_PUBLIC_WS_BASE overrides the origin for environments without that
+// rewrite (local `next dev`/`next start`, CI E2E). Inlined at build time, so
+// the CI E2E build must set it before `next build`.
+function wsBase(): string {
+  const override = process.env.NEXT_PUBLIC_WS_BASE
+  if (override && override.trim() !== '') return override.replace(/\/$/, '')
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${proto}://${window.location.host}`
+}
 
 class WsClient {
   private ws: WebSocket | null = null
@@ -45,8 +61,7 @@ class WsClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${window.location.host}/api/v1/ws`)
+    const ws = new WebSocket(`${wsBase()}/api/v1/ws`)
     this.ws = ws
     ws.onopen = () => {
       this.setConnected(true)

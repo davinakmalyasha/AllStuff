@@ -1,3 +1,5 @@
+"use client"
+
 import { type ReactNode } from 'react'
 
 type Tone = 'neutral' | 'positive' | 'attention' | 'danger'

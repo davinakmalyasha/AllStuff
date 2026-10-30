@@ -1,3 +1,5 @@
+"use client"
+
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Pencil, Plus, Trash2, UserCheck, UserX } from 'lucide-react'

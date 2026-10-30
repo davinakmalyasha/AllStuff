@@ -1,3 +1,5 @@
+"use client"
+
 import { BizMap } from '@/components/map/BizMap'
 import { usePageMeta } from '@/lib/meta'
 

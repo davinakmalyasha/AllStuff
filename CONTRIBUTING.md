@@ -16,7 +16,7 @@ go run ./cmd/api            # :8080
 # Web
 cd ../../apps/web
 npm install
-npm run dev                 # :5173, proxies /api and /ws to :8080
+npm run dev                 # :3000, proxies /api to :8080
 ```
 
 Do **not** apply migrations with `psql -f`. The runner does three things a raw
