@@ -38,6 +38,14 @@ export function AnalyticsPage() {
     ['Reviews', data?.reviews ?? 0],
     ['Saves', data?.saves ?? 0],
     ['Chat messages', data?.chat_messages ?? 0],
+    ['Bookings', data?.bookings ?? 0],
+    ['Completed', data?.completed_bookings ?? 0],
+    ['No-shows', data?.no_shows ?? 0],
+  ]
+  const funnel: [string, string][] = [
+    ['Conversion (views → bookings)', data && data.views > 0 ? `${((data.conversion_rate ?? 0) * 100).toFixed(1)}%` : '—'],
+    ['Peak hour', data?.peak_hour != null ? `${String(data.peak_hour).padStart(2, '0')}:00` : '—'],
+    ['Repeat customers', data?.repeat_rate != null ? `${((data.repeat_rate ?? 0) * 100).toFixed(0)}%` : '—'],
   ]
   const max = Math.max(1, ...(data?.views_series ?? []).map((d) => d.count))
 
@@ -74,6 +82,15 @@ export function AnalyticsPage() {
             {data?.rating_avg ? data.rating_avg.toFixed(1) : '—'}
           </p>
         </Card>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {funnel.map(([label, value]) => (
+          <Card key={label} className="p-4">
+            <p className="mono-label">{label}</p>
+            <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">{value}</p>
+          </Card>
+        ))}
       </div>
 
       <Card className="mt-6 p-5">

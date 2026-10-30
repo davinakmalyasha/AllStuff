@@ -389,6 +389,12 @@ export interface AnalyticsDTO {
   top_products: { product_id: string; name: string; likes: number; views: number }[]
   views_series: { day: string; count: number }[]
   leaderboard: { global: number | null; category: number | null } | null
+  bookings: number
+  completed_bookings: number
+  no_shows: number
+  conversion_rate: number
+  peak_hour: number | null
+  repeat_rate: number | null
 }
 
 // ---- Engagement ----

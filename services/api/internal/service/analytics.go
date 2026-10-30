@@ -17,18 +17,30 @@ type Analytics struct {
 func NewAnalytics(repos *repo.Repos) *Analytics { return &Analytics{repos: repos} }
 
 type AnalyticsResult struct {
-	Period       string          `json:"period"`
-	Views        int             `json:"views"`
-	Likes        int             `json:"likes"`
-	Recommends   int             `json:"recommends"`
-	Comments     int             `json:"comments"`
-	Reviews      int             `json:"reviews"`
-	Saves        int             `json:"saves"`
-	ChatMessages int             `json:"chat_messages"`
-	RatingAvg    *float64        `json:"rating_avg"`
-	TopProducts  []ProductCount  `json:"top_products"`
-	Series       []DailyCount    `json:"views_series"`
-	Leaderboard  *LeaderboardPos `json:"leaderboard,omitempty"`
+	Period            string          `json:"period"`
+	Views             int             `json:"views"`
+	Likes             int             `json:"likes"`
+	Recommends        int             `json:"recommends"`
+	Comments          int             `json:"comments"`
+	Reviews           int             `json:"reviews"`
+	Saves             int             `json:"saves"`
+	ChatMessages      int             `json:"chat_messages"`
+	RatingAvg         *float64        `json:"rating_avg"`
+	TopProducts       []ProductCount  `json:"top_products"`
+	Series            []DailyCount    `json:"views_series"`
+	Leaderboard       *LeaderboardPos `json:"leaderboard,omitempty"`
+	Bookings          int             `json:"bookings"`
+	CompletedBookings int             `json:"completed_bookings"`
+	NoShows           int             `json:"no_shows"`
+	// ConversionRate is bookings (non-cancelled, created in period) over
+	// views in the same period. Zero views yields zero, not NaN.
+	ConversionRate float64 `json:"conversion_rate"`
+	// PeakHour is the modal booking start hour (0-23) in the business's
+	// timezone, nil when there are no bookings to bucket.
+	PeakHour *int `json:"peak_hour,omitempty"`
+	// RepeatRate is completed-repeat customers over distinct completed
+	// customers, nil when nobody has completed yet.
+	RepeatRate *float64 `json:"repeat_rate,omitempty"`
 }
 
 type ProductCount struct {
@@ -90,6 +102,65 @@ func (a *Analytics) ForBusiness(ctx context.Context, userID, businessID, period 
 			(SELECT avg(r.rating)::float8 FROM reviews r WHERE r.business_id=$1 AND r.deleted_at IS NULL AND r.status = 'visible')`,
 		businessID, since).Scan(&out.Views, &out.Likes, &out.Recommends, &out.Comments,
 		&out.Reviews, &out.Saves, &out.ChatMessages, &out.RatingAvg)
+
+	// Booking funnel: views -> bookings -> completed, plus the two questions
+	// owners actually ask (when is peak, do customers come back). All three
+	// derive from appointments the shop already collects - no new tables.
+	// Bucketing happens in Go so the hour is the BUSINESS's day (a Jakarta
+	// shop's "10am peak" means Jakarta time), not the database session zone.
+	// See dayBucketExpr for why the SQL/Go zone split matters.
+	loc := time.UTC
+	if l, err := time.LoadLocation(b.Timezone); err == nil {
+		loc = l
+	}
+	if rows, err := a.repos.Query(ctx, `
+		SELECT starts_at, customer_id, status FROM appointments
+		WHERE business_id=$1 AND created_at >= $2 AND status != 'cancelled'`, businessID, since); err == nil {
+		hours := map[int]int{}
+		completedByCustomer := map[string]int{}
+		bookings := 0
+		for rows.Next() {
+			var starts time.Time
+			var customerID, status string
+			if err := rows.Scan(&starts, &customerID, &status); err != nil {
+				break
+			}
+			bookings++
+			switch status {
+			case "completed":
+				out.CompletedBookings++
+				completedByCustomer[customerID]++
+			case "no_show":
+				out.NoShows++
+			}
+			hours[starts.In(loc).Hour()]++
+		}
+		rows.Close()
+		out.Bookings = bookings
+		if out.Views > 0 && bookings > 0 {
+			out.ConversionRate = float64(bookings) / float64(out.Views)
+		}
+		best, bestHour := 0, -1
+		for h, n := range hours {
+			if n > best {
+				best, bestHour = n, h
+			}
+		}
+		if bestHour >= 0 {
+			ph := bestHour
+			out.PeakHour = &ph
+		}
+		if distinct := len(completedByCustomer); distinct > 0 {
+			repeat := 0
+			for _, n := range completedByCustomer {
+				if n > 1 {
+					repeat++
+				}
+			}
+			rr := float64(repeat) / float64(distinct)
+			out.RepeatRate = &rr
+		}
+	}
 
 	// Daily view series. Bucketing is UTC on both sides - see dayBucketExpr.
 	rows, err := a.repos.Query(ctx, `
