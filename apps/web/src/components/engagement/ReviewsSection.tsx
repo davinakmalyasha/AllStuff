@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ImagePlus, Pencil, Star, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { api, uploadMedia, type ReviewDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -133,6 +134,20 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
 
   const mine = reviews.find((r) => r.user_id === user?.id)
 
+  // "Ask for a review" links land on /b/<slug>?review=1#reviews. Open the form
+  // for a signed-in customer who has not reviewed yet - the link exists to
+  // remove exactly that one tap. A new sign-in does not lose the intent: the
+  // query parameter is still in the URL after the login round trip.
+  const [params] = useSearchParams()
+  const openedFromLink = useRef(false)
+  useEffect(() => {
+    if (openedFromLink.current) return
+    if (user && !isOwner && !mine && params.get('review') === '1') {
+      openedFromLink.current = true
+      setWriting(true)
+    }
+  }, [user, mine, params, isOwner])
+
   // Rating distribution bars (Batch 2).
   const dist = [5, 4, 3, 2, 1].map((n) => ({
     star: n,
@@ -161,7 +176,7 @@ export function ReviewsSection({ businessId, isOwner }: { businessId: string; is
   })
 
   return (
-    <section>
+    <section id="reviews" className="scroll-mt-24">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="mono-label mb-1">Reviews</h2>
