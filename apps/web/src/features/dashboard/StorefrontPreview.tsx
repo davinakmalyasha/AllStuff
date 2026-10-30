@@ -2,6 +2,7 @@
 
 import { Clock, MapPin, Phone, Star, Heart, Bolt, Coffee, Wifi, Leaf, Scissors, Camera, Music, Sparkles, Zap } from 'lucide-react'
 import type { BusinessDTO, ProductDTO } from '@/lib/api'
+import { priceLevelLabel } from '@/lib/business-meta'
 import { cap, FONTS } from '@/lib/format'
 import { formatMoney, useCurrency } from '@/stores/currency'
 import type { ThemeConfig, LayoutConfig } from './StorefrontBuilderPage'
@@ -64,7 +65,7 @@ export function StorefrontPreview({
               <span>·</span>
               <span>{b.city}, {b.country}</span>
               <span>·</span>
-              <span className="font-mono">{"$".repeat(b.price_level ?? 0) || '—'}</span>
+              <span className="font-mono">{priceLevelLabel(b.price_level)}</span>
             </div>
             <button
               className="mt-5 rounded-full px-6 py-2.5 text-sm font-medium"

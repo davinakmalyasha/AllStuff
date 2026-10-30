@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { GripVertical, Minus, Link2, MessageSquare, X } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
+import { distanceLabel, priceLevelLabel } from '@/lib/business-meta'
 import { Badge } from '@/components/ui/Badge'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
@@ -179,7 +180,7 @@ export function ComparePage() {
 
           {row('Category', (b) => b.category_name ?? '—')}
           {row('Rating', (b) => b.review_count > 0 ? `★ ${b.rating_avg?.toFixed(1)} (${b.review_count})` : '—')}
-          {row('Price level', (b) => "$".repeat(b.price_level ?? 0) || '—')}
+          {row('Price level', (b) => priceLevelLabel(b.price_level))}
           {row('Top products', (b) => {
             const list = topProducts[b.id] ?? []
             if (!list.length) return '—'
@@ -206,7 +207,7 @@ export function ComparePage() {
             )
           })}
           {row('Location', (b) => `${b.city}, ${b.country}`)}
-          {row('Distance', (b) => (b.distance_km ? `${b.distance_km.toFixed(1)} km` : '—'))}
+          {row('Distance', (b) => distanceLabel(b.distance_km) ?? '—')}
           {row('Open now', (b) => (b.is_open_now ? 'Yes' : 'No'))}
           {row('Hours', (b) => {
             const days = Object.entries(b.hours ?? {}).filter(([, h]) => h && !h.closed).length

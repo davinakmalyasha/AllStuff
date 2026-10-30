@@ -14,6 +14,7 @@ if (typeof window !== 'undefined' && !maplibregl.config.WORKER_URL) {
   maplibregl.config.WORKER_URL = '/maplibre-worker.mjs'
 }
 import { api, searchPath, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
+import { distanceLabel, isOpenKnown, priceLevelLabel } from '@/lib/business-meta'
 import { escapeHtml } from '@/lib/url'
 import { Badge } from '@/components/ui/Badge'
 
@@ -36,9 +37,16 @@ const MARKERS = {
 } as const
 
 function useIsDarkTheme(): boolean {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+  // Starts light and adopts the real theme after mount. Reading
+  // document.documentElement in the useState initializer ran during
+  // prerendering too, where there is no document: the whole /map Suspense
+  // boundary failed server-side and React fell back to a client-only render
+  // (error #419 on every visit). The map itself only initialises in an effect,
+  // so a one-frame light pin palette costs nothing.
+  const [dark, setDark] = useState(false)
   useEffect(() => {
     const el = document.documentElement
+    setDark(el.classList.contains('dark'))
     const obs = new MutationObserver(() => setDark(el.classList.contains('dark')))
     obs.observe(el, { attributes: true, attributeFilter: ['class'] })
     return () => obs.disconnect()
@@ -264,6 +272,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
         rising: b.trend?.is_rising ?? false,
         tint: catTint(b.category_id),
         d: b.distance_km ?? -1,
+        pl: b.price_level ?? -1,
       },
     }))
     const setData = () => {
@@ -335,15 +344,19 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       if (!f) return
       const p = f.properties as Record<string, string>
       const dist = Number(p.d)
+      const price = Number(p.pl)
       if (!popupRef.current) popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 12 })
       popupRef.current
         .setLngLat((f.geometry as unknown as { coordinates: [number, number] }).coordinates)
         // setHTML injects raw markup — owner-controlled business names are
         // escaped here (a <img onerror> name previously executed on hover).
+        // The decision line is composed from booleans and numbers only.
         .setHTML(
           `<div style="font:500 12px/1.4 system-ui,sans-serif;color:#18181b">${escapeHtml(p.name ?? '')}` +
           `<br/><span style="color:#71717a;font-weight:400">${escapeHtml(p.cat_name ?? '')} · ${escapeHtml(p.city ?? '')}` +
-          (dist > 0 ? ` · ${dist.toFixed(1)} km` : '') + `</span></div>`,
+          (dist > 0 ? ` · ${dist.toFixed(1)} km` : '') + `</span>` +
+          `<br/><span style="color:#71717a;font-weight:500">${String(f.properties?.open) === 'true' ? 'Open' : 'Closed'}` +
+          (price > 0 ? ` · ${'$'.repeat(price)}` : '') + `</span></div>`,
         )
         .addTo(map)
     })
@@ -425,9 +438,19 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
             {selected.trend?.is_booming && <Badge tone="attention" dot>Booming</Badge>}
             {!selected.trend?.is_booming && selected.trend?.is_rising && <Badge tone="attention">↑ Rising</Badge>}
           </div>
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <span className="text-xs text-ink3">
               {selected.review_count > 0 ? `★ ${selected.rating_avg?.toFixed(1)} (${selected.review_count})` : 'No reviews yet'}
+              {isOpenKnown(selected.is_open_now) && (
+                <>
+                  {' · '}
+                  <span className={selected.is_open_now ? 'text-emerald-600 dark:text-emerald-400' : ''}>
+                    {selected.is_open_now ? 'Open' : 'Closed'}
+                  </span>
+                </>
+              )}
+              {distanceLabel(selected.distance_km) && ` · ${distanceLabel(selected.distance_km)}`}
+              {selected.price_level ? ` · ${priceLevelLabel(selected.price_level)}` : ''}
             </span>
             <Link to={`/b/${selected.slug}`} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink">
               View business

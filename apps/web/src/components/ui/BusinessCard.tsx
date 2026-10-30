@@ -4,6 +4,7 @@ import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { ShieldCheck, Star } from 'lucide-react'
 import type { BusinessDTO } from '@/lib/api'
+import { distanceLabel, isOpenKnown, priceLevelLabel } from '@/lib/business-meta'
 import { Badge } from './Badge'
 import { useCompare } from '@/stores/compare'
 
@@ -55,12 +56,12 @@ export const BusinessCard = memo(function BusinessCard({ business: b, compare = 
                 <Star className="h-3 w-3" /> {b.rating_avg?.toFixed(1)}
               </span>
             )}
-            <span className="font-mono text-ink3">{"$".repeat(b.price_level ?? 0) || '—'}</span>
-            {b.distance_km !== null && b.distance_km !== undefined && (
-              <span className="text-ink3">{b.distance_km.toFixed(1)} km</span>
+            <span className="font-mono text-ink3">{priceLevelLabel(b.price_level)}</span>
+            {distanceLabel(b.distance_km) && (
+              <span className="text-ink3">{distanceLabel(b.distance_km)}</span>
             )}
             {/* Trend entries carry no is_open_now — only render for real booleans. */}
-            {typeof b.is_open_now === 'boolean' && (
+            {isOpenKnown(b.is_open_now) && (
               <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open' : 'Closed'}</Badge>
             )}
           </div>

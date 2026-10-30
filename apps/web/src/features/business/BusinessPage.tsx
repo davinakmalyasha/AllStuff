@@ -16,6 +16,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
+import { priceLevelLabel, whatsappUrl } from '@/lib/business-meta'
 import { cap, FONTS } from '@/lib/format'
 import { safeExternalUrl } from '@/lib/url'
 import { MiniMapLive } from '@/components/map/MiniMapLive'
@@ -42,7 +43,7 @@ const SOCIALS: Record<string, string> = {
 }
 
 const SOCIAL_URLS: Record<string, (handle: string) => string> = {
-  whatsapp: (h) => `https://wa.me/${h}`,
+  whatsapp: whatsappUrl,
   instagram: (h) => `https://instagram.com/${h}`,
   tiktok: (h) => `https://tiktok.com/@${h}`,
   facebook: (h) => `https://facebook.com/${h}`,
@@ -217,7 +218,7 @@ export function BusinessPage() {
               )}
               {b.founded_year != null && <span className="font-mono text-xs">Est. {b.founded_year}</span>}
               <span>{b.city}, {b.country}</span>
-              <span className="font-mono text-xs">{"$".repeat(b.price_level ?? 0) || '—'}</span>
+              <span className="font-mono text-xs">{priceLevelLabel(b.price_level)}</span>
               <Badge tone={b.is_open_now ? 'positive' : 'neutral'} dot>{b.is_open_now ? 'Open now' : 'Closed now'}</Badge>
             </div>
           </div>

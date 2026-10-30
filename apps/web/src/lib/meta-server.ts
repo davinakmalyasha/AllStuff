@@ -3,6 +3,7 @@
 // image) so server metadata and client hydration agree byte-for-byte.
 
 import { siteUrl } from './api-server'
+import { whatsappUrl } from './business-meta'
 
 export const SITE_NAME = 'BizVerse'
 export const DEFAULT_TITLE = 'BizVerse — Every business. One place.'
@@ -60,7 +61,7 @@ export function businessJsonLd(b: {
 }): Record<string, unknown> {
   const base = siteUrl()
   const SOCIAL_URLS: Record<string, (h: string) => string> = {
-    whatsapp: (h) => `https://wa.me/${h}`,
+    whatsapp: whatsappUrl,
     instagram: (h) => `https://instagram.com/${h}`,
     tiktok: (h) => `https://tiktok.com/@${h}`,
     facebook: (h) => `https://facebook.com/${h}`,
