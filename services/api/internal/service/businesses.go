@@ -941,7 +941,39 @@ func validateContact(v any) (map[string]any, error) {
 			}
 		}
 	}
+	// Payment methods are owner-declared DISPLAY facts, not a payment
+	// integration: BizVerse never touches the money. Stored canonically
+	// (deduped, known tokens only) so the public page can render chips without
+	// trusting arbitrary owner text.
+	if raw, ok := in["payment_methods"]; ok {
+		if s, ok := raw.(string); ok {
+			out["payment_methods"] = canonicalPaymentMethods(s)
+		}
+	}
 	return out, nil
+}
+
+// canonicalPaymentMethods keeps the known tokens in UI order. An unknown token
+// is dropped rather than rejected: a stale client should not be unable to save
+// an unrelated settings change because it sent a method we retired.
+func canonicalPaymentMethods(raw string) string {
+	known := map[string]bool{"cash": true, "qris": true, "transfer": true, "ewallet": true}
+	seen := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		p := strings.ToLower(strings.TrimSpace(part))
+		if known[p] {
+			seen[p] = true
+		}
+	}
+	// Stable, human order regardless of click order.
+	order := []string{"cash", "qris", "transfer", "ewallet"}
+	var ordered []string
+	for _, k := range order {
+		if seen[k] {
+			ordered = append(ordered, k)
+		}
+	}
+	return strings.Join(ordered, ",")
 }
 
 func asString(v any) string {

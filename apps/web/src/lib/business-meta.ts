@@ -34,3 +34,20 @@ export function isOpenKnown(open: boolean | null | undefined): open is boolean {
 export function whatsappUrl(handle: string): string {
   return `https://wa.me/${handle.replace(/^\+/, '')}`
 }
+
+/** Owner-declared payment methods. Display only: BizVerse never processes the
+ *  payment, so this is a fact about the shop, not a checkout. Order matches the
+ *  backend's canonical order. */
+export const PAYMENT_METHODS: { key: string; label: string }[] = [
+  { key: 'cash', label: 'Cash' },
+  { key: 'qris', label: 'QRIS' },
+  { key: 'transfer', label: 'Bank transfer' },
+  { key: 'ewallet', label: 'E-wallet' },
+]
+
+/** Labels for the methods stored on a business, ignoring unknown tokens. */
+export function paymentMethodLabels(raw: string | undefined | null): string[] {
+  if (!raw) return []
+  const set = new Set(raw.split(',').map((v) => v.trim()))
+  return PAYMENT_METHODS.filter((m) => set.has(m.key)).map((m) => m.label)
+}

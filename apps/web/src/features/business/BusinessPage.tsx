@@ -16,7 +16,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { api, type BusinessDTO, type ProductDTO } from '@/lib/api'
-import { priceLevelLabel, whatsappUrl } from '@/lib/business-meta'
+import { paymentMethodLabels, priceLevelLabel, whatsappUrl } from '@/lib/business-meta'
 import { cap, FONTS } from '@/lib/format'
 import { safeExternalUrl } from '@/lib/url'
 import { MiniMapLive } from '@/components/map/MiniMapLive'
@@ -404,6 +404,14 @@ export function BusinessPage() {
             {b.contact.phone && <ContactRow icon={<Phone className="h-4 w-4" />} label={b.contact.phone} href={`tel:${b.contact.phone}`} />}
             {b.contact.email && <ContactRow icon={<Mail className="h-4 w-4" />} label={b.contact.email} href={`mailto:${b.contact.email}`} />}
             {b.contact.website && <ContactRow icon={<Globe className="h-4 w-4" />} label={b.contact.website} href={b.contact.website} />}
+            {paymentMethodLabels(b.contact.payment_methods).length > 0 && (
+              <div className="border-t border-border pt-3">
+                <p className="mono-label mb-2">Payments</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {paymentMethodLabels(b.contact.payment_methods).map((label) => <Badge key={label}>{label}</Badge>)}
+                </div>
+              </div>
+            )}
             {Object.entries(SOCIALS)
               .filter(([k]) => b.contact[k])
               .map(([k, label]) => {

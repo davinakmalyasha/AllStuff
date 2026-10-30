@@ -22,6 +22,9 @@ const DAYS = [
 ] as const
 
 const SOCIALS = ['instagram', 'tiktok', 'facebook', 'x', 'youtube', 'line', 'telegram'] as const
+const PAYMENTS = [
+  ['cash', 'Cash'], ['qris', 'QRIS'], ['transfer', 'Bank transfer'], ['ewallet', 'E-wallet'],
+] as const
 
 export function SettingsPage() {
   const qc = useQueryClient()
@@ -121,7 +124,7 @@ export function SettingsPage() {
         currency: form.currency, tags: String(form.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean),
         founded_year: form.founded_year ? Number(form.founded_year) : null,
         contact: Object.fromEntries(
-          ['phone', 'email', 'website', 'whatsapp', ...SOCIALS].map((k) => [k, form[k] ?? '']),
+          ['phone', 'email', 'website', 'whatsapp', 'payment_methods', ...SOCIALS].map((k) => [k, form[k] ?? '']),
         ),
         hours,
       }
@@ -236,6 +239,32 @@ export function SettingsPage() {
           {SOCIALS.map((s) => (
             <Input key={s} label={s} value={str(form[s])} onChange={set(s)} />
           ))}
+        </div>
+        <div>
+          <p className="mb-2 text-sm font-medium text-ink">Payments accepted</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {PAYMENTS.map(([key, label]) => {
+              const selected = String(form.payment_methods ?? '').split(',').includes(key)
+              return (
+                <label key={key} className="flex items-center gap-1.5 text-sm text-ink2">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() =>
+                      setForm((f) => {
+                        const cur = String(f.payment_methods ?? '').split(',').filter(Boolean)
+                        const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]
+                        return { ...f, payment_methods: next.join(',') }
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-black dark:accent-white"
+                  />
+                  {label}
+                </label>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-xs text-ink3">Display only — BizVerse does not process payments.</p>
         </div>
       </Card>
 

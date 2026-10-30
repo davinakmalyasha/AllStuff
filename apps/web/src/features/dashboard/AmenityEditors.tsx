@@ -59,9 +59,54 @@ export function SpecialHoursEditor({ value, onChange }: { value: SpecialHours; o
     setDate('')
   }
 
+  // Holiday ranges (Lebaran, Ramadan, Chinese New Year) are the common case:
+  // typing five or more dates one at a time is exactly the friction that leaves
+  // special hours unset. The range writes one entry per day, capped at 60 so a
+  // mistyped year cannot create a decade of rows.
+  const [rStart, setRStart] = useState('')
+  const [rEnd, setREnd] = useState('')
+  const [rClosed, setRClosed] = useState(true)
+  const [rOpen, setROpen] = useState('10:00')
+  const [rClose, setRClose] = useState('16:00')
+
+  const applyRange = () => {
+    if (!rStart || !rEnd || rEnd < rStart) return
+    const next = { ...value }
+    const d = new Date(`${rStart}T12:00:00Z`)
+    const end = new Date(`${rEnd}T12:00:00Z`)
+    let guard = 0
+    while (d <= end && guard < 60) {
+      next[d.toISOString().slice(0, 10)] = rClosed
+        ? { open: rOpen, close: rClose, closed: true }
+        : { open: rOpen, close: rClose, closed: false }
+      d.setUTCDate(d.getUTCDate() + 1)
+      guard++
+    }
+    onChange(next)
+  }
+
   return (
     <div>
       <p className="mb-2 text-sm font-medium text-ink">Special hours (holidays)</p>
+      <div className="mb-2 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border p-2">
+        <span className="w-full text-xs text-ink3">Quick fill a range — Lebaran, Ramadan, or any holiday week.</span>
+        <input type="date" aria-label="Range start" value={rStart} onChange={(e) => setRStart(e.target.value)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink" />
+        <span className="text-ink3">–</span>
+        <input type="date" aria-label="Range end" value={rEnd} onChange={(e) => setREnd(e.target.value)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink" />
+        <label className="flex items-center gap-1 text-xs text-ink2">
+          <input type="checkbox" checked={rClosed} onChange={(e) => setRClosed(e.target.checked)} className="h-3.5 w-3.5 accent-black dark:accent-white" /> Closed
+        </label>
+        {!rClosed && (
+          <>
+            <input type="time" aria-label="Range opens" value={rOpen} onChange={(e) => setROpen(e.target.value)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink" />
+            <span className="text-ink3">–</span>
+            <input type="time" aria-label="Range closes" value={rClose} onChange={(e) => setRClose(e.target.value)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink" />
+          </>
+        )}
+        <button type="button" onClick={applyRange} disabled={!rStart || !rEnd || rEnd < rStart} className="rounded-lg border border-border px-3 py-2 text-sm text-ink hover:bg-surface2 disabled:opacity-50">
+          Apply to range
+        </button>
+      </div>
       <div className="flex flex-wrap items-end gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink" />
         <label className="flex items-center gap-1 text-xs text-ink2">
