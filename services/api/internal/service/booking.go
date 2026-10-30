@@ -440,7 +440,34 @@ func (s *Booking) Cancel(ctx context.Context, userID, appointmentID string) erro
 			"appointment_id": a.ID, "business_id": a.BusinessID, "starts_at": a.StartsAt,
 		})
 	}
+	// A cancellation is the only moment lost demand can be recovered: offer the
+	// day to whoever is waiting for it first.
+	s.notifyWaitlist(ctx, a)
 	return nil
+}
+
+// notifyWaitlist tells the earliest waiter for the freed day, once. The
+// notification is informational: the slot is not held, so the next person to
+// press Book still wins the race, which is the same rule as every other slot.
+func (s *Booking) notifyWaitlist(ctx context.Context, a *domain.Appointment) {
+	day := repo.DayIn(a.StartsAt, a.BusinessTimezone)
+	w, err := s.repos.Waitlist.FirstOpen(ctx, a.BusinessID, a.ProductID, day)
+	if err != nil || w == nil {
+		return
+	}
+	ok, err := s.repos.Waitlist.MarkNotified(ctx, w.ID)
+	if err != nil || !ok {
+		return
+	}
+	s.notifier.Create(ctx, w.CustomerID, "slot_open", map[string]any{
+		"business_id":    a.BusinessID,
+		"business_name":  a.BusinessName,
+		"business_slug":  a.BusinessSlug,
+		"product":        a.ProductName,
+		"day":            day,
+		"starts_at":      a.StartsAt,
+		"appointment_id": a.ID,
+	})
 }
 
 // Reschedule moves a live booking to another generated slot.

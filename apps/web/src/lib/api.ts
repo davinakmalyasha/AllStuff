@@ -646,6 +646,20 @@ export interface AppointmentDTO {
   created_at: string
 }
 
+export interface WaitlistDTO {
+  id: string
+  business_id: string
+  business_name?: string
+  business_slug?: string
+  product_id: string
+  product_name?: string
+  customer_id: string
+  /** YYYY-MM-DD in the business timezone. */
+  day: string
+  created_at: string
+  notified_at?: string | null
+}
+
 // apiBlob downloads a file from an authenticated endpoint. The JSON api() helper
 // cannot do this: the calendar file is text/calendar, and parsing it as JSON was
 // never an option.

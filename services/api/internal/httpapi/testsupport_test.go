@@ -154,6 +154,7 @@ func newDBTestServerOpts(t *testing.T, cfg config.Config, usePool bool) (*Server
 		Claims:      claimsSvc,
 		Billing:     billingSvc,
 		Booking:     bookingSvc,
+		Waitlist:    service.NewWaitlist(h.Repos),
 		Notifier:    notifier,
 		RateLimiter: ratelimit.NewInMemory(),
 		Hub:         hub,

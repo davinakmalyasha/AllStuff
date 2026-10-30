@@ -178,6 +178,7 @@ feature that adds or paginations a listing.
 
 | `0050` | `0050_appointment_location.sql` | `0043` | `appointments.location_id`, backfilled to the business's primary location. Its own file rather than part of `0043` because migrations run in lexical order and `0043` sorts BEFORE `0044`, which creates `appointments` - a migration may not depend on a table that a later number creates. |
 | `0051` | `0051_booking_reliability.sql` | `0044` | `appointment_events(appointment_id, kind, sent_at)` with `UNIQUE (appointment_id, kind)` for `reminder_24h`, `reminder_2h` and `review_nudge`, plus the three notification types those jobs emit. The unique row is the claim: the job inserts first and only notifies if it won, so a retry or a second replica cannot send the same nudge twice. Extends the notification CHECK here and in `0029`/`0044` for replay safety, same as `0044` documents. |
+| `0052` | `0052_waitlist.sql` | `0044` | `booking_waitlist(business_id, product_id, customer_id, day, notified_at)` with `UNIQUE (business_id, product_id, customer_id, day)` for idempotent joins, plus a partial index over un-notified rows and the `slot_open` notification type. A cancellation offers the freed day to the earliest un-notified waiter once; the slot is not reserved. Extends the notification CHECK here and in `0029`/`0044`/`0051` for replay safety. |
 
 Do not create a file whose number is listed here for a different purpose.
 

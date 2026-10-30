@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarPlus, MapPin } from 'lucide-react'
-import { api, apiBlob, type AppointmentDTO } from '@/lib/api'
+import { api, apiBlob, type AppointmentDTO, type WaitlistDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Confirm, Modal } from '@/components/ui/Modal'
@@ -67,6 +67,20 @@ export function MyBookingsPage() {
       toast.success('Booking moved')
     },
     onError: (e) => toast.error((e as Error).message || 'Could not move the booking.'),
+  })
+
+  const waitlist = useQuery({
+    queryKey: ['my-waitlist'],
+    queryFn: () => api<{ waitlist: WaitlistDTO[] }>('/me/waitlist'),
+  })
+
+  const leaveWaitlist = useMutation({
+    mutationFn: (id: string) => api(`/waitlist/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-waitlist'] })
+      toast.success('Removed from the waitlist')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not leave the waitlist.'),
   })
 
   const addToCalendar = async (a: AppointmentDTO) => {
@@ -184,6 +198,39 @@ export function MyBookingsPage() {
             Upcoming
           </h2>
           <div className="space-y-3">{upcoming.map((a) => card(a, true))}</div>
+        </section>
+      )}
+
+      {(waitlist.data?.waitlist.length ?? 0) > 0 && (
+        <section aria-labelledby="waitlist-heading" className="mb-8">
+          <h2 id="waitlist-heading" className="mono-label mb-2">
+            Waiting for a time
+          </h2>
+          <div className="space-y-2">
+            {(waitlist.data?.waitlist ?? []).map((w) => (
+              <Card key={w.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                <p className="min-w-0 text-sm text-ink">
+                  <span className="font-medium">{w.product_name}</span>
+                  {' · '}
+                  {w.business_slug ? <Link to={`/b/${w.business_slug}`} className="hover:underline">{w.business_name}</Link> : w.business_name}
+                  <span className="ml-2 text-xs text-ink3">
+                    {new Date(`${w.day}T12:00:00Z`).toLocaleDateString('en-GB', {
+                      weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
+                    })}
+                    {w.notified_at ? ' · a time opened' : ''}
+                  </span>
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={leaveWaitlist.isPending}
+                  onClick={() => leaveWaitlist.mutate(w.id)}
+                >
+                  Leave
+                </Button>
+              </Card>
+            ))}
+          </div>
         </section>
       )}
 

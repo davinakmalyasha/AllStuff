@@ -40,6 +40,7 @@ type Deps struct {
 	Claims      *service.Claims
 	Billing     *service.Billing
 	Booking     *service.Booking
+	Waitlist    *service.Waitlist
 	Notifier    *service.Notifier
 	RateLimiter ratelimit.RateLimiter
 	Hub         *ws.Hub
@@ -173,6 +174,9 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/businesses/{id}/appointments", s.handleAppointmentCreate)
 	mux.HandleFunc("GET /api/v1/businesses/{id}/appointments", s.handleBusinessAppointments)
 	mux.HandleFunc("GET /api/v1/me/appointments", s.handleMyAppointments)
+	mux.HandleFunc("POST /api/v1/businesses/{id}/waitlist", s.handleWaitlistJoin)
+	mux.HandleFunc("GET /api/v1/me/waitlist", s.handleMyWaitlist)
+	mux.HandleFunc("DELETE /api/v1/waitlist/{waitlistId}", s.handleWaitlistLeave)
 	mux.HandleFunc("DELETE /api/v1/appointments/{appointmentId}", s.handleAppointmentCancel)
 	mux.HandleFunc("PATCH /api/v1/appointments/{appointmentId}/reschedule", s.handleAppointmentReschedule)
 	mux.HandleFunc("PATCH /api/v1/appointments/{appointmentId}/status", s.handleAppointmentStatus)

@@ -25,6 +25,7 @@ export const NOTIF_LABELS: Record<string, string> = {
   appointment_rescheduled: 'Appointment moved',
   appointment_reminder: 'Appointment reminder',
   review_nudge: 'How was your visit?',
+  slot_open: 'A time opened up',
 }
 
 export const NOTIF_FILTERS: { key: string; label: string }[] = [
@@ -47,6 +48,10 @@ export const NOTIF_FILTERS: { key: string; label: string }[] = [
 export function notifUrl(n: NotificationDTO): string | null {
   const p = n.payload as Record<string, string>
   if (p.thread_id) return `/me/messages/${p.thread_id}`
+  // A freed-slot alert is about the BUSINESS, not the viewer's calendar: its
+  // appointment_id belongs to the booking that was cancelled, so the generic
+  // booking rule below would send the wrong person to their own bookings.
+  if (n.type === 'slot_open') return p.business_slug ? `/b/${p.business_slug}` : null
   // A booking notice is about the customer's own calendar, so send them there
   // rather than to the storefront. Checked before business_slug, which every
   // booking payload also carries.

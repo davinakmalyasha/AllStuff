@@ -106,6 +106,7 @@ ALTER TABLE notifications
             'system_announcement','appointment_booked','appointment_cancelled',
             -- 0051 (reliability). Repeated here for the same replay reason: 0044
             -- also recreates the constraint.
-            'appointment_rescheduled','appointment_reminder','review_nudge'
+            'appointment_rescheduled','appointment_reminder','review_nudge',
+            'slot_open'
         )
     ) NOT VALID;

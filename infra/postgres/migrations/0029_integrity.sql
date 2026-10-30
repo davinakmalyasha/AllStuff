@@ -549,7 +549,8 @@ ALTER TABLE notifications
             -- constraint carries the full list and the final schema is the same
             -- whichever path built it.
             'appointment_booked','appointment_cancelled',
-            'appointment_rescheduled','appointment_reminder','review_nudge'
+            'appointment_rescheduled','appointment_reminder','review_nudge',
+            'slot_open'
         )
     ) NOT VALID;
 

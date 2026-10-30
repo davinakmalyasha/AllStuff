@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type SlotDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
@@ -27,6 +27,8 @@ interface SlotPickerProps {
   disabled?: boolean
   /** Label for the slot button, so screen readers hear the action, not just a time. */
   actionLabel?: string
+  /** Shown instead of "No times left" for a day with nothing free (waitlist). */
+  emptyAction?: (day: string) => ReactNode
 }
 
 /**
@@ -43,6 +45,7 @@ export function SlotPicker({
   onPick,
   disabled = false,
   actionLabel = 'Book',
+  emptyAction,
 }: SlotPickerProps) {
   const days = useMemo(
     () =>
@@ -119,7 +122,7 @@ export function SlotPicker({
         <p className="py-3 text-sm text-ink3">Could not load availability. Try another day.</p>
       )}
       {!availability.isLoading && !availability.isError && slots.length === 0 && (
-        <p className="py-3 text-sm text-ink3">No times left on this day.</p>
+        emptyAction ? emptyAction(date) : <p className="py-3 text-sm text-ink3">No times left on this day.</p>
       )}
       {slots.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label="Choose a time">

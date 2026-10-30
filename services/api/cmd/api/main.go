@@ -175,6 +175,7 @@ func main() {
 	stripeClient := security.NewStripeClient(cfg.StripeSecretKey, cfg.StripePublishableKey)
 	billingSvc := service.NewBilling(repos, cfg, stripeClient, logger)
 	bookingSvc := service.NewBooking(repos, notifier)
+	waitlistSvc := service.NewWaitlist(repos)
 	if billingSvc.Enabled() {
 		logger.Info("billing enabled (stripe)", "publishable", stripeClient.PublishableKey() != "")
 	} else {
@@ -239,6 +240,7 @@ func main() {
 		Claims:      claimsSvc,
 		Billing:     billingSvc,
 		Booking:     bookingSvc,
+		Waitlist:    waitlistSvc,
 		Notifier:    notifier,
 		RateLimiter: rateLimiter,
 		Hub:         hub,

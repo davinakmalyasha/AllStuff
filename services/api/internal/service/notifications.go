@@ -262,6 +262,11 @@ func describe(n *domain.Notification) (string, string) {
 			return "How was your visit?", fmt.Sprintf("Tell others about your experience at %s.", name)
 		}
 		return "How was your visit?", "Tell others about your experience."
+	case "slot_open":
+		if name := payloadString(n, "business_name"); name != "" {
+			return "A time opened up", fmt.Sprintf("A slot at %s is free again. Book it before someone else does.", name)
+		}
+		return "A time opened up", "A slot you were waiting for is free again."
 	default:
 		return "", ""
 	}
@@ -287,5 +292,5 @@ var SupportedTypes = []string{
 	"doc_re_request", "business_suspended", "business_restored", "moderation_warning",
 	"appeal_result", "category_new_business", "back_in_stock", "claim_result",
 	"trend_anomaly", "appointment_booked", "appointment_cancelled",
-	"appointment_rescheduled", "appointment_reminder", "review_nudge",
+	"appointment_rescheduled", "appointment_reminder", "review_nudge", "slot_open",
 }

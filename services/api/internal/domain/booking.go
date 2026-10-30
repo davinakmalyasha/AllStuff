@@ -47,6 +47,22 @@ type Appointment struct {
 	CreatedAt        time.Time         `json:"created_at"`
 }
 
+// WaitlistEntry is one customer's request to be told when a service frees up
+// on a day. It is a date in the BUSINESS's timezone, not an instant: no slot
+// exists yet when the request is made.
+type WaitlistEntry struct {
+	ID           string     `json:"id"`
+	BusinessID   string     `json:"business_id"`
+	BusinessName string     `json:"business_name,omitempty"`
+	BusinessSlug string     `json:"business_slug,omitempty"`
+	ProductID    string     `json:"product_id"`
+	ProductName  string     `json:"product_name,omitempty"`
+	CustomerID   string     `json:"customer_id"`
+	Day          string     `json:"day"` // YYYY-MM-DD in the business timezone
+	CreatedAt    time.Time  `json:"created_at"`
+	NotifiedAt   *time.Time `json:"notified_at,omitempty"`
+}
+
 // Blackout is time the business is unavailable regardless of its hours.
 type Blackout struct {
 	ID         string    `json:"id"`

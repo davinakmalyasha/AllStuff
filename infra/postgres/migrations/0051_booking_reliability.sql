@@ -44,6 +44,7 @@ ALTER TABLE notifications
             'business_restored','moderation_warning','appeal_result',
             'category_new_business','back_in_stock','claim_result','trend_anomaly',
             'system_announcement','appointment_booked','appointment_cancelled',
-            'appointment_rescheduled','appointment_reminder','review_nudge'
+            'appointment_rescheduled','appointment_reminder','review_nudge',
+            'slot_open'
         )
     ) NOT VALID;

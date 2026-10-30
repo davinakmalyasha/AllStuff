@@ -35,6 +35,7 @@ type Repos struct {
 	Bookings   *BookingRepo
 	Staff      *StaffRepo
 	Locations  *LocationRepo
+	Waitlist   *WaitlistRepo
 }
 
 func New(pool *pgxpool.Pool) *Repos {
@@ -55,6 +56,7 @@ func New(pool *pgxpool.Pool) *Repos {
 		Bookings:   &BookingRepo{pool: pool},
 		Staff:      &StaffRepo{pool: pool},
 		Locations:  &LocationRepo{pool: pool},
+		Waitlist:   &WaitlistRepo{pool: pool},
 	}
 }
 
@@ -79,6 +81,7 @@ func NewForTx(tx pgx.Tx) *Repos {
 		Bookings:   &BookingRepo{pool: tx},
 		Staff:      &StaffRepo{pool: tx},
 		Locations:  &LocationRepo{pool: tx},
+		Waitlist:   &WaitlistRepo{pool: tx},
 	}
 }
 

@@ -22,8 +22,8 @@ hand-rolled. No proprietary APIs, no per-seat pricing, no data resale.
 
 ```
 apps/web/       Next.js 16 + React 19 + TypeScript + Tailwind (light/dark, en/id)
-services/api/   Go 1.27 — REST + WebSocket, 254 routes, 27 services
-infra/          docker compose, 44 versioned SQL migrations
+services/api/   Go 1.27 — REST + WebSocket, 257 routes, 28 services
+infra/          docker compose, 45 versioned SQL migrations
 docs/           PRD (frozen), API (authoritative), ARCHITECTURE, RUNBOOK, DEPLOYMENT
 ```
 

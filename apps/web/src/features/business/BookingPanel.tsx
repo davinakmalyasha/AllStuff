@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { toast } from '@/components/ui/Toast'
 import { SlotPicker } from '@/components/booking/SlotPicker'
+import { WaitlistButton } from '@/components/booking/WaitlistButton'
 import { useAuthState } from '@/stores/auth'
 
 /**
@@ -99,6 +100,7 @@ export function BookingPanel({ business, product }: { business: BusinessDTO; pro
           timezone={business.timezone}
           onPick={(slot) => book.mutate(slot)}
           disabled={book.isPending}
+          emptyAction={(day) => <WaitlistButton businessId={business.id} productId={product.id} day={day} />}
         />
       )}
     </Card>
