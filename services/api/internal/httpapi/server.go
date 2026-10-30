@@ -174,6 +174,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/businesses/{id}/appointments", s.handleBusinessAppointments)
 	mux.HandleFunc("GET /api/v1/me/appointments", s.handleMyAppointments)
 	mux.HandleFunc("DELETE /api/v1/appointments/{appointmentId}", s.handleAppointmentCancel)
+	mux.HandleFunc("PATCH /api/v1/appointments/{appointmentId}/reschedule", s.handleAppointmentReschedule)
 	mux.HandleFunc("PATCH /api/v1/appointments/{appointmentId}/status", s.handleAppointmentStatus)
 	mux.HandleFunc("GET /api/v1/appointments/{appointmentId}/calendar.ics", s.handleAppointmentICS)
 	mux.HandleFunc("GET /api/v1/businesses/{id}/staff", s.handleStaff)

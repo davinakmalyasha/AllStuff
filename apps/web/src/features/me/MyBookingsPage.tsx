@@ -7,7 +7,8 @@ import { CalendarPlus, MapPin } from 'lucide-react'
 import { api, apiBlob, type AppointmentDTO } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Confirm } from '@/components/ui/Modal'
+import { Confirm, Modal } from '@/components/ui/Modal'
+import { SlotPicker } from '@/components/booking/SlotPicker'
 import { PageSpinner } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
@@ -38,6 +39,7 @@ export function MyBookingsPage() {
   usePageMeta('My bookings')
   const qc = useQueryClient()
   const [cancelTarget, setCancelTarget] = useState<AppointmentDTO | null>(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentDTO | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['my-bookings'],
@@ -51,6 +53,20 @@ export function MyBookingsPage() {
       toast.success('Booking cancelled')
     },
     onError: (e) => toast.error((e as Error).message || 'Could not cancel the booking.'),
+  })
+
+  const reschedule = useMutation({
+    mutationFn: ({ a, startsAt }: { a: AppointmentDTO; startsAt: string }) =>
+      api<{ appointment: AppointmentDTO }>(`/appointments/${a.id}/reschedule`, {
+        method: 'PATCH',
+        body: { starts_at: startsAt },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-bookings'] })
+      setRescheduleTarget(null)
+      toast.success('Booking moved')
+    },
+    onError: (e) => toast.error((e as Error).message || 'Could not move the booking.'),
   })
 
   const addToCalendar = async (a: AppointmentDTO) => {
@@ -129,9 +145,14 @@ export function MyBookingsPage() {
               <CalendarPlus className="h-3.5 w-3.5" />
             </Button>
             {canCancel && (
-              <Button size="sm" variant="ghost" onClick={() => setCancelTarget(a)}>
-                Cancel
-              </Button>
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setRescheduleTarget(a)}>
+                  Reschedule
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setCancelTarget(a)}>
+                  Cancel
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -174,6 +195,31 @@ export function MyBookingsPage() {
           <div className="space-y-3">{past.map((a) => card(a, false))}</div>
         </section>
       )}
+
+      <Modal
+        open={!!rescheduleTarget}
+        onClose={() => setRescheduleTarget(null)}
+        title={rescheduleTarget ? `Move ${rescheduleTarget.product_name || 'booking'}` : 'Move booking'}
+      >
+        {rescheduleTarget && (
+          <>
+            <p className="mb-3 text-xs text-ink3">
+              Currently {timeIn(rescheduleTarget.business_timezone, rescheduleTarget.starts_at)}. Times are shown in the
+              business's timezone.
+            </p>
+            <SlotPicker
+              businessId={rescheduleTarget.business_id}
+              productId={rescheduleTarget.product_id}
+              timezone={rescheduleTarget.business_timezone}
+              staffId={rescheduleTarget.staff_id}
+              locationId={rescheduleTarget.location_id}
+              actionLabel="Move to"
+              disabled={reschedule.isPending}
+              onPick={(slot) => reschedule.mutate({ a: rescheduleTarget, startsAt: slot.starts_at })}
+            />
+          </>
+        )}
+      </Modal>
 
       <Confirm
         open={!!cancelTarget}

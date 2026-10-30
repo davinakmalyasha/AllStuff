@@ -20,6 +20,11 @@ export const NOTIF_LABELS: Record<string, string> = {
   doc_re_request: 'Document re-requested',
   business_suspended: 'Your business was suspended',
   business_restored: 'Your business was restored',
+  appointment_booked: 'Booking confirmed',
+  appointment_cancelled: 'Appointment cancelled',
+  appointment_rescheduled: 'Appointment moved',
+  appointment_reminder: 'Appointment reminder',
+  review_nudge: 'How was your visit?',
 }
 
 export const NOTIF_FILTERS: { key: string; label: string }[] = [
@@ -42,6 +47,10 @@ export const NOTIF_FILTERS: { key: string; label: string }[] = [
 export function notifUrl(n: NotificationDTO): string | null {
   const p = n.payload as Record<string, string>
   if (p.thread_id) return `/me/messages/${p.thread_id}`
+  // A booking notice is about the customer's own calendar, so send them there
+  // rather than to the storefront. Checked before business_slug, which every
+  // booking payload also carries.
+  if (p.appointment_id) return '/me/bookings'
   if (p.business_slug) return `/b/${p.business_slug}`
   if (p.business_id) {
     // Legacy payloads carry only the id; route to the owner dashboard

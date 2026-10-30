@@ -636,6 +636,7 @@ export interface AppointmentDTO {
   product_name?: string
   location_id?: string
   location_name?: string
+  staff_id?: string
   customer_id: string
   customer_name?: string
   starts_at: string

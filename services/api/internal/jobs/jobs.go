@@ -47,6 +47,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	alerts := service.NewSearchAlerts(repos, sender, cfg)
 	ops := service.NewOps(repos, cfg.MediaDir)
 	authPurger := service.NewAuth(repos, cfg, sender, logger)
+	reliability := service.NewReliability(repos, notifier, logger)
 
 	// Recompute immediately at boot, then every 10 minutes.
 	if err := trending.Compute(ctx); err != nil {
@@ -72,6 +73,9 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	if err := ops.CleanupOrphanMedia(ctx); err != nil {
 		logger.Warn("media cleanup initial", "err", err)
 	}
+	// Booking reminders and review nudges: claims make an extra run harmless,
+	// and a deploy that lands mid-window still reminds the customers it can.
+	reliability.Run(ctx)
 
 	trendTicker := time.NewTicker(10 * time.Minute)
 	currencyTicker := time.NewTicker(time.Hour)
@@ -83,6 +87,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	purgeTicker := time.NewTicker(24 * time.Hour)
 	opsTicker := time.NewTicker(24 * time.Hour)
 	billingTicker := time.NewTicker(6 * time.Hour)
+	reliabilityTicker := time.NewTicker(time.Hour)
 	defer trendTicker.Stop()
 	defer currencyTicker.Stop()
 	defer digestCheckTicker.Stop()
@@ -90,6 +95,7 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 	defer purgeTicker.Stop()
 	defer opsTicker.Stop()
 	defer billingTicker.Stop()
+	defer reliabilityTicker.Stop()
 
 	// Each ticker runs in its own goroutine so one slow job (a Monday digest
 	// over thousands of recipients) no longer freezes trending/currency/purges
@@ -186,6 +192,12 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 				if err := billing.Reconcile(ctx); err != nil {
 					logger.Warn("billing reconcile", "err", err)
 				}
+			})
+		case <-reliabilityTicker.C:
+			// Booking reminders + review nudges. Hourly because each window is
+			// one hour wide; appointment_events makes a repeated tick harmless.
+			runner.spawn("booking_reliability", func() {
+				reliability.Run(ctx)
 			})
 		}
 	}

@@ -62,6 +62,30 @@ test('book a service, add it to the calendar, then cancel', async ({ page, reque
   await page.getByRole('button', { name: 'Add to calendar' }).click()
   expect((await download).suggestedFilename()).toBe('booking.ics')
 
+  // Rescheduling offers exactly the derived availability for the same service,
+  // so picking a time there must succeed; the card then shows the new time.
+  await page.getByRole('button', { name: 'Reschedule' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const moveDays = dialog.getByRole('group', { name: 'Choose a day' }).getByRole('button')
+  const moveTimes = dialog.getByRole('group', { name: 'Choose a time' }).getByRole('button')
+  let moved = false
+  for (let i = 0; i < 6 && !moved; i++) {
+    await moveDays.nth(i).click()
+    try {
+      await expect(moveTimes.first()).toBeVisible({ timeout: 4_000 })
+      moved = true
+    } catch {
+      // No times left on that day; try the next one.
+    }
+  }
+  expect(moved, 'no reschedule slot in the next six days').toBe(true)
+  // Pick the last offered time rather than the first, so the booking visibly
+  // changes even when the original slot is still on the same day.
+  await moveTimes.last().click()
+  await expect(page.getByText('Booking moved')).toBeVisible()
+  await expect(dialog).toBeHidden()
+
   // Cancelling asks first. The booking does not vanish - a cancellation is part
   // of the customer's history - it moves to Past and its status says Cancelled,
   // which is also why the Upcoming section disappears.

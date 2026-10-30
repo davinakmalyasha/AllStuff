@@ -148,6 +148,35 @@ func (s *Server) handleBusinessAppointments(w http.ResponseWriter, r *http.Reque
 	ok(w, map[string]any{"appointments": list})
 }
 
+// handleAppointmentReschedule moves a live booking to another free slot. The
+// service re-derives availability, so a client cannot invent a time by sending
+// an arbitrary timestamp.
+func (s *Server) handleAppointmentReschedule(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	var in struct {
+		StartsAt string `json:"starts_at"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(in.StartsAt))
+	if err != nil {
+		fail(w, domain.ErrValidation.WithField("starts_at", "Use an RFC3339 timestamp."))
+		return
+	}
+	a, err := s.deps.Booking.Reschedule(r.Context(), user.ID, r.PathValue("appointmentId"), at)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"appointment": a})
+}
+
 func (s *Server) handleAppointmentCancel(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {

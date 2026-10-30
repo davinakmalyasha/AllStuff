@@ -443,6 +443,100 @@ func (s *Booking) Cancel(ctx context.Context, userID, appointmentID string) erro
 	return nil
 }
 
+// Reschedule moves a live booking to another generated slot.
+//
+// The new time must be an EXACT slot for the same service, exactly like BookAt:
+// off-grid times, closed days and past times are rejected by the same derived
+// availability the customer saw. The update is not atomic with that scan, so the
+// EXCLUDE constraints remain the real guarantee and a lost race is ErrSlotTaken.
+//
+// Reminder claims for the old time are released, otherwise the 24h/2h sweep
+// would treat the moved booking as already reminded and the customer would get
+// nothing for the new time.
+func (s *Booking) Reschedule(ctx context.Context, userID, appointmentID string, at time.Time) (*domain.Appointment, error) {
+	a, err := s.repos.Bookings.GetAppointment(ctx, appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, domain.ErrNotFound
+	}
+	if a.CustomerID != userID {
+		can, err := s.repos.Businesses.CanManageBusiness(ctx, userID, a.BusinessID)
+		if err != nil {
+			return nil, err
+		}
+		if !can {
+			return nil, domain.ErrForbidden
+		}
+	}
+	if !a.Status.OccupiesSlot() {
+		return nil, domain.ErrValidation.WithField("_", "That appointment is no longer active.")
+	}
+	if !a.StartsAt.After(time.Now()) {
+		return nil, domain.ErrValidation.WithField("_", "That appointment has already started.")
+	}
+
+	b, _, err := s.bookableService(ctx, a.BusinessID, a.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	tz := b.Timezone
+	if place, err := s.locationFor(ctx, a.BusinessID, a.LocationID); err != nil {
+		return nil, err
+	} else if place != nil {
+		tz = place.Timezone
+	}
+	slots, free, err := s.computeSlots(ctx, a.BusinessID, a.ProductID, a.StaffID, a.LocationID, at.In(loadTimezone(tz)))
+	if err != nil {
+		return nil, err
+	}
+	var chosen *domain.Slot
+	for i := range slots {
+		if slots[i].StartsAt.Equal(at) {
+			chosen = &slots[i]
+			break
+		}
+	}
+	if chosen == nil {
+		return nil, domain.ErrValidation.WithField("starts_at", "That time is not available.")
+	}
+
+	staffID := a.StaffID
+	if staffID == "" {
+		if ids := free[chosen.StartsAt.Unix()]; len(ids) > 0 {
+			staffID = ids[0]
+		}
+	}
+	ok, err := s.repos.Bookings.RescheduleAppointment(ctx, a.ID, chosen.StartsAt, chosen.EndsAt, staffID)
+	if err != nil {
+		if repo.IsSlotConflict(err) {
+			return nil, domain.ErrSlotTaken
+		}
+		return nil, err
+	}
+	if !ok {
+		return nil, domain.ErrValidation.WithField("_", "That appointment is no longer active.")
+	}
+	s.repos.Bookings.ReleaseAppointmentEvent(ctx, a.ID, "reminder_24h")
+	s.repos.Bookings.ReleaseAppointmentEvent(ctx, a.ID, "reminder_2h")
+
+	payload := map[string]any{
+		"appointment_id": a.ID, "business_id": a.BusinessID, "business_slug": a.BusinessSlug,
+		"product": a.ProductName, "starts_at": chosen.StartsAt, "previous_starts_at": a.StartsAt,
+	}
+	// Tell the other side, same rule as Cancel: a customer moving a booking
+	// notifies the owner, a manager moving it notifies the customer.
+	if a.CustomerID == userID {
+		if b.OwnerID != "" && b.OwnerID != userID { // lint:allow: not authorisation - recipient null-check, not a gate
+			s.notifier.Create(ctx, b.OwnerID, "appointment_rescheduled", payload)
+		}
+	} else {
+		s.notifier.Create(ctx, a.CustomerID, "appointment_rescheduled", payload)
+	}
+	return s.repos.Bookings.GetAppointment(ctx, a.ID)
+}
+
 func (s *Booking) Mine(ctx context.Context, customerID string, from time.Time) ([]*domain.Appointment, error) {
 	return s.repos.Bookings.ListForCustomer(ctx, customerID, from)
 }

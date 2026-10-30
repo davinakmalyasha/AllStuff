@@ -62,17 +62,31 @@ func (n *Notifier) CreateDeduped(ctx context.Context, userID, ntype, dedupeKey s
 // Create stores a notification for userID and dispatches it on all enabled
 // channels. Best-effort: failures never break the caller's flow.
 func (n *Notifier) Create(ctx context.Context, userID, ntype string, payload map[string]any) {
+	n.create(ctx, userID, ntype, payload, false)
+}
+
+// CreateTransactional is Create for messages the user must receive regardless
+// of marketing preferences: a booking reminder is part of the appointment they
+// made, not a newsletter. In-app row and WS frame are identical; email is sent
+// whenever the account has an address. Keep this for genuinely transactional
+// types - review nudges and announcements stay on the opt-in path.
+func (n *Notifier) CreateTransactional(ctx context.Context, userID, ntype string, payload map[string]any) {
+	n.create(ctx, userID, ntype, payload, true)
+}
+
+func (n *Notifier) create(ctx context.Context, userID, ntype string, payload map[string]any, forceEmail bool) {
 	notif, err := n.repos.Engagement.CreateNotification(ctx, userID, ntype, payload)
 	if err != nil {
 		n.logger.Warn("notification create", "err", err, "user", userID, "type", ntype)
 		return
 	}
 
-	// Email channel: only when the user opted the type into email.
+	// Email channel: always for transactional types, otherwise only when the
+	// user opted the type into email.
 	//
 	// util.Go, not a bare `go`: a panic in the send path would otherwise take
 	// down the whole process, and the caller here is a request handler.
-	if n.emailOn(ctx, userID, ntype) {
+	if forceEmail || n.emailOn(ctx, userID, ntype) {
 		util.GoNamed("notification-email", func() { n.sendEmail(notif) })
 	}
 
@@ -229,9 +243,40 @@ func describe(n *domain.Notification) (string, string) {
 		return "Claim decision", "Your business claim was reviewed."
 	case "trend_anomaly":
 		return "Trend anomaly", "An engagement spike was detected and flagged."
+	case "appointment_booked":
+		return "Booking confirmed", "Your appointment has been booked."
+	case "appointment_cancelled":
+		return "Appointment cancelled", "An appointment was cancelled."
+	case "appointment_rescheduled":
+		if name := payloadString(n, "business_name"); name != "" {
+			return "Appointment rescheduled", fmt.Sprintf("Your appointment at %s moved to a new time.", name)
+		}
+		return "Appointment rescheduled", "Your appointment moved to a new time."
+	case "appointment_reminder":
+		if name := payloadString(n, "business_name"); name != "" {
+			return "Appointment reminder", fmt.Sprintf("Your appointment at %s is coming up.", name)
+		}
+		return "Appointment reminder", "You have an upcoming appointment."
+	case "review_nudge":
+		if name := payloadString(n, "business_name"); name != "" {
+			return "How was your visit?", fmt.Sprintf("Tell others about your experience at %s.", name)
+		}
+		return "How was your visit?", "Tell others about your experience."
 	default:
 		return "", ""
 	}
+}
+
+// payloadString reads a string field from a notification payload. Payloads are
+// JSON objects at rest, but go through map[string]any in memory; a missing or
+// non-string value is simply empty rather than an error, because a notification
+// without a business name still has something useful to say.
+func payloadString(n *domain.Notification, key string) string {
+	if n.Payload == nil {
+		return ""
+	}
+	s, _ := n.Payload[key].(string)
+	return s
 }
 
 // SupportedTypes enumerates every notification type for docs/tests.
@@ -241,5 +286,6 @@ var SupportedTypes = []string{
 	"question_asked", "question_answered", "business_update", "verification_result",
 	"doc_re_request", "business_suspended", "business_restored", "moderation_warning",
 	"appeal_result", "category_new_business", "back_in_stock", "claim_result",
-	"trend_anomaly",
+	"trend_anomaly", "appointment_booked", "appointment_cancelled",
+	"appointment_rescheduled", "appointment_reminder", "review_nudge",
 }

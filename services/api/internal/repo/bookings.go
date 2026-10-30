@@ -191,6 +191,152 @@ func (r *BookingRepo) DeleteBlackout(ctx context.Context, businessID, id string)
 	return tag.RowsAffected() == 1, nil
 }
 
+// RescheduleAppointment moves a live booking to a new start/end. The WHERE
+// clause re-checks the status so a booking cancelled while the dialog was open
+// cannot be moved back into the calendar. Overlap with another booking is still
+// the EXCLUDE constraint's call: callers must map 23P01 to ErrSlotTaken.
+func (r *BookingRepo) RescheduleAppointment(ctx context.Context, id string, starts, ends time.Time, staffID string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE appointments
+		   SET starts_at = $2, ends_at = $3, staff_id = NULLIF($4, '')::uuid, updated_at = now()
+		 WHERE id = $1 AND status IN ('pending', 'confirmed')`,
+		id, starts, ends, staffID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ClaimAppointmentEvent records that one timed action for one appointment has
+// been handled. It returns false when the row already exists, which is how a
+// retry or a second replica knows not to notify twice, and false when the
+// appointment has since left the state the action was for (a booking cancelled
+// between the scan and the claim). The claim is written BEFORE the
+// notification: a crash between the two loses the nudge instead of
+// duplicating it.
+func (r *BookingRepo) ClaimAppointmentEvent(ctx context.Context, appointmentID, kind string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		INSERT INTO appointment_events (id, appointment_id, kind)
+		SELECT gen_random_uuid(), a.id, $2
+		  FROM appointments a
+		 WHERE a.id = $1
+		   AND (
+		        (a.status = 'confirmed' AND $2 IN ('reminder_24h', 'reminder_2h'))
+		     OR (a.status = 'completed' AND $2 = 'review_nudge')
+		   )
+		ON CONFLICT (appointment_id, kind) DO NOTHING`, appointmentID, kind)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReleaseAppointmentEvent removes a claim so the next run can retry. Used when
+// the notification could not be created at all - keeping the claim would turn
+// a transient failure into a permanently missing reminder.
+func (r *BookingRepo) ReleaseAppointmentEvent(ctx context.Context, appointmentID, kind string) {
+	_, _ = r.pool.Exec(ctx,
+		`DELETE FROM appointment_events WHERE appointment_id = $1 AND kind = $2`, appointmentID, kind)
+}
+
+// HasClaimedEvent reports whether an appointment already has this action.
+func (r *BookingRepo) HasClaimedEvent(ctx context.Context, appointmentID, kind string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM appointment_events WHERE appointment_id = $1 AND kind = $2)`,
+		appointmentID, kind).Scan(&exists)
+	return exists, err
+}
+
+// DueAppointment is the minimum a reminder needs: who to notify and what the
+// message should say. It deliberately does not carry the full appointment row -
+// the job runs over every tenant and only needs these fields.
+type DueAppointment struct {
+	ID           string
+	CustomerID   string
+	CustomerName string
+	BusinessID   string
+	BusinessName string
+	BusinessSlug string
+	ProductName  string
+	Timezone     string
+	StartsAt     time.Time
+}
+
+// DueReminders returns CONFIRMED appointments starting inside [from, to) that
+// have not yet claimed the given reminder kind. Pending is deliberately
+// excluded: it means the owner has not accepted the booking yet, and reminding
+// the customer about a slot that may be declined is worse than silence. The claim is NOT taken here: the
+// job claims each row one at a time, so a slow send cannot hold a transaction
+// open over the whole window.
+func (r *BookingRepo) DueReminders(ctx context.Context, kind string, from, to time.Time) ([]DueAppointment, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT a.id, a.customer_id, u.name, a.business_id, b.name, b.slug,
+		       pr.name, b.timezone, a.starts_at
+		FROM appointments a
+		JOIN users u ON u.id = a.customer_id
+		JOIN businesses b ON b.id = a.business_id
+		JOIN products pr ON pr.id = a.product_id
+		WHERE a.status = 'confirmed'
+		  AND a.starts_at >= $2 AND a.starts_at < $3
+		  AND NOT EXISTS (
+			SELECT 1 FROM appointment_events e
+			 WHERE e.appointment_id = a.id AND e.kind = $1)
+		ORDER BY a.starts_at ASC`, kind, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DueAppointment
+	for rows.Next() {
+		var d DueAppointment
+		if err := rows.Scan(&d.ID, &d.CustomerID, &d.CustomerName, &d.BusinessID,
+			&d.BusinessName, &d.BusinessSlug, &d.ProductName, &d.Timezone, &d.StartsAt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DueReviewNudges returns completed appointments that ended inside [from, to)
+// and whose customer has not reviewed the business yet. A business with one
+// review per customer is the schema's rule, so the NOT EXISTS is exact rather
+// than a heuristic.
+func (r *BookingRepo) DueReviewNudges(ctx context.Context, from, to time.Time) ([]DueAppointment, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT a.id, a.customer_id, u.name, a.business_id, b.name, b.slug,
+		       pr.name, b.timezone, a.starts_at
+		FROM appointments a
+		JOIN users u ON u.id = a.customer_id
+		JOIN businesses b ON b.id = a.business_id
+		JOIN products pr ON pr.id = a.product_id
+		WHERE a.status = 'completed'
+		  AND a.ends_at >= $1 AND a.ends_at < $2
+		  AND NOT EXISTS (
+			SELECT 1 FROM appointment_events e
+			 WHERE e.appointment_id = a.id AND e.kind = 'review_nudge')
+		  AND NOT EXISTS (
+			SELECT 1 FROM reviews r
+			 WHERE r.business_id = a.business_id AND r.user_id = a.customer_id
+			   AND r.deleted_at IS NULL)
+		ORDER BY a.ends_at ASC`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DueAppointment
+	for rows.Next() {
+		var d DueAppointment
+		if err := rows.Scan(&d.ID, &d.CustomerID, &d.CustomerName, &d.BusinessID,
+			&d.BusinessName, &d.BusinessSlug, &d.ProductName, &d.Timezone, &d.StartsAt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // IsSlotConflict reports whether err is the appointments_no_overlap EXCLUDE
 // violation. Two clients booking the same time is an ordinary race, not a bug,
 // so the caller has to distinguish it from a real write failure.

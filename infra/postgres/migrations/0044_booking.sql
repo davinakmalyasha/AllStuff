@@ -103,6 +103,9 @@ ALTER TABLE notifications
             'verification_result','doc_re_request','business_suspended',
             'business_restored','moderation_warning','appeal_result',
             'category_new_business','back_in_stock','claim_result','trend_anomaly',
-            'system_announcement','appointment_booked','appointment_cancelled'
+            'system_announcement','appointment_booked','appointment_cancelled',
+            -- 0051 (reliability). Repeated here for the same replay reason: 0044
+            -- also recreates the constraint.
+            'appointment_rescheduled','appointment_reminder','review_nudge'
         )
     ) NOT VALID;

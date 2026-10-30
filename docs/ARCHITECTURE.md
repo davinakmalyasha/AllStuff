@@ -379,6 +379,7 @@ Every job also runs **once at boot** before any ticker fires.
 | `purges` | 24h | notification expiry, account-deletion anonymisation, and the retention sweep below |
 | `ops` | 24h | trend-snapshot prune (14d, keeps the latest per period) and orphan-media cleanup with a 24h file grace so an in-flight upload is never destroyed |
 | `weekly_digest` | hourly check, sends weekly | claimed against the current ISO week; released on failure so the next tick retries rather than burning the week |
+| `booking_reliability` | hourly | `appointment_reminder` at T-24h and T-2h (transactional: email is not gated on marketing prefs), then a `review_nudge` 2–48h after a completed visit when that customer has not reviewed the business. Every action is claimed once in `appointment_events` (unique per appointment+kind) **before** the notification, so a retry or a second tick cannot send twice. A reschedule releases the reminder claims so the new time is reminded. |
 
 **Retention** (`purges`, chunked by `ctid` at 50k rows per statement):
 consumed tokens >48h, revoked sessions >90d, engagement events >90d, auth events
