@@ -36,6 +36,7 @@ import { CommentsSection } from '@/components/engagement/CommentsSection'
 import { QASection } from '@/components/engagement/QASection'
 import { UpdatesSection } from '@/components/engagement/UpdatesSection'
 import { ShareButton, ReportButton } from '@/components/engagement/ReportShare'
+import { LazySection } from '@/components/ui/LazySection'
 
 const SOCIALS: Record<string, string> = {
   whatsapp: 'WhatsApp', instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook',
@@ -65,6 +66,20 @@ function socialLinks(contact: Record<string, string>): string[] {
     .filter((u): u is string => !!u)
 }
 
+/** The full storefront payload: one request feeds the page, the similar list,
+ *  the product shelf and the owner-only affordances. */
+export interface BusinessPagePayload {
+  business: BusinessDTO
+  similar: BusinessDTO[]
+  products: ProductDTO[]
+  is_owner: boolean
+  trend?: { is_booming: boolean; is_rising: boolean }
+  preview?: {
+    theme?: { colors?: Record<string, string>; font?: string }
+    layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] }
+  }
+}
+
 export function BusinessPage() {
   const { slug = '' } = useParams()
   const { user } = useAuthState((s) => ({ user: s.user }))
@@ -89,17 +104,31 @@ export function BusinessPage() {
     [searchParams],
   )
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery<BusinessPagePayload>({
     queryKey: ['business', slug, paramKey],
-    queryFn: () =>
-      api<{ business: BusinessDTO; similar: BusinessDTO[]; products: ProductDTO[]; is_owner: boolean; trend?: { is_booming: boolean; is_rising: boolean }; preview?: { theme?: { colors?: Record<string, string>; font?: string }; layout?: { sections?: { key: string; enabled: boolean }[]; highlights?: { icon: string; title: string; text: string }[] } } }>(`/b/${slug}${paramKey ? `?${paramKey}` : ''}`),
+    queryFn: () => api<BusinessPagePayload>(`/b/${slug}${paramKey ? `?${paramKey}` : ''}`),
   })
 
   const b = data?.business
   const similar = data?.similar ?? []
+  // The aside's "local time" clock is inherently different on the server and at
+  // hydration. It only became a hydration mismatch when the server started
+  // rendering a business (placeholderData); mount-gating it is the same rule the
+  // theme toggle already follows.
+  const [now, setNow] = useState<Date | null>(null)
+  useEffect(() => {
+    setNow(new Date())
+    const t = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+  // This component is server-rendered too, and placeholderData now gives it a
+  // business on the server — reading window.location unconditionally crashed
+  // the render the moment the storefront stopped being empty during SSR.
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const canonical = b && origin ? `${origin}/b/${b.slug}` : undefined
   usePageMeta(b ? `${b.name} — ${b.category_name ?? 'Business'}` : 'Business', b?.tagline ?? b?.description, {
     image: b ? `/og/b/${b.slug}` : undefined,
-    url: b ? `${window.location.origin}/b/${b.slug}` : undefined,
+    url: canonical,
   })
   useJsonLd(
     b
@@ -109,7 +138,7 @@ export function BusinessPage() {
           name: b.name,
           description: b.description,
           image: b.logo_url ?? undefined,
-          url: b.contact.website ? safeExternalUrl(b.contact.website) ?? `${window.location.origin}/b/${b.slug}` : `${window.location.origin}/b/${b.slug}`,
+          url: b.contact.website ? safeExternalUrl(b.contact.website) ?? canonical : canonical,
           telephone: b.contact.phone || undefined,
           address: { '@type': 'PostalAddress', streetAddress: b.address, addressLocality: b.city, addressCountry: b.country },
           geo: b.lat && b.lng ? { '@type': 'GeoCoordinates', latitude: b.lat, longitude: b.lng } : undefined,
@@ -349,17 +378,23 @@ export function BusinessPage() {
             <ReviewsSection businessId={b.id} isOwner={data?.is_owner ?? false} />
           </section>
 
+          <LazySection>
           <section className="border-t border-border pt-6">
             <QASection businessId={b.id} />
           </section>
+          </LazySection>
 
+          <LazySection>
           <section className="border-t border-border pt-6">
             <CommentsSection businessId={b.id} />
           </section>
+          </LazySection>
 
+          <LazySection>
           <section className="border-t border-border pt-6">
             <UpdatesSection businessId={b.id} isOwner={data?.is_owner ?? false} />
           </section>
+          </LazySection>
         </div>
 
         <aside className="space-y-6">
@@ -377,9 +412,9 @@ export function BusinessPage() {
               </ul>
               <p className="flex items-center gap-1.5 border-t border-border pt-3 text-xs text-ink3">
                 <Clock className="h-3 w-3" /> Local time{' '}
-                {b.timezone && (
+                {b.timezone && now && (
                   <span className="font-mono">
-                    {new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZone: b.timezone }).format(new Date())}
+                    {new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZone: b.timezone }).format(now)}
                   </span>
                 )}
               </p>

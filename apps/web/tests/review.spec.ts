@@ -18,7 +18,10 @@ test('a review-request link opens the form and posting shows the review', async 
   await page.goto('/b/rumah-kopi-senja?review=1#reviews')
   const box = page.getByPlaceholder(/What was it like/)
   await expect(box).toBeVisible()
-  await box.fill('Pelayanan ramah dan kopinya enak, tempatnya nyaman untuk bekerja.')
+  // Unique per run: the suite shares one database, so a fixed sentence becomes
+  // three matching paragraphs after three runs and strict mode fails.
+  const body = `Pelayanan ramah dan kopinya enak, tempatnya nyaman untuk bekerja (${uid}).`
+  await box.fill(body)
   await page.getByRole('button', { name: 'Post review' }).click()
-  await expect(page.getByText('Pelayanan ramah dan kopinya enak')).toBeVisible()
+  await expect(page.getByText(body)).toBeVisible()
 })

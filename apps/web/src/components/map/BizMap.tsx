@@ -181,8 +181,11 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
     applyMarkerTheme(map, dark)
   }, [map, dark])
 
-  // Fetch trending/rising for badge styling.
+  // Fetch trending/rising for badge styling. A mini-map shows one location and
+  // no leaderboard chrome; loading the whole leaderboard pair for it cost three
+  // requests on every business page for data that was never drawn.
   useEffect(() => {
+    if (embedded) return
     const load = async () => {
       try {
         const [t, r] = await Promise.all([
@@ -201,7 +204,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
       }
     }
     void load()
-  }, [])
+  }, [embedded])
 
   // Viewport query. A monotonic token guards against out-of-order responses:
   // rapid pan/zoom fires overlapping searches, and a slower EARLIER response
@@ -385,7 +388,7 @@ export function BizMap({ className = '', center = [106.82, -6.2], zoom = 11, sho
   }, [map, hasBooming])
 
   // Category chips (non-embedded only).
-  const { data: catData } = useQuery({ queryKey: ['categories'], queryFn: () => api<{ categories: CategoryDTO[] }>('/categories') })
+  const { data: catData } = useQuery({ queryKey: ['categories'], queryFn: () => api<{ categories: CategoryDTO[] }>('/categories'), enabled: !embedded })
 
   return (
     <div className={`relative ${className}`}>
