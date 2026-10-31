@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Admin — verification decisions + moderation trail (PRD §5.8.1, §8.7).

@@ -7,8 +7,8 @@ import (
 	"path"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/service"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/service"
 )
 
 // ---- owner business wizard (PRD §5.4.1) ----

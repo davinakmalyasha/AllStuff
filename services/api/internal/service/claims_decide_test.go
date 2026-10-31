@@ -9,12 +9,12 @@ import (
 	"log/slog"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // claims.Decide had no coverage at all - 58 statements - and it is an ownership
@@ -29,7 +29,7 @@ func newTestClaims(t *testing.T) (*Claims, *testutil.H) {
 	// through repos.Pool(), which is nil on the default tx-bound harness.
 	h.UsePool()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	notifier := NewNotifier(h.Repos, cfg, sender, ws.NewHub(logger, nil), logger)
 	return NewClaims(h.Repos, notifier), h

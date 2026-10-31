@@ -7,7 +7,7 @@ export function Logo({ className = '' }: { className?: string }) {
     <Link
       to="/"
       className={`inline-flex items-center gap-2 font-semibold tracking-tight text-ink ${className}`}
-      aria-label="BizVerse home"
+      aria-label="AllStuff home"
     >
       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent">
         <svg viewBox="0 0 64 64" className="h-4 w-4" aria-hidden>

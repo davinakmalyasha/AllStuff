@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
 )
 
 // service.Search had no tests, and it is the heaviest read path in the product:

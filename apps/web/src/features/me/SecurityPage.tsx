@@ -447,7 +447,7 @@ export function SecurityPage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-ink">Push notifications</p>
-            <p className="text-xs text-ink3">Browser notifications when you're not on BizVerse.</p>
+            <p className="text-xs text-ink3">Browser notifications when you're not on AllStuff.</p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => void enablePush()} disabled={pushState === 'subscribing' || pushState === 'subscribed'}>
             <Bell className="h-4 w-4" /> {pushState === 'subscribed' ? 'Enabled' : pushState === 'unsupported' ? 'Unsupported' : 'Enable'}

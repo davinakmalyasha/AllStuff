@@ -1,4 +1,4 @@
-# BizVerse — API Reference
+# AllStuff — API Reference
 
 Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` rotating) · CSRF: `X-CSRF-Token` header on mutations · Errors: `{ "error": { "code", "message", "fields? } }` · Pagination: `limit`/`offset` — general cap 50 on search/list endpoints; leaderboards accept up to 100 (documented exception).
 

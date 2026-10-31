@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // The plan-capacity gates had no coverage: checkCatalogCapacity,
@@ -27,7 +27,7 @@ func newGatedProducts(t *testing.T, ents EntitlementSource) (*Products, *testuti
 	t.Helper()
 	h := testutil.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	notifier := NewNotifier(h.Repos, cfg, sender, ws.NewHub(logger, nil), logger)
 	return NewProducts(h.Repos, notifier, ents), h
@@ -191,7 +191,7 @@ func TestProductCounts(t *testing.T) {
 
 func seatInvites(t *testing.T, h *testutil.H) *Invites {
 	t.Helper()
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	return NewInvites(h.Repos, cfg, sender, stubEntitlements{e: &Entitlements{TeamSeats: 10}})
 }

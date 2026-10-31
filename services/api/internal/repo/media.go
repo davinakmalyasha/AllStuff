@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 type MediaRepo struct{ pool pooler }

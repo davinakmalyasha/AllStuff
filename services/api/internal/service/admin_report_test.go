@@ -7,9 +7,9 @@ import (
 	"errors"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // admin.DecideReport had no coverage - 40 statements. It is the moderation

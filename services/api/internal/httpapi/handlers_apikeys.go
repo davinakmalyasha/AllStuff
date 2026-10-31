@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // ---- public API key management (PRD §9.6) ----

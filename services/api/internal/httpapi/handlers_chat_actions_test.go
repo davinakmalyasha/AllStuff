@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // The chat ACTION routes - search, gallery, export, forward, receipts, typing,

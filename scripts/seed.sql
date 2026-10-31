@@ -8,7 +8,7 @@
 INSERT INTO users (id, email, name, username, password_hash, email_verified_at, role, status)
 VALUES (
   '22222222-2222-4222-8222-222222222222',
-  'admin@bizverse.test',
+  'admin@allstuff.test',
   'Seed Admin',
   'seedadmin',
   '$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA', -- 'seed-only-no-login'
@@ -21,7 +21,7 @@ VALUES (
 INSERT INTO users (id, email, name, username, password_hash, email_verified_at, role, status)
 VALUES (
   '11111111-1111-4111-8111-111111111111',
-  'demo@bizverse.test',
+  'demo@allstuff.test',
   'Demo Owner',
   'demoowner',
   '$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHRzYWx0c2FsdA$c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdA', -- 'seed-only-no-login'

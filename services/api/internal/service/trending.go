@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Trending — the engagement-driven ranking engine (PRD §5.6.3, §3 model).

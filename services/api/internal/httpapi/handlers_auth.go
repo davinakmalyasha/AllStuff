@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
 )
 
 // accountThrottle caps FAILED authentication attempts for a target account
@@ -290,7 +290,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{
 		"status":         "ok",
-		"service":        "bizverse-api",
+		"service":        "allstuff-api",
 		"time":           time.Now().UTC().Format(time.RFC3339),
 		"env":            s.deps.Config.AppEnv,
 		"ws_connections": s.deps.Hub.Count(),

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // APIKeys — public read API credentials (PRD §9.6). Keys are shown once at

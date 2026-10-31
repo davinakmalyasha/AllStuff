@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Waitlist turns "the day is full" into a queue the cancellation sweep can

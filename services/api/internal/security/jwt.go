@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // Compact JWT (HS256) — no external dependency; strictly typed claims.

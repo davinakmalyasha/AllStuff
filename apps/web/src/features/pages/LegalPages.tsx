@@ -7,7 +7,7 @@ export function TermsPage() {
   return (
     <div className="container-page max-w-2xl py-10 space-y-4 text-sm leading-relaxed text-ink2">
       <h1 className="text-2xl font-semibold tracking-tight text-ink">Terms of service</h1>
-      <p>BizVerse connects people with businesses. By using the platform you agree to:</p>
+      <p>AllStuff connects people with businesses. By using the platform you agree to:</p>
       <ul className="list-disc space-y-2 pl-5">
         <li>Providing accurate information about your business and its verification documents.</li>
         <li>Not posting content that is unlawful, defamatory, or infringes others' rights.</li>

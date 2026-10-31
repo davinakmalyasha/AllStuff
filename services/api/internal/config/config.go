@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"bizverse/api/internal/security"
+	"allstuff/api/internal/security"
 )
 
 type Config struct {
@@ -80,7 +80,7 @@ func Load() Config {
 		PublicURL: env("PUBLIC_URL", "http://localhost:5173"),
 		// NOTE: sslmode default is disable for local only. Validate() refuses
 		// a non-TLS DSN when APP_ENV=prod, so the default can never reach prod.
-		DatabaseURL:         env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable"),
+		DatabaseURL:         env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/allstuff?sslmode=disable"),
 		JWTSecret:           env("JWT_SECRET", devJWTSecret),
 		MigrationsDir:       env("MIGRATIONS_DIR", "../../infra/postgres/migrations"),
 		CookieSecure:        env("COOKIE_SECURE", "false") == "true",
@@ -92,7 +92,7 @@ func Load() Config {
 		MetricsToken:        os.Getenv("METRICS_TOKEN"),
 		RedisURL:            os.Getenv("REDIS_URL"),
 		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
-		EmailFrom:           env("EMAIL_FROM", "no-reply@bizverse.app"),
+		EmailFrom:           env("EMAIL_FROM", "no-reply@allstuff.app"),
 		SMTPAddr:            os.Getenv("SMTP_ADDR"),
 		SMTPUser:            os.Getenv("SMTP_USER"),
 		SMTPPass:            os.Getenv("SMTPPASS"),

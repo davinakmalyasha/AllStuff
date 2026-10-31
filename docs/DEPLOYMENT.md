@@ -1,4 +1,4 @@
-# BizVerse — Deployment Guide
+# AllStuff — Deployment Guide
 
 Targets per PRD §10.6: **Vercel** (frontend) + **Railway** (API, Postgres, Redis).
 
@@ -87,11 +87,11 @@ than a build-time variable.
 
 Two build/deploy-time values (everything else is runtime):
 
-- `SITE_URL` (Vercel environment variable, e.g. `https://bizverse.app`):
+- `SITE_URL` (Vercel environment variable, e.g. `https://allstuff.app`):
   absolute `og:url` / `og:image` / canonical via Next `metadataBase`, for
   link scrapers that never run JavaScript. Optional: when unset the tags stay
   relative (dev and E2E behavior).
-- `API_ORIGIN` (GitHub repo variable, e.g. `https://api.bizverse.app`): the
+- `API_ORIGIN` (GitHub repo variable, e.g. `https://api.allstuff.app`): the
   deploy workflow substitutes it into `vercel.json` before `vercel build` and
   **fails the deploy** when it is missing or still the `api.example.com`
   template. The committed `vercel.json` intentionally keeps the placeholder so
@@ -107,7 +107,7 @@ Two build/deploy-time values (everything else is runtime):
 3. Enable managed backups, plus daily dumps:
 
    ```bash
-   pg_dump "$DATABASE_URL" | gzip > /backups/bizverse-$(date +%F).sql.gz
+   pg_dump "$DATABASE_URL" | gzip > /backups/allstuff-$(date +%F).sql.gz
    ```
 
    `scripts/backup.ps1` is the Windows equivalent.

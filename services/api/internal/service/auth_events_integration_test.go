@@ -20,7 +20,7 @@ import (
 	"net"
 	"testing"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // The Security page's sign-in history.

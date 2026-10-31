@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // WaitlistRepo — requests to be told when a full day frees up.

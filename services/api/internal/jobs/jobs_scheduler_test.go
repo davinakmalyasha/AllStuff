@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 func testLogger() *slog.Logger {
@@ -119,7 +119,7 @@ func TestRunReturnsImmediatelyWhenAlreadyShuttingDown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	logger := testLogger()
 	notifier := service.NewNotifier(h.Repos, cfg, sender, ws.NewHub(logger, nil), logger)

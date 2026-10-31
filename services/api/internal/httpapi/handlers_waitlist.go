@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // Waitlist: the customer side of a full day. Joining is idempotent, leaving is

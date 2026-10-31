@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // Query-count assertions for the two fan-outs removed this session.

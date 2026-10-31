@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The OAuth handlers had never been executed. The service layer was covered
@@ -201,7 +201,7 @@ func TestOAuthStartRedirectsToGoogle(t *testing.T) {
 	q := loc.Query()
 	for k, want := range map[string]string{
 		"client_id":     "client-id",
-		"redirect_uri":  "https://bizverse.test/api/v1/auth/oauth/google/callback",
+		"redirect_uri":  "https://allstuff.test/api/v1/auth/oauth/google/callback",
 		"response_type": "code",
 		"scope":         "openid email profile",
 	} {
@@ -404,7 +404,7 @@ func TestOAuthCallbackCreatesAccount(t *testing.T) {
 	if got := tokenForm.Get("code"); got != "the-code" {
 		t.Errorf("token code = %q, want the callback's code", got)
 	}
-	if got := tokenForm.Get("redirect_uri"); got != "https://bizverse.test/api/v1/auth/oauth/google/callback" {
+	if got := tokenForm.Get("redirect_uri"); got != "https://allstuff.test/api/v1/auth/oauth/google/callback" {
 		t.Errorf("token redirect_uri = %q", got)
 	}
 

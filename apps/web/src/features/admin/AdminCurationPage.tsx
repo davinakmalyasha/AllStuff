@@ -177,7 +177,7 @@ export function AdminCurationPage() {  const qc = useQueryClient()
         <input
           value={announcement}
           onChange={(e) => setAnnouncement(e.target.value)}
-          placeholder="e.g. Welcome to BizVerse — 10,000 businesses and counting!"
+          placeholder="e.g. Welcome to AllStuff — 10,000 businesses and counting!"
           className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink"
         />
         <Button size="sm" onClick={() => void saveAnnouncement.mutateAsync()} disabled={saveAnnouncement.isPending}>Save announcement</Button>

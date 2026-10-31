@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // Migration 0033 exists because 0031 wrote the rule down and then did not apply

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // Staff turn availability from "is the shop open" into "is somebody free".

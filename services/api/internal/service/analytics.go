@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
 )
 
 // Analytics — owner insights (PRD §5.4.5). Engagement events feed the series

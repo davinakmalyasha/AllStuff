@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The public directory routes - sitemap, robots, suggest, compare, featured,
@@ -79,16 +79,16 @@ func TestPublicDirectoryRoutes(t *testing.T) {
 	}
 	locs := map[string]string{}
 	for _, u := range doc.URLs {
-		if !strings.HasPrefix(u.Loc, "https://bizverse.test/") {
+		if !strings.HasPrefix(u.Loc, "https://allstuff.test/") {
 			t.Errorf("sitemap loc %q is not on the public origin", u.Loc)
 		}
 		locs[u.Loc] = u.LastMod
 	}
 	for _, want := range []string{
-		"https://bizverse.test/",
-		"https://bizverse.test/c/" + cat.Slug,
-		"https://bizverse.test/city/jakarta",
-		"https://bizverse.test/b/sitemap-coffee",
+		"https://allstuff.test/",
+		"https://allstuff.test/c/" + cat.Slug,
+		"https://allstuff.test/city/jakarta",
+		"https://allstuff.test/b/sitemap-coffee",
 	} {
 		if _, found := locs[want]; !found {
 			t.Errorf("sitemap is missing %s", want)
@@ -96,10 +96,10 @@ func TestPublicDirectoryRoutes(t *testing.T) {
 	}
 	// Drafts are not published pages. A sitemap entry is an invitation to
 	// index content the owner has not finished.
-	if _, found := locs["https://bizverse.test/b/hidden-draft"]; found {
+	if _, found := locs["https://allstuff.test/b/hidden-draft"]; found {
 		t.Error("sitemap lists a draft business")
 	}
-	if lm := locs["https://bizverse.test/b/sitemap-coffee"]; len(lm) != 10 || lm[4] != '-' || lm[7] != '-' {
+	if lm := locs["https://allstuff.test/b/sitemap-coffee"]; len(lm) != 10 || lm[4] != '-' || lm[7] != '-' {
 		t.Errorf("business lastmod = %q, want a YYYY-MM-DD date", lm)
 	}
 
@@ -115,7 +115,7 @@ func TestPublicDirectoryRoutes(t *testing.T) {
 	if !strings.Contains(robots, "User-agent: *") || !strings.Contains(robots, "Allow: /") {
 		t.Errorf("robots does not allow crawling: %q", robots)
 	}
-	if !strings.Contains(robots, "Sitemap: https://bizverse.test/api/v1/sitemap.xml") {
+	if !strings.Contains(robots, "Sitemap: https://allstuff.test/api/v1/sitemap.xml") {
 		t.Errorf("robots points at the wrong sitemap: %q", robots)
 	}
 

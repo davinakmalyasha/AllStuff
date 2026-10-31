@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // ---- billing / subscriptions (Phase 7.1) ----

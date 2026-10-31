@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"bizverse/api/internal/redisclient"
+	"allstuff/api/internal/redisclient"
 )
 
 // errTOTPPoolBusy means every pooled connection is checked out. Callers treat

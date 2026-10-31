@@ -214,7 +214,7 @@ func TestMigrateReplayIsSafe(t *testing.T) {
 
 	admin := replayPool(t, dsn, "postgres")
 
-	const tmpl = "bizverse_replay_tpl"
+	const tmpl = "allstuff_replay_tpl"
 	dropIfExists(ctx, t, admin, tmpl)
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+tmpl); err != nil {
 		t.Fatalf("create template: %v", err)
@@ -263,7 +263,7 @@ func TestMigrateReplayIsSafe(t *testing.T) {
 			if tolerated {
 				t.Skipf("known baseline defect, documented in knownNonReplayable: %s", reason)
 			}
-			scratch := "bizverse_replay_" + strings.NewReplacer(".", "_", "-", "_", "/", "_").Replace(version)
+			scratch := "allstuff_replay_" + strings.NewReplacer(".", "_", "-", "_", "/", "_").Replace(version)
 			if len(scratch) > 60 {
 				scratch = scratch[:60]
 			}
@@ -323,7 +323,7 @@ func TestMigrateFailsOnInvalidIndex(t *testing.T) {
 	admin := replayPool(t, dsn, "postgres")
 	defer admin.Close()
 
-	const db = "bizverse_replay_invalid"
+	const db = "allstuff_replay_invalid"
 	dropIfExists(ctx, t, admin, db)
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+db); err != nil {
 		t.Fatal(err)
@@ -344,11 +344,11 @@ func TestMigrateFailsOnInvalidIndex(t *testing.T) {
 	// and CREATE INDEX CONCURRENTLY is rejected inside one — the same rule
 	// db/migrate.go's splitter exists to work around.
 	if _, err := p.Exec(ctx,
-		"CREATE INDEX CONCURRENTLY bizverse_fake_invalid ON categories (upper(name))"); err != nil {
+		"CREATE INDEX CONCURRENTLY allstuff_fake_invalid ON categories (upper(name))"); err != nil {
 		t.Fatalf("stage invalid index: %v", err)
 	}
 	if _, err := p.Exec(ctx,
-		"UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'bizverse_fake_invalid'::regclass"); err != nil {
+		"UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'allstuff_fake_invalid'::regclass"); err != nil {
 		t.Fatalf("mark index invalid: %v", err)
 	}
 
@@ -359,7 +359,7 @@ func TestMigrateFailsOnInvalidIndex(t *testing.T) {
 		t.Fatal("Migrate() returned nil with an INVALID index present; the index would be " +
 			"silently skipped by every future IF NOT EXISTS replay")
 	}
-	if !strings.Contains(err.Error(), "bizverse_fake_invalid") {
+	if !strings.Contains(err.Error(), "allstuff_fake_invalid") {
 		t.Errorf("error should name the offending index so an operator knows what to drop, got: %v", err)
 	}
 }
@@ -373,7 +373,7 @@ func TestMigrateAppliesAnEmptyDirectory(t *testing.T) {
 	admin := replayPool(t, dsn, "postgres")
 	defer admin.Close()
 
-	const db = "bizverse_replay_empty"
+	const db = "allstuff_replay_empty"
 	dropIfExists(ctx, t, admin, db)
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+db); err != nil {
 		t.Fatal(err)

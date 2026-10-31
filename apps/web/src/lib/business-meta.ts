@@ -35,7 +35,7 @@ export function whatsappUrl(handle: string): string {
   return `https://wa.me/${handle.replace(/^\+/, '')}`
 }
 
-/** Owner-declared payment methods. Display only: BizVerse never processes the
+/** Owner-declared payment methods. Display only: AllStuff never processes the
  *  payment, so this is a fact about the shop, not a checkout. Order matches the
  *  backend's canonical order. */
 export const PAYMENT_METHODS: { key: string; label: string }[] = [

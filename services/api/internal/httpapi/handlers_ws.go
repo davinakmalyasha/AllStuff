@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // handleWS upgrades to the real-time hub (PRD §5.5.3, ARCHITECTURE §3).

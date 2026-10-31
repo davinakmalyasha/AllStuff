@@ -7,9 +7,9 @@ import (
 	"errors"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
 )
 
 // Public visibility is enforced ONE LAYER ABOVE the repository, and that is

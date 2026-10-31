@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	mail "bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	mail "allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Invites — co-owner invitations (PRD §5.9.3).
@@ -121,12 +121,12 @@ func (s *Invites) sendInviteEmail(ctx context.Context, ownerID, businessID, emai
 	if role == "viewer" {
 		roleLabel = "a viewer"
 	}
-	subject := "You've been invited to co-manage " + businessName + " on BizVerse"
+	subject := "You've been invited to co-manage " + businessName + " on AllStuff"
 	link := s.cfg.PublicURL + "/invite/" + token
 	return s.email.Send(ctx, email, subject,
 		mail.WrapHTML(s.cfg.PublicURL, subject,
 			// Human label only; the raw token stays in the href.
-			fmt.Sprintf(`<p>Hi %s,</p><p>%s has invited you to help manage <strong>%s</strong> on BizVerse as %s.</p>
+			fmt.Sprintf(`<p>Hi %s,</p><p>%s has invited you to help manage <strong>%s</strong> on AllStuff as %s.</p>
 			<p><a href="%s">Accept your invitation</a>.</p><p>The link expires in 7 days and can be used once.</p>`,
 				htmlEscape(email), htmlEscape(inviterName), htmlEscape(businessName), roleLabel, link)))
 }

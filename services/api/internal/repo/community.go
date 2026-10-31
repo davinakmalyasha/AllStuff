@@ -6,8 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // CommunityRepo — Q&A, follows, owner announcements (B5/B6 additions).

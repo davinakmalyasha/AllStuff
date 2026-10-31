@@ -6,8 +6,8 @@ import type { MetadataRoute } from 'next'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'BizVerse — Every business. One place.',
-    short_name: 'BizVerse',
+    name: 'AllStuff — Every business. One place.',
+    short_name: 'AllStuff',
     description: 'Every business in the world, in one place.',
     start_url: '/',
     display: 'standalone',

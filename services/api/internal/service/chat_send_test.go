@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/ratelimit"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/ratelimit"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // chat.Send had no coverage at all in the last measured profile - 114
@@ -41,7 +41,7 @@ func newTestChat(t *testing.T) (*Chat, *testutil.H) {
 	h.UsePool()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	// The notify loop dereferences c.notifier without a nil guard, so it has to
 	// be real. Its email channel is off unless a user opts in, so nothing sends.

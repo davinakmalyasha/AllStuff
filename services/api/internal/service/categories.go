@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Categories - tree management (PRD §5.8.3).

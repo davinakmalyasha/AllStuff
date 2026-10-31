@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/ws"
 )
 
 // products.Update had no coverage - 52 statements - and it is the owner-facing
@@ -25,7 +25,7 @@ func newTestProducts(t *testing.T) (*Products, *testutil.H) {
 	t.Helper()
 	h := testutil.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	notifier := NewNotifier(h.Repos, cfg, sender, ws.NewHub(logger, nil), logger)
 	billing := NewBilling(h.Repos, cfg, security.NewStripeClient("", ""), logger)

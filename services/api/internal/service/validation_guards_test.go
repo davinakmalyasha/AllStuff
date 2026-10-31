@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // These three functions had no coverage at all in the last measured CI profile

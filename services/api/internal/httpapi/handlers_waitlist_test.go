@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // The waitlist routes: joining is authenticated and idempotent, leaving is

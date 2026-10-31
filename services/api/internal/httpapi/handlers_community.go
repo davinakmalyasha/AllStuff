@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // ---- Q&A (B5) ----

@@ -10,10 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/service"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/service"
 )
 
 // Run starts background jobs (ARCHITECTURE §4). A Postgres advisory lock
@@ -28,6 +28,9 @@ func Run(ctx context.Context, logger *slog.Logger, repos *repo.Repos, cfg config
 		defer conn.Release()
 		defer func() {
 			_, _ = conn.Exec(context.WithoutCancel(ctx),
+				// The lock NAME is a protocol between replicas. Renaming it while
+				// old and new instances overlap would let both hold a "leader"
+				// lock and run every job twice. Kept until a coordinated rollout.
 				`SELECT pg_advisory_unlock(hashtext('bizverse:jobs'))`)
 		}()
 	}
@@ -214,6 +217,7 @@ func acquireLeader(ctx context.Context, logger *slog.Logger, repos *repo.Repos) 
 		}
 		var leader bool
 		qerr := conn.QueryRow(ctx,
+			// See the unlock note: this key is deliberately not renamed.
 			`SELECT pg_try_advisory_lock(hashtext('bizverse:jobs'))`).Scan(&leader)
 		if qerr == nil && leader {
 			return conn, nil

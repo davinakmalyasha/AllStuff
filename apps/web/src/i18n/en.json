@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "BizVerse",
+    "appName": "AllStuff",
     "loading": "Loading…",
     "submit": "Submit",
     "cancel": "Cancel",
@@ -63,7 +63,7 @@
   },
   "auth": {
     "loginTitle": "Sign in",
-    "loginSub": "Welcome back to BizVerse.",
+    "loginSub": "Welcome back to AllStuff.",
     "registerTitle": "Create your account",
     "registerSub": "Free forever. No cards, no limits.",
     "email": "Email",

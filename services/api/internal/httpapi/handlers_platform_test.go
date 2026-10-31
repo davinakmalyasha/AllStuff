@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // handlers_platform.go had no HTTP coverage: public profiles, support contact,

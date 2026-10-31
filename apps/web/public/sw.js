@@ -1,4 +1,4 @@
-/* BizVerse service worker (PRD §5.5.3) — Web Push + install prompt. */
+/* AllStuff service worker (PRD §5.5.3) — Web Push + install prompt. */
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
@@ -8,7 +8,7 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('push', (event) => {
-  let payload = { title: 'BizVerse', body: 'New notification', data: {} }
+  let payload = { title: 'AllStuff', body: 'New notification', data: {} }
   try {
     const parsed = event.data ? JSON.parse(event.data.text()) : {}
     payload = { ...payload, ...parsed }

@@ -204,10 +204,10 @@ The SQL harnesses in `infra/postgres/` run against a migrated, seeded database:
 
 ```powershell
 $env:PGPASSWORD = "postgres"
-psql -h localhost -U postgres -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_integrity.sql
-psql -h localhost -U postgres -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_open_now.sql
-psql -h localhost -U postgres -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_index_inventory.sql
-psql -h localhost -U postgres -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_index_usage_seeded.sql
+psql -h localhost -U postgres -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_integrity.sql
+psql -h localhost -U postgres -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_open_now.sql
+psql -h localhost -U postgres -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_index_inventory.sql
+psql -h localhost -U postgres -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_index_usage_seeded.sql
 ```
 
 `test_integrity.sql`, `test_index_inventory.sql` and

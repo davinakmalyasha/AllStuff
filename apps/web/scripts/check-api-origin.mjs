@@ -39,7 +39,7 @@ if (process.argv.includes('--self-test')) {
     ['https://api.example.com/api/x', 'placeholder'],
     ['not-a-url', 'not a URL'],
     ['http://evil.example/api', 'https'],
-    ['https://api.bizverse.app', null],
+    ['https://api.allstuff.app', null],
     ['http://localhost:8080', null],
   ]
   let failed = 0

@@ -16,12 +16,15 @@ import (
 	"sync"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/util"
 )
 
 const (
+	// The `bv_` prefix predates the AllStuff rename and is kept deliberately:
+	// changing a cookie name signs every user out, including refresh tokens, and
+	// nothing user-visible depends on it.
 	cookieAccess  = "bv_access"
 	cookieRefresh = "bv_refresh"
 	cookieCSRF    = "bv_csrf"

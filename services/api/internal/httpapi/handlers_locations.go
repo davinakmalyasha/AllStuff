@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // Locations are the places a business operates from. The list is PUBLIC - a

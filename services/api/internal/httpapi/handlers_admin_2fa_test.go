@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
 )
 
 // Every admin route sits behind withAdmin2FA. That middleware had no test: the

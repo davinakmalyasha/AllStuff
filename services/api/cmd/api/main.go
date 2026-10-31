@@ -15,16 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/db"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/httpapi"
-	"bizverse/api/internal/jobs"
-	"bizverse/api/internal/ratelimit"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/db"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/httpapi"
+	"allstuff/api/internal/jobs"
+	"allstuff/api/internal/ratelimit"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/ws"
 )
 
 // maxHeaderBytes caps request HEADERS (not bodies — uploads are unaffected).
@@ -134,6 +134,8 @@ func main() {
 	wsOrigins := append(append([]string{}, cfg.WSOrigins...), cfg.CORSOrigins...)
 	var pubsub *ws.RedisPubSub
 	if cfg.RedisURL != "" {
+		// Channel name is a wire protocol between API replicas; kept across the
+		// rename so a rolling deploy does not split the fan-out.
 		pubsub, err = ws.NewRedisPubSub(cfg.RedisURL, "bizverse:ws", logger)
 		if err != nil {
 			logger.Warn("redis pubsub disabled", "err", err)

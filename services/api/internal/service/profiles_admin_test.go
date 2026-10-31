@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/ws"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The Profiles moderation tail - Contact, Appeal, Appeals, DecideAppeal,
@@ -27,7 +27,7 @@ func newTestProfiles(t *testing.T) (*Profiles, *testutil.H) {
 	t.Helper()
 	h := testutil.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	notifier := NewNotifier(h.Repos, cfg, email.NewSender(email.ResendConfig{AppEnv: "test"}), ws.NewHub(logger, nil), logger)
 	return NewProfiles(h.Repos, notifier), h
 }

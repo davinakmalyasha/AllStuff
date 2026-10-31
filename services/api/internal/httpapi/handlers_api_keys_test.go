@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
 )
 
 // The X-API-Key boundary had one covered branch: the empty header. Everything

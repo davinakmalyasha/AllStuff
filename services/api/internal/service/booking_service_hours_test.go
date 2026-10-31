@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // Per-service hours narrow one service inside a place's own hours. A missing

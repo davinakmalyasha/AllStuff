@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 func comment(id string, parent *string) *domain.Comment {

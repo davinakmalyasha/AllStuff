@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "BizVerse",
+    "appName": "AllStuff",
     "loading": "Memuat…",
     "submit": "Kirim",
     "cancel": "Batal",
@@ -63,7 +63,7 @@
   },
   "auth": {
     "loginTitle": "Masuk",
-    "loginSub": "Selamat datang kembali di BizVerse.",
+    "loginSub": "Selamat datang kembali di AllStuff.",
     "registerTitle": "Buat akun Anda",
     "registerSub": "Gratis selamanya. Tanpa kartu, tanpa batas.",
     "email": "Email",

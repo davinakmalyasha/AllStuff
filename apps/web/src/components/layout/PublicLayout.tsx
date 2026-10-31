@@ -158,7 +158,7 @@ function PublicFooter() {
           </div>
         </div>
         <div className="mt-10 flex flex-col items-start justify-between gap-2 border-t border-border pt-6 text-xs text-ink3 sm:flex-row">
-          <p>© {year} BizVerse. Free forever.</p>
+          <p>© {year} AllStuff. Free forever.</p>
         </div>
       </div>
     </footer>

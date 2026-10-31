@@ -104,7 +104,7 @@ export function ExportPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'bizverse-export.json'
+      a.download = 'allstuff-export.json'
       a.click()
       URL.revokeObjectURL(url)
       toast.success('Export downloaded')
@@ -121,7 +121,7 @@ export function ExportPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Export your data</h1>
       <Card className="mt-4 space-y-3">
         <p className="text-sm text-ink2">
-          Download everything BizVerse stores about you: profile, reviews, comments, collections,
+          Download everything AllStuff stores about you: profile, reviews, comments, collections,
           messages and activity. The file is a JSON snapshot.
         </p>
         <Button onClick={() => void run()} disabled={busy}>

@@ -16,12 +16,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/ratelimit"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/ratelimit"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // Chat — full messaging (PRD §5.5, §8.5): direct + business threads,
@@ -720,7 +720,7 @@ func fetchLinkPreview(ctx context.Context, text string) (map[string]any, bool) {
 	if err != nil {
 		return nil, false
 	}
-	req.Header.Set("User-Agent", "BizVerseBot/1.0 (+https://bizverse.app)")
+	req.Header.Set("User-Agent", "AllStuffBot/1.0 (+https://allstuff.app)")
 	resp, err := previewClient.Do(req)
 	if err != nil {
 		return nil, false

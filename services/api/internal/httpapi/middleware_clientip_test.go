@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"bizverse/api/internal/config"
+	"allstuff/api/internal/config"
 )
 
 // Rate-limit buckets are keyed on clientIP, so any two spellings of one address

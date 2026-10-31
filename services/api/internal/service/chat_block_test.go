@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // Block, BlockList, CheckAccess and AddQuickReply had no coverage. Blocking is

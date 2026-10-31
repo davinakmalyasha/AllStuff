@@ -8,12 +8,12 @@ const SITE = process.env.SITE_URL ?? process.env.PUBLIC_URL ?? 'http://localhost
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
-  title: { default: 'BizVerse — Every business. One place.', template: '%s · BizVerse' },
+  title: { default: 'AllStuff — Every business. One place.', template: '%s · AllStuff' },
   description: 'Every business in the world, in one place. Find, compare, and contact any business.',
   openGraph: {
     type: 'website',
-    siteName: 'BizVerse',
-    title: 'BizVerse — Every business. One place.',
+    siteName: 'AllStuff',
+    title: 'AllStuff — Every business. One place.',
     description: 'Every business in the world, in one place. Find, compare, and contact any business.',
     images: [{ url: '/og-default.png', width: 1200, height: 630 }],
     locale: 'en_US',

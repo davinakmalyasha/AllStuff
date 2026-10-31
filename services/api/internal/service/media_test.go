@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 func TestSniffMIME(t *testing.T) {

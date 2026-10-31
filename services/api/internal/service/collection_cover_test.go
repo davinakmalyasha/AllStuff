@@ -7,9 +7,9 @@ import (
 	"errors"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // `collections.cover_item_id` has been in the schema since 0001 and appears nowhere

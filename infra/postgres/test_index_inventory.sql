@@ -17,7 +17,7 @@
 --     version CI actually runs.
 --
 -- Run with:
---   psql -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_index_inventory.sql
+--   psql -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_index_inventory.sql
 
 \pset footer off
 \echo === index inventory (deterministic; no data required)

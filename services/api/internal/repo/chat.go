@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // ChatRepo — threads, participants, messages, reactions, quick replies,

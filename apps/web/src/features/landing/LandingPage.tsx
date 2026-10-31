@@ -316,7 +316,7 @@ export function LandingPage() {
       <section className="border-t border-border bg-surface/50 py-16 sm:py-20">
         <div className="container-page">
           <div className="mb-10 text-center">
-            <p className="mono-label mb-2">Why BizVerse</p>
+            <p className="mono-label mb-2">Why AllStuff</p>
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('landing.featuresHeading')}</h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

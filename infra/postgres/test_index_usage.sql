@@ -24,10 +24,10 @@
 -- nothing about whether the index is usable. For a decision, use the seeded
 -- variant, which loads synthetic rows, ANALYZEs, and asserts the plan shape:
 --
---   psql -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_index_usage_seeded.sql
+--   psql -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_index_usage_seeded.sql
 --
 -- Run this one only to read plans interactively:
---   psql -d bizverse -f infra/postgres/test_index_usage.sql
+--   psql -d allstuff -f infra/postgres/test_index_usage.sql
 
 \pset footer off
 \echo === plan shapes, for reading by eye only (no assertions)

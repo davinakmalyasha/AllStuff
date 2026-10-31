@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 const oauthStateCookie = "bv_oauth_state"

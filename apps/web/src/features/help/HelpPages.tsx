@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { usePageMeta } from '@/lib/meta'
 
 const FAQS: { q: string; a: string }[] = [
-  { q: 'Is BizVerse really free?', a: 'Yes. Every feature — storefronts, chat, reviews, leaderboards — is free forever. There are no plans to charge for core features.' },
+  { q: 'Is AllStuff really free?', a: 'Yes. Every feature — storefronts, chat, reviews, leaderboards — is free forever. There are no plans to charge for core features.' },
   { q: 'How does the verification badge work?', a: 'Businesses can reach two levels: Verified (info checked by our team) and Fully Verified (info + uploaded documents such as a business registration or license).' },
   { q: 'How do leaderboards work?', a: 'Engagement — views, likes, recommends, reviews, comments, saves — is scored with time decay. What is booming right now ranks higher, and newer businesses get a Rising boost so hidden gems are found.' },
   { q: 'Can I message any business?', a: 'Yes, and any user. Messaging is full-featured: media, replies, reactions, edit, delete, and read receipts. Block anyone you do not want to hear from.' },

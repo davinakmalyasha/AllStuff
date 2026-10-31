@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // Category counts used to be measured per category in isolation, which made every

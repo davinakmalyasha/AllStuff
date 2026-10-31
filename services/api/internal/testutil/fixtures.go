@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // Fixtures. Deliberately thin: each helper produces the MINIMUM valid row for

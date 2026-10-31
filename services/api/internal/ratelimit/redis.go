@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"bizverse/api/internal/redisclient"
+	"allstuff/api/internal/redisclient"
 )
 
 // redisLimiter is a fixed-window limiter whose counters live in Redis, so every

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The security handlers had no HTTP test: 2FA, sessions, password and email

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Businesses — wizard, submission, verification (PRD §5.4.1, §8.2), storefront
@@ -942,7 +942,7 @@ func validateContact(v any) (map[string]any, error) {
 		}
 	}
 	// Payment methods are owner-declared DISPLAY facts, not a payment
-	// integration: BizVerse never touches the money. Stored canonically
+	// integration: AllStuff never touches the money. Stored canonically
 	// (deduped, known tokens only) so the public page can render chips without
 	// trusting arbitrary owner text.
 	if raw, ok := in["payment_methods"]; ok {

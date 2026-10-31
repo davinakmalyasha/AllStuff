@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/util"
 )
 
 // `chat_messages.read_count` was declared, scanned, and serialised to every client

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/ratelimit"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/ratelimit"
 )
 
 // The account throttle used to run BEFORE the credential check, on every

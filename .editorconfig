@@ -1,4 +1,4 @@
-# BizVerse
+# AllStuff
 
 Business directory and storefront platform. Self-hostable: PostgreSQL, Redis,
 and one Go binary. No proprietary APIs, no vendor lock-in, no per-seat pricing.

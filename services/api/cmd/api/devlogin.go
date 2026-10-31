@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
 )
 
 // Demo credentials for the seed accounts (scripts/seed.sql).
@@ -29,8 +29,8 @@ import (
 // through the dashboard or as the admin (scan the printed QR into any
 // authenticator app) for /admin/*.
 const (
-	devDemoEmail  = "demo@bizverse.test"
-	devAdminEmail = "admin@bizverse.test"
+	devDemoEmail  = "demo@allstuff.test"
+	devAdminEmail = "admin@allstuff.test"
 	devPassword   = "DemoPass123!"
 )
 

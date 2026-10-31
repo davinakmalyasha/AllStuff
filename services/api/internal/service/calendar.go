@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // CalendarInvite renders one appointment as an iCalendar (RFC 5545) file.
@@ -54,11 +54,11 @@ func (s *Booking) CalendarInvite(ctx context.Context, userID, appointmentID stri
 	line := func(v string) { writeFolded(&b, v) }
 	line("BEGIN:VCALENDAR")
 	line("VERSION:2.0")
-	line("PRODID:-//BizVerse//Bookings//EN")
+	line("PRODID:-//AllStuff//Bookings//EN")
 	line("CALSCALE:GREGORIAN")
 	line("METHOD:PUBLISH")
 	line("BEGIN:VEVENT")
-	line("UID:" + a.ID + "@bizverse")
+	line("UID:" + a.ID + "@allstuff")
 	line("DTSTAMP:" + icsTime(time.Now()))
 	line("DTSTART:" + icsTime(a.StartsAt))
 	line("DTEND:" + icsTime(a.EndsAt))

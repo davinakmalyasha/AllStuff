@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // The webhook authenticated and deduplicated events before this, but no test

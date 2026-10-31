@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // handleOGImage serves an SVG share card for a business (B4).
@@ -41,7 +41,7 @@ func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
   <text x="80" y="300" font-family="Inter, Arial, sans-serif" font-size="30" fill="#52525b">%s</text>
   <text x="80" y="360" font-family="Inter, Arial, sans-serif" font-size="26" fill="#a1a1aa">%s · %s</text>
   <rect x="80" y="420" width="200" height="48" rx="24" fill="#0a0a0a"/>
-  <text x="110" y="453" font-family="Inter, Arial, sans-serif" font-size="22" fill="#ffffff">BizVerse</text>
+  <text x="110" y="453" font-family="Inter, Arial, sans-serif" font-size="22" fill="#ffffff">AllStuff</text>
 </svg>`, logo, xmlEscape(name), xmlEscape(tagline), xmlEscape(rating), xmlEscape(city), xmlEscape(b.CategoryName))
 
 	w.Header().Set("Content-Type", "image/svg+xml")

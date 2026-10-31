@@ -36,7 +36,7 @@
 # Verify locally with:
 #   gitleaks detect --source . --config .gitleaks.toml -v
 
-title = "BizVerse secret scan"
+title = "AllStuff secret scan"
 
 [extend]
 # Inherit the upstream default ruleset. Everything below narrows it; nothing
@@ -84,9 +84,9 @@ off the host.
 """
 path = '''^infra/docker/docker-compose\.yml$'''
 regexes = [
-  '''--requirepass",\s*"bizverse"''',
+  '''--requirepass",\s*"allstuff"''',
   '''MINIO_ROOT_PASSWORD:\s*minio123''',
-  '''redis://:bizverse@localhost:6379''',
+  '''redis://:allstuff@localhost:6379''',
 ]
 
 [[allowlists]]

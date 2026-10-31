@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // Reconcile is the fallback that rewrites paid-status rows from Stripe state

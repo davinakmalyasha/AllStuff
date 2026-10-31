@@ -7,11 +7,11 @@ import (
 	"errors"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // invites.Accept had no coverage. It is the point where an emailed token becomes
@@ -20,7 +20,7 @@ import (
 func newTestInvites(t *testing.T) (*Invites, *testutil.H) {
 	t.Helper()
 	h := testutil.New(t)
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test", PublicURL: cfg.PublicURL})
 	// A nil EntitlementSource skips seat accounting, which is Create's concern.
 	return NewInvites(h.Repos, cfg, sender, nil), h

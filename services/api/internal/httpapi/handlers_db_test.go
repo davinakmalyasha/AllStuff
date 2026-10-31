@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
 )
 
 // get performs a request through the server's real handler chain, middleware

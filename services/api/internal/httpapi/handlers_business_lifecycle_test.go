@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // The owner wizard had no coverage: create, list, get, patch, submit, resubmit

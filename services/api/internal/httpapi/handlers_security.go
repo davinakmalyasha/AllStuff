@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/util"
 )
 
 // ---- 2FA (PRD §5.9.1) ----
@@ -240,7 +240,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="bizverse-export-`+user.Username+`.json"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="allstuff-export-`+user.Username+`.json"`)
 	writeJSON(w, http.StatusOK, data)
 }
 

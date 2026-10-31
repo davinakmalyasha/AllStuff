@@ -1,4 +1,4 @@
-# BizVerse
+# AllStuff
 
 A self-hostable business directory and storefront platform. Every business gets
 a storefront it can build without a developer; every user finds them through
@@ -83,7 +83,7 @@ docker compose -f infra/docker/docker-compose.yml up -d postgres mailpit
 
 # 2. database + migrations  (the Go runner is the only supported path)
 cd services/api
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/allstuff?sslmode=disable"
 export JWT_SECRET="$(openssl rand -hex 32)"
 go run ./cmd/api -migrate
 
@@ -97,8 +97,8 @@ cd ../../apps/web && npm install && npm run dev
 
 Load `scripts/seed.sql` for demo data — two verified Jakarta businesses, a
 category tree, engagement signals (so trending/leaderboards render), and two
-users: `demo@bizverse.test` (owner of both businesses) and
-`admin@bizverse.test` (platform admin). The seed hashes are placeholders, not
+users: `demo@allstuff.test` (owner of both businesses) and
+`admin@allstuff.test` (platform admin). The seed hashes are placeholders, not
 logins — applying a seed file must never create credentials on its own:
 
 ```bash
@@ -111,8 +111,8 @@ dev password you have to look up gets replaced with something weaker):
 
 ```bash
 go run ./cmd/api -dev-login
-# owner  demo@bizverse.test / DemoPass123!
-# admin  admin@bizverse.test / DemoPass123!  (scan the printed QR into an authenticator app;
+# owner  demo@allstuff.test / DemoPass123!
+# admin  admin@allstuff.test / DemoPass123!  (scan the printed QR into an authenticator app;
 #                                             the admin gate requires an enrolled 2FA factor)
 ```
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/repo"
 )
 
 // ResolveEntitlements is the only place a plan's entitlement list becomes an

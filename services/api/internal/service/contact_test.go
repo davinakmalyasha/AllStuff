@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // validateContact normalises the contact block to a known set of keys with

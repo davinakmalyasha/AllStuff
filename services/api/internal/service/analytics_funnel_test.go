@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The funnel answers the three questions owners actually ask: how many views

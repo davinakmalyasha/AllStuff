@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
 )
 
 // SearchAlerts — daily "new matches" emails for saved searches (PRD §5.1.2).

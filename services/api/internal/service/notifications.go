@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // Notifier — notification creation with channel routing (PRD §5.7):
@@ -202,7 +202,7 @@ func (n *Notifier) sendEmail(notif *domain.Notification) {
 func describe(n *domain.Notification) (string, string) {
 	switch n.Type {
 	case "message_received":
-		return "New message on BizVerse", "You have a new message in a conversation."
+		return "New message on AllStuff", "You have a new message in a conversation."
 	case "reaction_added":
 		return "Someone reacted to your message", "A message you sent received a reaction."
 	case "helpful_vote":

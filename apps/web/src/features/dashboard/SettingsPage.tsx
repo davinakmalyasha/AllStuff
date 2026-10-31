@@ -264,7 +264,7 @@ export function SettingsPage() {
               )
             })}
           </div>
-          <p className="mt-1 text-xs text-ink3">Display only — BizVerse does not process payments.</p>
+          <p className="mt-1 text-xs text-ink3">Display only — AllStuff does not process payments.</p>
         </div>
       </Card>
 

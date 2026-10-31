@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // CleanupOrphanMedia and PruneSnapshots had no coverage: the two destructive

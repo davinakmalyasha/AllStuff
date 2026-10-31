@@ -3,8 +3,8 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // ---- likes & recommends ----

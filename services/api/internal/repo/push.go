@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/util"
 )
 
 type PushRepo struct{ pool pooler }

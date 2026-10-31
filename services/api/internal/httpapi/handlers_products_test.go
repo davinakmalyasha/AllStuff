@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The product and storefront handlers had no HTTP test. Two of them open their

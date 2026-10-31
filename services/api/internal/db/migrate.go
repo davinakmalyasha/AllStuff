@@ -59,6 +59,8 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	defer conn.Release()
 	// pg_advisory_lock returns void and blocks until held — session-scoped,
 	// released on the same connection.
+	// Lock name kept across the AllStuff rename: a mixed-version deploy must
+	// still serialise migrations between old and new binaries.
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('bizverse:migrate'))`); err != nil {
 		return fmt.Errorf("migrate lock: %w", err)
 	}

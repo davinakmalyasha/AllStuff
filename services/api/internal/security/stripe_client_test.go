@@ -318,8 +318,8 @@ func TestCreateCheckoutSession(t *testing.T) {
 		PriceID:    "price_123",
 		BusinessID: "biz_9",
 		OwnerEmail: "owner@example.com",
-		SuccessURL: "https://bizverse.test/ok",
-		CancelURL:  "https://bizverse.test/no",
+		SuccessURL: "https://allstuff.test/ok",
+		CancelURL:  "https://allstuff.test/no",
 		ClientRef:  "ref_1",
 	}
 
@@ -358,8 +358,8 @@ func TestCreateCheckoutSession(t *testing.T) {
 			"mode":                            "subscription",
 			"line_items%5B0%5D%5Bprice%5D":    "price_123",
 			"line_items%5B0%5D%5Bquantity%5D": "1",
-			"success_url":                     "https%3A%2F%2Fbizverse.test%2Fok",
-			"cancel_url":                      "https%3A%2F%2Fbizverse.test%2Fno",
+			"success_url":                     "https%3A%2F%2Fallstuff.test%2Fok",
+			"cancel_url":                      "https%3A%2F%2Fallstuff.test%2Fno",
 			"metadata%5Bbusiness_id%5D":       "biz_9",
 			"client_reference_id":             "ref_1",
 			"subscription_data%5Bmetadata%5D%5Bbusiness_id%5D": "biz_9",
@@ -442,7 +442,7 @@ func TestCreatePortalSession(t *testing.T) {
 	stub := &stripeStub{status: 200, body: `{"id":"bps_1","url":"https://billing.stripe.com/x"}`}
 	c := stubClient(stub, "sk_test_secret")
 
-	got, err := c.CreatePortalSession(context.Background(), "cus_1", "https://bizverse.test/return")
+	got, err := c.CreatePortalSession(context.Background(), "cus_1", "https://allstuff.test/return")
 	if err != nil {
 		t.Fatalf("CreatePortalSession: %v", err)
 	}

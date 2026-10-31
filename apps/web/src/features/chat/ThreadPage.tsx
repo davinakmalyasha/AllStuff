@@ -599,7 +599,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `bizverse-thread-${id}.json`
+      a.download = `allstuff-thread-${id}.json`
       a.click()
       URL.revokeObjectURL(url)
     } catch {

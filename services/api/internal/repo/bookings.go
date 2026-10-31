@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 type BookingRepo struct{ pool pooler }

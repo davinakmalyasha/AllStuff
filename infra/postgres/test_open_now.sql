@@ -1,7 +1,7 @@
 -- Functional test for the 0030_open_now.sql special-hours logic.
 --
 -- Run with:
---   psql -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_open_now.sql
+--   psql -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_open_now.sql
 --
 -- WHY THIS FILE ASSERTS INSTEAD OF PRINTING
 -- -------------------------------------------

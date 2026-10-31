@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
 )
 
 // Users — profile management (PRD §5.9.2).

@@ -114,9 +114,9 @@ func TestValidate_ProdRequiresSecureCookies(t *testing.T) {
 // allowed to reach prod, where the whole session crosses the network.
 func TestValidate_ProdRequiresDatabaseTLS(t *testing.T) {
 	for _, dsn := range []string{
-		"postgres://u:p@h:5432/bizverse?sslmode=disable",
-		"postgres://u:p@h:5432/bizverse",
-		"postgres://u:p@h:5432/bizverse?sslmode=allow",
+		"postgres://u:p@h:5432/allstuff?sslmode=disable",
+		"postgres://u:p@h:5432/allstuff",
+		"postgres://u:p@h:5432/allstuff?sslmode=allow",
 	} {
 		cfg := baseConfig()
 		cfg.DatabaseURL = dsn
@@ -126,8 +126,8 @@ func TestValidate_ProdRequiresDatabaseTLS(t *testing.T) {
 		}
 	}
 	for _, dsn := range []string{
-		"postgres://u:p@h:5432/bizverse?sslmode=require",
-		"postgres://u:p@h:5432/bizverse?sslmode=verify-full",
+		"postgres://u:p@h:5432/allstuff?sslmode=require",
+		"postgres://u:p@h:5432/allstuff?sslmode=verify-full",
 	} {
 		cfg := baseConfig()
 		cfg.DatabaseURL = dsn
@@ -210,7 +210,7 @@ func TestValidate_DevAllowsLocalDefaults(t *testing.T) {
 	cfg.AppEnv = "dev"
 	cfg.JWTSecret = devJWTSecret
 	cfg.CookieSecure = false
-	cfg.DatabaseURL = "postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable"
+	cfg.DatabaseURL = "postgres://postgres:postgres@localhost:5432/allstuff?sslmode=disable"
 	cfg.MediaEncryptionKey = ""
 	cfg.ClamAVAddr = ""
 	cfg.ResendAPIKey = ""
@@ -229,11 +229,11 @@ func baseConfig() Config {
 		AppEnv:             "prod",
 		JWTSecret:          goodSecret,
 		CookieSecure:       true,
-		DatabaseURL:        "postgres://u:p@h:5432/bizverse?sslmode=verify-full",
+		DatabaseURL:        "postgres://u:p@h:5432/allstuff?sslmode=verify-full",
 		MediaEncryptionKey: strings.Repeat("ab", 32),
 		ClamAVAddr:         "localhost:3310",
 		ResendAPIKey:       "re_test",
-		PublicURL:          "https://bizverse.app",
+		PublicURL:          "https://allstuff.app",
 	}
 }
 

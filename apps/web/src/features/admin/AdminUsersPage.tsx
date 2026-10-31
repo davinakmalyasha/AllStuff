@@ -103,7 +103,7 @@ export function AdminUsersPage() {
         title={confirmAction?.action === 'ban' ? 'Ban user' : 'Suspend user'}
         message={
           confirmAction?.action === 'ban'
-            ? `Ban ${confirmAction.user.name} permanently? They lose access to BizVerse.`
+            ? `Ban ${confirmAction.user.name} permanently? They lose access to AllStuff.`
             : `Suspend ${confirmAction?.user.name} for 7 days? They cannot sign in until it is lifted or they appeal.`
         }
         confirmLabel={confirmAction?.action === 'ban' ? 'Ban' : 'Suspend'}

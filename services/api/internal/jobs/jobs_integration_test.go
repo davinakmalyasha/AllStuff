@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // The scheduler had no tests, and it contains the mechanism that stands between

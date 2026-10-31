@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/util"
 )
 
 // TFA — 2FA state + recovery codes (PRD §5.9.1, §7.4 user_2fa).

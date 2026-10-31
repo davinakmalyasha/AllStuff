@@ -1,4 +1,4 @@
-# BizVerse — Architecture
+# AllStuff — Architecture
 
 Companion to `PRD.md`. This document describes **design decisions, invariants,
 and traps**. It is deliberately *not* an endpoint reference.

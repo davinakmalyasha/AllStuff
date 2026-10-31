@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
 )
 
 // Digest — weekly "what's hot" email for opted-in users (PRD §5.7).
@@ -63,7 +63,7 @@ func (d *Digest) SendWeekly(ctx context.Context) error {
 	// re-send to everyone who did receive it. Partial failures are logged instead.
 	var failed int
 	for _, u := range users {
-		if err := d.email.SendBulk(ctx, u, "This week in BizVerse", email.WrapHTML(d.publicURL(), "This week in BizVerse", bodyHTML)); err != nil {
+		if err := d.email.SendBulk(ctx, u, "This week in AllStuff", email.WrapHTML(d.publicURL(), "This week in AllStuff", bodyHTML)); err != nil {
 			failed++
 		}
 	}

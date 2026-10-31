@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // The authentication handlers had no coverage. They are the only way into the

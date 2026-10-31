@@ -1,7 +1,7 @@
 // One-off portfolio screenshot run (not part of the E2E suite).
 // Usage (run from apps/web): vite dev on :5173 with
 // VITE_API_TARGET=http://localhost:8090, API on :8090 against the seeded
-// bizverse_demo database, then: node scripts/shots.mjs
+// allstuff_demo database, then: node scripts/shots.mjs
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 
@@ -37,7 +37,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(BASE + '/login', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
-  await page.getByLabel(/email/i).fill('demo@bizverse.test');
+  await page.getByLabel(/email/i).fill('demo@allstuff.test');
   await page.getByLabel(/password/i).fill('DemoPass123!');
   await page.locator('form button[type=submit]').click();
   await page.waitForURL('**/me', { timeout: 15000 });

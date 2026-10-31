@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	mail "bizverse/api/internal/email"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	mail "allstuff/api/internal/email"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/util"
 )
 
 // Auth — accounts, sessions, tokens (PRD §5.9, §8.1).
@@ -66,7 +66,7 @@ var (
 var reservedUsernames = map[string]bool{
 	"admin": true, "administrator": true, "moderator": true, "support": true,
 	"help": true, "security": true, "api": true, "apis": true, "root": true,
-	"system": true, "bizverse": true, "official": true, "team": true,
+	"system": true, "allstuff": true, "official": true, "team": true,
 	"staff": true, "owner": true, "me": true, "null": true, "undefined": true,
 	"about": true, "contact": true, "terms": true, "privacy": true, "login": true,
 	"register": true, "signup": true, "settings": true, "profile": true, "user": true,
@@ -592,7 +592,7 @@ func (a *Auth) sendVerificationEmail(ctx context.Context, user *domain.User) err
 	return a.email.Send(ctx, user.Email, "Verify your email",
 		mail.WrapHTML(a.cfg.PublicURL, "Verify your email",
 			// Human label only; the raw token stays in the href.
-			fmt.Sprintf(`<p>Welcome to BizVerse, %s.</p><p><a href="%s">Verify your email</a>.</p><p>Link expires in 24 hours.</p>`,
+			fmt.Sprintf(`<p>Welcome to AllStuff, %s.</p><p><a href="%s">Verify your email</a>.</p><p>Link expires in 24 hours.</p>`,
 				htmlEscape(user.Name), link)))
 }
 
@@ -693,7 +693,7 @@ func (a *Auth) Enroll2FA(ctx context.Context, userID, currentPassword string) (s
 	if err != nil || u == nil {
 		return "", "", domain.ErrNotFound
 	}
-	return secret, security.OtpauthURL("BizVerse", u.Email, secret), nil
+	return secret, security.OtpauthURL("AllStuff", u.Email, secret), nil
 }
 
 // Confirm2FA verifies a code and enables 2FA, issuing 10 recovery codes.
@@ -890,6 +890,9 @@ func xorCipher(data, key string) string {
 // totpKey derives the AES key for TOTP secrets from the JWT secret, keeping
 // the two secret classes related but not identical.
 func (a *Auth) totpKey() []byte {
+	// DO NOT rename this constant. It encrypts every stored TOTP secret; a
+	// different string derives a different key and makes enrolled 2FA factors
+	// undecryptable. The brand in the KDF label is irrelevant to security.
 	sum := sha256.Sum256([]byte("bizverse:totp:" + a.cfg.JWTSecret))
 	return sum[:]
 }

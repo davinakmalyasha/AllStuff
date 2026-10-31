@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/util"
 )
 
 // Products — catalog management with variants (PRD §5.4.3, §8.3).

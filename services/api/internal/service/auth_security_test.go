@@ -9,12 +9,12 @@ import (
 	"log/slog"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // ChangePassword, ChangeEmail and CancelDeletion had no coverage. They are the
@@ -29,7 +29,7 @@ func newTestAuthPool(t *testing.T) (*Auth, *testutil.H) {
 	h.UsePool()
 	cfg := config.Config{
 		AppEnv:    "test",
-		PublicURL: "https://bizverse.test",
+		PublicURL: "https://allstuff.test",
 		JWTSecret: "test-signing-secret-for-the-handler-harness-0123456789",
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

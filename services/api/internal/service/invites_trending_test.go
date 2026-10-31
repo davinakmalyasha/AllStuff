@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // invites.Create's seat cap and trending.Leaderboard were the last uncovered
@@ -21,7 +21,7 @@ import (
 
 func TestInvitesCreateEnforcesSeatCapacity(t *testing.T) {
 	h := testutil.New(t)
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	sender := email.NewSender(email.ResendConfig{AppEnv: "test"})
 	ctx := context.Background()
 

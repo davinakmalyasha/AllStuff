@@ -8,7 +8,7 @@
 -- reads.
 --
 -- Run with:
---   psql -d bizverse -v ON_ERROR_STOP=1 -f infra/postgres/test_integrity.sql
+--   psql -d allstuff -v ON_ERROR_STOP=1 -f infra/postgres/test_integrity.sql
 
 \pset footer off
 \echo === 0029_integrity.sql + admin.go moderation statements

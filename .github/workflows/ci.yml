@@ -31,7 +31,7 @@ env:
   # green PR becomes red on someone else's machine.
   GO_VERSION: "1.27.3"
   NODE_VERSION: "24.4.1"
-  PGDATA_URL: postgres://postgres:postgres@localhost:5432/bizverse?sslmode=disable
+  PGDATA_URL: postgres://postgres:postgres@localhost:5432/allstuff?sslmode=disable
   PGADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: bizverse
+          POSTGRES_DB: allstuff
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -307,7 +307,7 @@ jobs:
                 split(k, b, ":"); f = b[1]
                 n = split(f, seg, "/"); pkg = ""
                 for (i = 1; i < n; i++) pkg = pkg seg[i] "/"
-                sub(/^bizverse\/api\//, "", pkg)
+                sub(/^allstuff\/api\//, "", pkg)
                 tot[pkg] += stmt[k]
                 if (maxc[k] > 0) cov[pkg] += stmt[k]
               }
@@ -469,7 +469,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: bizverse
+          POSTGRES_DB: allstuff
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"

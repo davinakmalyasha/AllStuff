@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
 )
 
 // Cities — per-city landing pages (SEO, PRD §5.1.5). Cities are derived from

@@ -1,6 +1,6 @@
-# BizVerse backup & restore
+# AllStuff backup & restore
 # Backup:  ./scripts/backup.ps1 -DatabaseUrl "postgres://..." -OutDir ./backups
-# Restore: ./scripts/backup.ps1 -DatabaseUrl "postgres://..." -Restore ./backups/bizverse-YYYY-MM-DD.sql.gz
+# Restore: ./scripts/backup.ps1 -DatabaseUrl "postgres://..." -Restore ./backups/allstuff-YYYY-MM-DD.sql.gz
 #
 # Prefer the DATABASE_URL environment variable over the parameter: values
 # passed on the command line can leak into process listings / shell history.
@@ -28,7 +28,7 @@ if ($Restore) {
 }
 
 $stamp = Get-Date -Format 'yyyy-MM-dd'
-$file = Join-Path $OutDir "bizverse-$stamp.sql.gz"
+$file = Join-Path $OutDir "allstuff-$stamp.sql.gz"
 & pg_dump --dbname=$DatabaseUrl | & gzip > $file
 if ($LASTEXITCODE -ne 0) { Write-Error "Backup failed"; exit 1 }
 Write-Host "Backup written: $file"

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ------------------------------------------------------------------
-   BizVerse monochrome theme (PRD: monochrome, white default background,
+   AllStuff monochrome theme (PRD: monochrome, white default background,
    dark/light mode). Tokens flip via .dark on <html>.
 
    `ink-3` is a CONTRAST-CONSTRAINED token, not a free choice of grey.

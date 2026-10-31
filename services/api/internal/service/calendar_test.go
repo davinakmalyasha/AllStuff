@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // The iCalendar file is small and the rules are unforgiving: clients reject a
@@ -52,7 +52,7 @@ func TestCalendarInviteStructure(t *testing.T) {
 	for _, want := range []string{
 		"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:", "CALSCALE:GREGORIAN",
 		"BEGIN:VEVENT", "END:VEVENT", "END:VCALENDAR",
-		"UID:" + a.ID + "@bizverse",
+		"UID:" + a.ID + "@allstuff",
 		"STATUS:CONFIRMED",
 		"LOCATION:Main Branch",
 	} {

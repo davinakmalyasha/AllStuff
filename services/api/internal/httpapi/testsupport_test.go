@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/ratelimit"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/ratelimit"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 // testDeps mirrors what cmd/api/main.go wires at boot, against a per-test
@@ -46,12 +46,12 @@ func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	return config.Config{
 		AppEnv:      "test",
-		PublicURL:   "https://bizverse.test",
+		PublicURL:   "https://allstuff.test",
 		JWTSecret:   "test-signing-secret-for-the-handler-harness-0123456789",
 		MediaDir:    t.TempDir(),
 		MediaBase:   "/media",
-		CORSOrigins: []string{"https://bizverse.test"},
-		WSOrigins:   []string{"https://bizverse.test"},
+		CORSOrigins: []string{"https://allstuff.test"},
+		WSOrigins:   []string{"https://allstuff.test"},
 	}
 }
 

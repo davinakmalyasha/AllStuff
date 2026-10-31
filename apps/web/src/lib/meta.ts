@@ -3,8 +3,8 @@
 import { useEffect } from 'react'
 import i18n from '@/lib/i18n'
 
-const SITE_NAME = 'BizVerse'
-const DEFAULT_TITLE = 'BizVerse — Every business. One place.'
+const SITE_NAME = 'AllStuff'
+const DEFAULT_TITLE = 'AllStuff — Every business. One place.'
 const DEFAULT_DESCRIPTION = 'Every business in the world, in one place. Find, compare, and contact any business.'
 
 function ogLocale(lang: string): string {

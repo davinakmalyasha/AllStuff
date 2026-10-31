@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/ratelimit"
-	"bizverse/api/internal/repo"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/ratelimit"
+	"allstuff/api/internal/repo"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/ws"
 )
 
 // Deps wires the API server.

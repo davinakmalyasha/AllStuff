@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/util"
 )
 
 // Metrics — minimal Prometheus text-format registry (PRD §5.8.6 ops depth).
@@ -117,6 +117,8 @@ func (m *Metrics) RateLimited() { m.rateLimited.Add(1) }
 // Render produces Prometheus text format.
 func (m *Metrics) Render(wsConns int, lastTrend string) string {
 	var b strings.Builder
+	// Metric names are an external contract (dashboards, alerts). They keep the
+	// pre-rename prefix on purpose; renaming them silently breaks every panel.
 	b.WriteString("# HELP bizverse_requests_total Total HTTP requests.\n")
 	b.WriteString("# TYPE bizverse_requests_total counter\n")
 	b.WriteString(fmt.Sprintf("bizverse_requests_total %d\n", m.requestsTotal.Load()))

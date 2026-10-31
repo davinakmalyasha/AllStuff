@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/config"
+	"allstuff/api/internal/config"
 )
 
 // newHTTPServer is the only place the listener limits live, so a silent edit

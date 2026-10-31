@@ -20,6 +20,8 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
+// Kept from the previous brand: changing the key would silently reset every
+// user's theme choice on their next visit.
 const STORAGE_KEY = 'bv.theme'
 
 function readInitial(): Theme {

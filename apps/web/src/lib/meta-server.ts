@@ -5,8 +5,8 @@
 import { siteUrl } from './api-server'
 import { whatsappUrl } from './business-meta'
 
-export const SITE_NAME = 'BizVerse'
-export const DEFAULT_TITLE = 'BizVerse — Every business. One place.'
+export const SITE_NAME = 'AllStuff'
+export const DEFAULT_TITLE = 'AllStuff — Every business. One place.'
 export const DEFAULT_DESCRIPTION =
   'Every business in the world, in one place. Find, compare, and contact any business.'
 

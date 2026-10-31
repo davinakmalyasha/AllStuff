@@ -1,6 +1,6 @@
-# BizVerse — Product Requirements Document
+# AllStuff — Product Requirements Document
 
-> Working title: **BizVerse** (rename freely). Status: **complete and approved**.
+> Working title: **AllStuff** (rename freely). Status: **complete and approved**.
 > Build directive: **golden standard — no MVP-tier scope**. Every feature ships complete; the word "deferred" no longer applies to in-scope features (Decisions Log §13).
 
 | # | Section | Status |

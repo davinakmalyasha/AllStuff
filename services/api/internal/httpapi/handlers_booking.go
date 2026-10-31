@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // Bookmarks: bookings (PRD §5.6.4).

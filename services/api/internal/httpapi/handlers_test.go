@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"bizverse/api/internal/domain"
+	"allstuff/api/internal/domain"
 )
 
 // TestDegradedByRefusesBothModerationStates is the regression test for the

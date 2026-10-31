@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/util"
 )
 
 // ---- moderation (PRD §5.8.2) ----

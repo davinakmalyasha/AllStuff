@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // The engagement handlers were never executed by a test: likes, recommends,

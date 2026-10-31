@@ -151,7 +151,7 @@ func buildMessage(from, to, subject, html string, extra map[string]string) []byt
 func mimeBoundary() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "bizverse-alt-fallback"
+		return "allstuff-alt-fallback"
 	}
 	return "bv-" + hex.EncodeToString(b[:])
 }

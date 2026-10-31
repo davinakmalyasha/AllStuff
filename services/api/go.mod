@@ -1,4 +1,4 @@
-module bizverse/api
+module allstuff/api
 
 go 1.27.3
 

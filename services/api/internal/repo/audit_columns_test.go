@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"bizverse/api/internal/testutil"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/testutil"
+	"allstuff/api/internal/util"
 )
 
 // Two audit columns that were declared, documented in the PRD, and never written.

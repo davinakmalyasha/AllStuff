@@ -1,4 +1,4 @@
-# BizVerse — Admin Runbook
+# AllStuff — Admin Runbook
 
 Operational guide for the platform admin (PRD §5.8, §8.7).
 
@@ -34,7 +34,7 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
 - **Migrations:** run automatically on deploy (`go run ./cmd/api -migrate` or CI). Backward-compatible only.
 - **Backups:** `scripts/backup.ps1 -DatabaseUrl $env:DATABASE_URL` writes a gzipped dump to `./backups` (restore with `-Restore`). Schedule daily via Task Scheduler:
   ```
-  schtasks /create /tn "bizverse-backup" /tr "powershell -File D:\MyProject\AllStuff\scripts\backup.ps1 -DatabaseUrl ""postgres://...""" /sc daily /st 03:00
+  schtasks /create /tn "allstuff-backup" /tr "powershell -File D:\MyProject\AllStuff\scripts\backup.ps1 -DatabaseUrl ""postgres://...""" /sc daily /st 03:00
   ```
   Keep 14 daily dumps; test a restore into a scratch DB quarterly. For prod prefer managed PITR (RDS/Cloud SQL) plus these dumps.
 - **Metrics:** `GET /metrics` (Prometheus text): request counts by route/status, 5xx, rate-limited, WS connections, goroutines, last trend run. Open in dev; in prod (`APP_ENV=prod`) it requires an admin session.

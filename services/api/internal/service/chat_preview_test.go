@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/testutil"
 )
 
 // fetchLinkPreview had no coverage: the parsers, the fetch-failure branches,
@@ -166,7 +166,7 @@ func TestFetchLinkPreviewSuccess(t *testing.T) {
 	if preview["image"] != "https://cdn.example.test/img.png" {
 		t.Errorf("image = %q", preview["image"])
 	}
-	if gotUA != "BizVerseBot/1.0 (+https://bizverse.app)" {
+	if gotUA != "AllStuffBot/1.0 (+https://allstuff.app)" {
 		t.Errorf("User-Agent = %q", gotUA)
 	}
 }

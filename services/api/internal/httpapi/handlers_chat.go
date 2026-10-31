@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/security"
-	"bizverse/api/internal/service"
-	"bizverse/api/internal/util"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/security"
+	"allstuff/api/internal/service"
+	"allstuff/api/internal/util"
+	"allstuff/api/internal/ws"
 )
 
 type Frame = ws.Frame

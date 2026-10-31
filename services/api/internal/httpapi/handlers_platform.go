@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/util"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/util"
 )
 
 // ---- user profile (PRD §6.1) ----

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // oauth.Exchange had no coverage - 51 statements. It is an account-creation and
@@ -47,7 +47,7 @@ func testOAuth(t *testing.T, h *testutil.H) *OAuth {
 	return NewOAuth(h.Repos, config.Config{
 		GoogleOAuthClientID: "client-id",
 		GoogleOAuthSecret:   "client-secret",
-		PublicURL:           "https://bizverse.test",
+		PublicURL:           "https://allstuff.test",
 	})
 }
 
@@ -246,8 +246,8 @@ func TestOAuthRedirectURIUsesTheAPIRoute(t *testing.T) {
 	h := testutil.New(t)
 	svc := testOAuth(t, h)
 	// A trailing slash on PUBLIC_URL must not produce a doubled separator.
-	svc.cfg.PublicURL = "https://bizverse.test/"
-	const want = "https://bizverse.test/api/v1/auth/oauth/google/callback"
+	svc.cfg.PublicURL = "https://allstuff.test/"
+	const want = "https://allstuff.test/api/v1/auth/oauth/google/callback"
 
 	u, err := url.Parse(svc.AuthURL("state-1"))
 	if err != nil {

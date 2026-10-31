@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/repo"
 )
 
 // Currency — read-time conversion (PRD D5). Rates synced hourly from a free

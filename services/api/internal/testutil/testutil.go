@@ -71,8 +71,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"bizverse/api/internal/db"
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/db"
+	"allstuff/api/internal/repo"
 )
 
 // adminDSN returns the DSN this package may create and drop databases on.
@@ -161,7 +161,7 @@ func template(t *testing.T) string {
 		}
 		defer admin.Close()
 
-		tmplName = fmt.Sprintf("bizverse_tmpl_%d", os.Getpid())
+		tmplName = fmt.Sprintf("allstuff_tmpl_%d", os.Getpid())
 		// Drop databases abandoned by earlier runs BEFORE creating this one.
 		//
 		// The template is keyed by pid and nothing ever dropped it, so every
@@ -209,8 +209,8 @@ func dropStaleTestDatabases(ctx context.Context, admin *pgxpool.Pool, keep strin
 	rows, err := admin.Query(ctx, `
 		SELECT d.datname
 		  FROM pg_database d
-		 WHERE (d.datname LIKE 'bizverse_tmpl_%' OR d.datname LIKE 'bizverse_t%')
-		   AND d.datname <> 'bizverse_tmpl'
+		 WHERE (d.datname LIKE 'allstuff_tmpl_%' OR d.datname LIKE 'allstuff_t%')
+		   AND d.datname <> 'allstuff_tmpl'
 		   AND (pg_stat_file('base/' || d.oid)).modification < now() - interval '2 hours'`)
 	if err != nil {
 		return
@@ -325,7 +325,7 @@ func New(t *testing.T) *H {
 	}
 
 	h := &H{Admin: admin, tmpl: tmpl, dsn: dsn, queries: &queryCounter{}}
-	h.dbName = fmt.Sprintf("bizverse_t%d_%s", os.Getpid(), sanitize(t.Name()))
+	h.dbName = fmt.Sprintf("allstuff_t%d_%s", os.Getpid(), sanitize(t.Name()))
 
 	if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+h.dbName+" WITH (FORCE)"); err != nil {
 		t.Fatalf("drop stale test database: %v", err)

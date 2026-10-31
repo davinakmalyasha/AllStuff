@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"bizverse/api/internal/repo"
+	"allstuff/api/internal/repo"
 )
 
 // Reliability is the Booking Reliability Pack: reminders that keep customers

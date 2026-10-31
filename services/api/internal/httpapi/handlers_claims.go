@@ -3,8 +3,8 @@ package httpapi
 import (
 	"net/http"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/service"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/service"
 )
 
 // ---- claim-a-business (PRD §6.1) ----

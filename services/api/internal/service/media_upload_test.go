@@ -18,8 +18,8 @@ import (
 	"strings"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // media.Upload had no coverage at all in the last measured profile - 102

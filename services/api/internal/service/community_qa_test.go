@@ -8,13 +8,13 @@ import (
 	"io"
 	"log/slog"
 
-	"bizverse/api/internal/config"
-	"bizverse/api/internal/email"
-	"bizverse/api/internal/ws"
+	"allstuff/api/internal/config"
+	"allstuff/api/internal/email"
+	"allstuff/api/internal/ws"
 	"testing"
 
-	"bizverse/api/internal/domain"
-	"bizverse/api/internal/testutil"
+	"allstuff/api/internal/domain"
+	"allstuff/api/internal/testutil"
 )
 
 // community.Ask and community.Answer had no coverage. Both sit on a business's
@@ -25,7 +25,7 @@ func newTestCommunity(t *testing.T) (*Community, *testutil.H) {
 	t.Helper()
 	h := testutil.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Config{AppEnv: "test", PublicURL: "https://bizverse.test"}
+	cfg := config.Config{AppEnv: "test", PublicURL: "https://allstuff.test"}
 	notifier := NewNotifier(h.Repos, cfg, email.NewSender(email.ResendConfig{AppEnv: "test"}), ws.NewHub(logger, nil), logger)
 	return NewCommunity(h.Repos, notifier), h
 }
