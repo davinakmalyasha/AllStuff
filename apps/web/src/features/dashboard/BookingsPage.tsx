@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, ChevronLeft, ChevronRight, MapPin } from 'lucide-react'
-import { api, type AppointmentDTO } from '@/lib/api'
+import { api, type AppointmentDTO, type WaitlistDemandDTO } from '@/lib/api'
 import { useActiveBusiness } from '@/app/shells/OwnerShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -108,9 +108,17 @@ export function BookingsPage() {
     enabled: !!business && view === 'day' && !!day,
   })
 
+  const demandQuery = useQuery({
+    queryKey: ['waitlist-demand', business?.id],
+    queryFn: () => api<{ days: WaitlistDemandDTO[] }>(`/businesses/${business!.id}/waitlist`),
+    enabled: !!business,
+  })
+  const demand = demandQuery.data?.days ?? []
+
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['dashboard-bookings', business?.id] })
     void qc.invalidateQueries({ queryKey: ['dashboard-bookings-day', business?.id] })
+    void qc.invalidateQueries({ queryKey: ['waitlist-demand', business?.id] })
   }
 
   const setStatus = useMutation({
@@ -269,6 +277,29 @@ export function BookingsPage() {
           ))}
         </div>
       </div>
+
+      {demand.length > 0 && (
+        <Card className="mb-4 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="mono-label">Waiting for a time</p>
+            <span className="text-xs text-ink3">counts only — customer names stay private</span>
+          </div>
+          <ul className="space-y-1 text-sm">
+            {demand.map((d) => (
+              <li key={d.day} className="flex items-center justify-between">
+                <span className="text-ink2">
+                  {new Date(`${d.day}T12:00:00Z`).toLocaleDateString('en-GB', {
+                    weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
+                  })}
+                </span>
+                <span className="font-mono text-xs text-ink3">
+                  {d.waiting} waiting{d.notified > 0 ? ` · ${d.notified} already told` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {view === 'day' && (
         <>

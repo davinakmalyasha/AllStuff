@@ -63,6 +63,15 @@ type WaitlistEntry struct {
 	NotifiedAt   *time.Time `json:"notified_at,omitempty"`
 }
 
+// WaitlistDemand is one day's queue size, for the owner's staffing view. It
+// carries counts only: the names of waiting customers are not the owner's
+// business until those customers choose to contact them.
+type WaitlistDemand struct {
+	Day      string `json:"day"` // YYYY-MM-DD
+	Waiting  int    `json:"waiting"`
+	Notified int    `json:"notified"`
+}
+
 // Blackout is time the business is unavailable regardless of its hours.
 type Blackout struct {
 	ID         string    `json:"id"`

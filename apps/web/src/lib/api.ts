@@ -647,6 +647,13 @@ export interface AppointmentDTO {
   created_at: string
 }
 
+export interface WaitlistDemandDTO {
+  /** YYYY-MM-DD in the business timezone. */
+  day: string
+  waiting: number
+  notified: number
+}
+
 export interface WaitlistDTO {
   id: string
   business_id: string

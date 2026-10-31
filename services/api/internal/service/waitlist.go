@@ -82,6 +82,31 @@ func (w *Waitlist) Leave(ctx context.Context, userID, id string) error {
 	return nil
 }
 
+// Demand is the manager's view of how many people are waiting per day. It
+// re-checks management on every call; a viewer (read-only analytics) does not
+// get it.
+func (w *Waitlist) Demand(ctx context.Context, userID, businessID string) ([]*domain.WaitlistDemand, error) {
+	if !util.IsUUID(businessID) {
+		return nil, domain.ErrNotFound
+	}
+	can, err := w.repos.Businesses.CanManageBusiness(ctx, userID, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if !can {
+		return nil, domain.ErrForbidden
+	}
+	b, err := w.repos.Businesses.GetByID(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, domain.ErrNotFound
+	}
+	today := time.Now().In(loadTimezone(b.Timezone)).Format("2006-01-02")
+	return w.repos.Waitlist.DemandForBusiness(ctx, businessID, today)
+}
+
 // Mine is the customer's own queue, today onward.
 func (w *Waitlist) Mine(ctx context.Context, userID string) ([]*domain.WaitlistEntry, error) {
 	return w.repos.Waitlist.ForCustomer(ctx, userID)

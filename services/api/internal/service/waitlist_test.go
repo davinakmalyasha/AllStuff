@@ -144,3 +144,43 @@ func TestCancellationNotifiesFirstWaiterOnce(t *testing.T) {
 		t.Errorf("first waiter was notified again: %d", n)
 	}
 }
+
+func TestWaitlistDemandIsManagerOnlyAndCountsByDay(t *testing.T) {
+	wl, _, h := newTestWaitlist(t)
+	ctx := context.Background()
+	b, p, owner := bookableFixture(t, h)
+	day := nextDay().Format("2006-01-02")
+
+	first := testutil.User(t, h)
+	second := testutil.User(t, h)
+	if _, err := wl.Join(ctx, first.ID, b.ID, p.ID, day); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wl.Join(ctx, second.ID, b.ID, p.ID, day); err != nil {
+		t.Fatal(err)
+	}
+	// One of the two has already been told about a freed time.
+	h.Exec(t, `UPDATE booking_waitlist SET notified_at = now() WHERE customer_id = $1`, first.ID)
+
+	days, err := wl.Demand(ctx, owner.ID, b.ID)
+	if err != nil {
+		t.Fatalf("demand: %v", err)
+	}
+	if len(days) != 1 || days[0].Day != day {
+		t.Fatalf("days = %+v, want one row for %s", days, day)
+	}
+	if days[0].Waiting != 1 || days[0].Notified != 1 {
+		t.Errorf("counts = %+v, want 1 waiting and 1 told", days[0])
+	}
+
+	stranger := testutil.User(t, h)
+	if _, err := wl.Demand(ctx, stranger.ID, b.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("stranger demand: err = %v, want ErrForbidden", err)
+	}
+	// A read-only viewer is not a manager and does not get demand.
+	viewer := testutil.User(t, h)
+	inviteAccepted(t, h, b.ID, owner.ID, viewer.ID, "viewer")
+	if _, err := wl.Demand(ctx, viewer.ID, b.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("viewer demand: err = %v, want ErrForbidden", err)
+	}
+}

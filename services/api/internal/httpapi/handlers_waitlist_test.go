@@ -18,7 +18,7 @@ import (
 func TestWaitlistRoutes(t *testing.T) {
 	s, h, td := newDBTestServerDeps(t)
 	hdl := s.Handler()
-	b, p, _ := bookingFixture(t, h)
+	b, p, owner := bookingFixture(t, h)
 	customer := testutil.User(t, h)
 	stranger := testutil.User(t, h)
 	day := bookingDay().Format("2006-01-02")
@@ -92,6 +92,19 @@ func TestWaitlistRoutes(t *testing.T) {
 	w = dash(t, td, hdl, http.MethodGet, "/api/v1/me/waitlist", nil, customer)
 	if w.Code != http.StatusOK || containsAll(w.Body.String(), joined.Waitlist.ID) {
 		t.Errorf("waitlist after leave: %s", w.Body.String())
+	}
+
+	// Demand is manager-only and carries counts, not customer identities.
+	if _, err := s.deps.Waitlist.Join(t.Context(), customer.ID, b.ID, p.ID, day); err != nil {
+		t.Fatalf("rejoin for demand: %v", err)
+	}
+	w = dash(t, td, hdl, http.MethodGet, "/api/v1/businesses/"+b.ID+"/waitlist", nil, stranger)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("stranger demand: status = %d, want 403", w.Code)
+	}
+	w = dash(t, td, hdl, http.MethodGet, "/api/v1/businesses/"+b.ID+"/waitlist", nil, owner)
+	if w.Code != http.StatusOK || !containsAll(w.Body.String(), day, `"waiting":1`) {
+		t.Errorf("owner demand: status = %d: %s", w.Code, w.Body.String())
 	}
 }
 

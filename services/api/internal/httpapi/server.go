@@ -175,6 +175,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/businesses/{id}/appointments", s.handleBusinessAppointments)
 	mux.HandleFunc("GET /api/v1/me/appointments", s.handleMyAppointments)
 	mux.HandleFunc("POST /api/v1/businesses/{id}/waitlist", s.handleWaitlistJoin)
+	mux.HandleFunc("GET /api/v1/businesses/{id}/waitlist", s.handleBusinessWaitlist)
 	mux.HandleFunc("GET /api/v1/me/waitlist", s.handleMyWaitlist)
 	mux.HandleFunc("DELETE /api/v1/waitlist/{waitlistId}", s.handleWaitlistLeave)
 	mux.HandleFunc("DELETE /api/v1/appointments/{appointmentId}", s.handleAppointmentCancel)

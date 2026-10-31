@@ -113,6 +113,33 @@ func (r *WaitlistRepo) MarkNotified(ctx context.Context, id string) (bool, error
 	return tag.RowsAffected() == 1, nil
 }
 
+// DemandForBusiness groups the queue by day from fromDay onward. Counts only -
+// the owner learns "Saturday has four people waiting", not who they are.
+func (r *WaitlistRepo) DemandForBusiness(ctx context.Context, businessID, fromDay string) ([]*domain.WaitlistDemand, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT to_char(day, 'YYYY-MM-DD'),
+		       count(*) FILTER (WHERE notified_at IS NULL)::int,
+		       count(*) FILTER (WHERE notified_at IS NOT NULL)::int
+		FROM booking_waitlist
+		WHERE business_id = $1 AND day >= $2::date
+		GROUP BY day
+		ORDER BY day ASC
+		LIMIT 60`, businessID, fromDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.WaitlistDemand
+	for rows.Next() {
+		var d domain.WaitlistDemand
+		if err := rows.Scan(&d.Day, &d.Waiting, &d.Notified); err != nil {
+			return nil, err
+		}
+		out = append(out, &d)
+	}
+	return out, rows.Err()
+}
+
 // DayIn formats an instant as the calendar date the business is living in.
 func DayIn(t time.Time, timezone string) string {
 	loc, err := time.LoadLocation(timezone)

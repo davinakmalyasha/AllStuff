@@ -48,6 +48,20 @@ func (s *Server) handleMyWaitlist(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"waitlist": list})
 }
 
+func (s *Server) handleBusinessWaitlist(w http.ResponseWriter, r *http.Request) {
+	user, found := currentUser(r)
+	if !found {
+		fail(w, domain.ErrNotAuthenticated)
+		return
+	}
+	days, err := s.deps.Waitlist.Demand(r.Context(), user.ID, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"days": days})
+}
+
 func (s *Server) handleWaitlistLeave(w http.ResponseWriter, r *http.Request) {
 	user, found := currentUser(r)
 	if !found {
