@@ -446,8 +446,13 @@ func (a *Admin) RestoreContent(ctx context.Context, targetType, targetID string)
 			UPDATE comments SET status='visible' WHERE id=$1`, targetID)
 		return err
 	case "product":
+		// Restore to draft, not to published: HideContent does not record
+		// whether the product was published before the hide, so blindly
+		// setting is_published=true would publish a draft the owner never
+		// released. The owner republishes in one click. (Businesses keep a
+		// pre_suspend_status column for the same reason; products have none.)
 		_, err := a.repos.Exec(ctx, `
-			UPDATE products SET is_published=true WHERE id=$1`, targetID)
+			UPDATE products SET is_published=false WHERE id=$1`, targetID)
 		return err
 	case "message":
 		_, err := a.repos.Exec(ctx, `
