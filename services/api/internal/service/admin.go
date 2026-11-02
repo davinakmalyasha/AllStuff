@@ -459,14 +459,19 @@ func (a *Admin) RestoreContent(ctx context.Context, targetType, targetID string)
 			UPDATE chat_messages SET deleted_for='none' WHERE id=$1::bigint`, targetID)
 		return err
 	case "attachment":
+		// Mirrors HideContent's kind guard: without it a crafted report could
+		// un-delete a verification document (or any soft-deleted row the
+		// hide path would never have touched).
 		_, err := a.repos.Exec(ctx, `
-			UPDATE media SET deleted_at=NULL WHERE id=$1`, targetID)
+			UPDATE media SET deleted_at=NULL WHERE id=$1 AND kind = ANY($2)`, targetID, hideableMediaKinds)
 		return err
 	case "reaction":
-		// A deleted reaction has no payload to restore — the row is gone.
-		// Restoring is a no-op rather than an error so a moderator clicking
-		// "restore" on an accidental hide gets a clean result instead of a 400.
-		return nil
+		// A deleted reaction has no payload to restore — the row is gone, and
+		// returning success would report a restoration that never happened.
+		// An error tells the moderator the hide is final instead of showing a
+		// "restored" toast over an empty state.
+		return domain.ErrValidation.WithField("target_type",
+			"That reaction was deleted by hiding it; there is nothing to restore.")
 	case "business":
 		// Restore the status captured by HideContent, defaulting to
 		// pending_review so a previously-verified listing is re-reviewed

@@ -191,6 +191,40 @@ func TestMediaUploadEnforcesTheSizeLimit(t *testing.T) {
 	assertNoMediaRows(t, h)
 }
 
+// The scan verdict must reach the client: without it an unscanned upload
+// (CLAMAV_ADDR unset, dev only) is indistinguishable from a clean one, and
+// the demo reports success while degraded. With no scanner configured the
+// item carries no status and the row stays 'pending'; GetByID round-trips
+// whatever the row holds.
+func TestMediaUploadExposesScanStatus(t *testing.T) {
+	m, h, _ := newMediaFor(t)
+	u := testutil.User(t, h)
+
+	item, err := m.Upload(fixtureCtx(t), UploadInput{
+		UploaderID: u.ID, Kind: domain.MediaLogo, FileName: "a.png", Reader: bytes.NewReader(pngOfSize(5000)),
+	})
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if item.VirusScanStatus != "" {
+		t.Errorf("VirusScanStatus = %q, want empty (no scanner configured)", item.VirusScanStatus)
+	}
+	var row string
+	if err := h.QueryRow(t, `SELECT virus_scan_status FROM media WHERE id=$1`, item.ID).Scan(&row); err != nil {
+		t.Fatalf("row: %v", err)
+	}
+	if row != "pending" {
+		t.Errorf("row status = %q, want pending", row)
+	}
+	back, _, err := m.ServePath(fixtureCtx(t), item.ID)
+	if err != nil {
+		t.Fatalf("ServePath: %v", err)
+	}
+	if back == nil || back.VirusScanStatus != "pending" {
+		t.Errorf("GetByID status = %q, want the row's pending", back.VirusScanStatus)
+	}
+}
+
 func TestMediaUploadStoresTheFileAndTheRow(t *testing.T) {
 	m, h, dir := newMediaFor(t)
 	u := testutil.User(t, h)

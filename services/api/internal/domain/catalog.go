@@ -118,6 +118,12 @@ type MediaItem struct {
 	URL          string    `json:"url"`
 	ThumbURL     *string   `json:"thumb_url,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+	// VirusScanStatus is pending/clean/infected/error, or empty when the
+	// scanner never ran (CLAMAV_ADDR unset, dev only — prod refuses to boot
+	// without it and fails uploads closed while the scanner is unreachable).
+	// Exposed so clients can tell an unscanned upload from a clean one
+	// instead of treating every 200 as "scanned".
+	VirusScanStatus string `json:"virus_scan_status,omitempty"`
 	// DeletedAt is set when a moderator hides the media (PRD §5.8.2). The row
 	// and its bytes are retained so the action is reversible and the audit
 	// trail stays resolvable; serving is refused while it is set.

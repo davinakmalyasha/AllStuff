@@ -100,6 +100,26 @@ func TestLocationCRUDAndMirror(t *testing.T) {
 	if _, err := svc.UpdateLocation(ctx, owner.ID, b.ID, branch.ID, map[string]any{}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("empty patch: err = %v, want ErrValidation", err)
 	}
+	// Coordinates and hours are validated on the MERGED row, not just at
+	// creation: a patch that only moves the pin is still range-checked, and
+	// edited hours are shape-checked.
+	if _, err := svc.UpdateLocation(ctx, owner.ID, b.ID, branch.ID, map[string]any{"lat": 91.0}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("out-of-range lat: err = %v, want ErrValidation", err)
+	}
+	if _, err := svc.UpdateLocation(ctx, owner.ID, b.ID, branch.ID, map[string]any{
+		"hours": map[string]any{"mon": map[string]any{"open": "9am", "close": "17:00"}},
+	}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("malformed hours: err = %v, want ErrValidation", err)
+	}
+	if _, err := svc.UpdateLocation(ctx, owner.ID, b.ID, branch.ID, map[string]any{
+		"special_hours": map[string]any{"not-a-date": map[string]any{"closed": true}},
+	}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("malformed special hours: err = %v, want ErrValidation", err)
+	}
+	// A valid merged edit still applies.
+	if _, err := svc.UpdateLocation(ctx, owner.ID, b.ID, branch.ID, map[string]any{"lat": -6.95}); err != nil {
+		t.Errorf("valid coordinate move: %v, want nil", err)
+	}
 
 	// Deleting the primary promotes the remaining one and re-mirrors.
 	if err := svc.DeleteLocation(ctx, owner.ID, b.ID, branch.ID); err != nil {

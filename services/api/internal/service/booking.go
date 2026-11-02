@@ -979,6 +979,19 @@ func (s *Booking) validateLocation(in domain.Location) error {
 	if in.Lat < -90 || in.Lat > 90 || in.Lng < -180 || in.Lng > 180 {
 		return domain.ErrValidation.WithField("lat", "Coordinates look wrong.")
 	}
+	// Hours ride in the same payload and previously skipped validation
+	// entirely: neither create nor update checked their shape, so malformed
+	// JSON persisted and only surfaced as weird availability downstream.
+	if in.Hours != nil {
+		if _, err := validateHours(in.Hours); err != nil {
+			return err
+		}
+	}
+	if in.SpecialHours != nil {
+		if _, err := validateSpecialHours(in.SpecialHours); err != nil {
+			return err
+		}
+	}
 	if _, err := time.LoadLocation(strings.TrimSpace(in.Timezone)); err != nil {
 		return domain.ErrValidation.WithField("timezone", "Unknown timezone.")
 	}
@@ -1098,6 +1111,22 @@ func (s *Booking) UpdateLocation(ctx context.Context, ownerID, businessID, locat
 	}
 	if v, ok := fields["phone"].(string); ok {
 		merged.Phone = v
+	}
+	// Coordinates and hours ride along unvalidated if they are not merged:
+	// validateLocation judges the MERGED row, so every updatable key must be
+	// copied first. A patch that only moves the pin must still be judged
+	// against the range check, and edited hours against the shape check.
+	if v, ok := fields["lat"].(float64); ok {
+		merged.Lat = v
+	}
+	if v, ok := fields["lng"].(float64); ok {
+		merged.Lng = v
+	}
+	if v, ok := fields["hours"].(map[string]any); ok {
+		merged.Hours = v
+	}
+	if v, ok := fields["special_hours"].(map[string]any); ok {
+		merged.SpecialHours = v
 	}
 	if err := s.validateLocation(merged); err != nil {
 		return nil, err

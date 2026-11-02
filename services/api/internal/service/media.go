@@ -276,6 +276,7 @@ func (m *Media) Upload(ctx context.Context, in UploadInput) (*domain.MediaItem, 
 	// Record the scan verdict on the persisted row (best-effort).
 	if scanStatus != "" {
 		_, _ = m.repos.Exec(ctx, `UPDATE media SET virus_scan_status=$2 WHERE id=$1`, item.ID, scanStatus)
+		item.VirusScanStatus = scanStatus
 	}
 
 	item.URL = m.publicURL(item)
@@ -326,6 +327,10 @@ func (m *Media) ServeThumbPath(ctx context.Context, id string) (*domain.MediaIte
 }
 
 // DocumentPath resolves a verification document file (admin only; access audited upstream).
+// The admin-only rule is enforced twice: the sole caller (admin doc viewer)
+// checks the role and writes the audit row, and the RLS media policy only
+// admits managers/admins for kind=document_verification — so even a future
+// non-admin caller gets ErrNotFound rather than bytes.
 func (m *Media) DocumentPath(ctx context.Context, mediaID string) (*domain.MediaItem, string, error) {
 	item, err := m.repos.Media.GetByID(ctx, mediaID)
 	if err != nil || item == nil {

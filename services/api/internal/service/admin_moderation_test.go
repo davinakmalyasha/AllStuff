@@ -17,6 +17,23 @@ import (
 // The moderation-configuration half of Admin - the banned-word list, its
 // allowlist, and the audit trail that every other decision writes into.
 
+// Restoring a hidden reaction must not report success: the hide physically
+// deletes the row, so there is nothing to bring back and a 200 would lie.
+func TestAdminRestoreReactionIsHonest(t *testing.T) {
+	svc, h := newTestAdmin(t)
+	ctx := context.Background()
+	_ = h
+	admin := testutil.User(t, h)
+	reactionID := util.NewUUID()
+
+	if err := svc.HideContent(ctx, admin.ID, "reaction", reactionID, "spam"); err != nil {
+		t.Fatalf("HideContent: %v", err)
+	}
+	if err := svc.RestoreContent(ctx, "reaction", reactionID); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("restore of a deleted reaction: err = %v, want ErrValidation, not success", err)
+	}
+}
+
 func TestAdminAddBannedWord(t *testing.T) {
 	svc, h := newTestAdmin(t)
 	ctx := context.Background()

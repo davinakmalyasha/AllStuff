@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -118,6 +119,15 @@ func (r *StaffRepo) loadQualifications(ctx context.Context, s *domain.Staff) err
 }
 
 // Update applies a name/contact/active change. Only the supplied fields move.
+//
+// The allowlist is load-bearing, not stylistic: fields are interpolated as
+// column names, so an unlisted key writes an arbitrary column. business_id
+// and user_id are real columns a future caller could otherwise move a staffer
+// across businesses or accounts with.
+var allowedStaffFields = map[string]bool{
+	"name": true, "email": true, "phone": true, "active": true,
+}
+
 func (r *StaffRepo) Update(ctx context.Context, id string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
@@ -126,6 +136,9 @@ func (r *StaffRepo) Update(ctx context.Context, id string, fields map[string]any
 	args := []any{id}
 	i := 2
 	for k, v := range fields {
+		if !allowedStaffFields[k] {
+			return fmt.Errorf("field not allowed: %s", k)
+		}
 		cols = append(cols, k+" = $"+util.Itoa(i))
 		args = append(args, v)
 		i++
