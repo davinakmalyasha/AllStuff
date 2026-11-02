@@ -72,7 +72,7 @@ ran.
 | `RestoreContent("reaction")` no-op success | P3 | end state (no reaction) equals hidden state; harmless | soft-delete reactions or return explicit "already gone" |
 | Global SKU existence oracle | P3 accepted | global UNIQUE is a design choice; leaked signal is one SKU string | scope SKUs per business (migration + backfill) |
 | Anonymous storefront views unrecorded; view-dedupe tz | P2 | recording anon views risks spam inflation; change needs abuse review | product decision + rate-limit design |
-| No least-privilege DB role / RLS (`0041`/`0042` reserved) | P1 known | documented in README + SECURITY + REGISTRY as highest-priority outstanding work; not started — a migration pair, not an afternoon | two migrations with replay proofs + soak |
+| No least-privilege DB role / RLS | was P1, now SHIPPED (follow-up sweep) | migrations `0041` (role) + `0053` (policies; renumbered from reserved `0042` because the policy references `accepted_user_id` from `0049`) — see CHANGELOG Security section | nine `TestRLS*` probes + full E2E on the RLS pool |
 | Coverage floors for small packages; `npm audit` non-blocking | P2 | policy decisions with written rationale; unchanged | per-package floors; audit allowlist |
 
 ## 6. Reviewer-visible delta

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Security
+- Least-privilege database role + row-level security (migrations `0041` and
+  `0053`). The request path now runs as `allstuff_app` (owns nothing; DML
+  only) with per-request identity, and tenant/owner tables re-check the
+  reader on every row — a missed `WHERE` in a repository method returns
+  empty instead of another user's data. Jobs, migrations, the notifier and
+  tests stay on the owner pool and bypass RLS by design; `businesses` /
+  `products` / `trend_snapshots` are deliberately unpolicied (search,
+  leaderboard and SSR run without a user context). Proved by nine
+  `TestRLS*` probe tests plus a full E2E run against the RLS pool.
+- Fixed an SSR crash: `/discover?q=` evaluated `document.activeElement`
+  during server render (`ReferenceError: document is not defined` in server
+  logs; pages still rendered). Render-path browser globals are now guarded
+  in Discover/Category/City pages.
+- Finished the BizVerse → AllStuff rename in user-visible surfaces (header
+  wordmark, email header, `allstuff_*` Prometheus metrics).
+
 ### Fixed
 - Services created or edited through the dashboard now persist
   `duration_minutes` (`Products.Create`/`Update` dropped the field, so every

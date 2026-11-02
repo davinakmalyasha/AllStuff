@@ -47,11 +47,16 @@ Stated here rather than discovered later:
 - **Media is stored on local disk** (`MEDIA_DIR`). A single API replica with a
   persistent volume is the supported production topology. There is no S3/R2
   adapter, so horizontal scaling of the API requires an external volume.
-- **The database connects as its own owner.** There is no least-privilege role
-  and no row-level security; every tenant boundary is enforced in Go. A single
-  missed `WHERE` clause in a repository method is a cross-tenant read, not a
-  500. Migrations for both are reserved (see `REGISTRY.md`) and are the highest
-  priority outstanding security work.
+- **Row-level security is a read backstop, not the authorization layer.**
+  The request path connects as the least-privilege `allstuff_app` role
+  (migrations `0041`/`0053`) and every row read on tenant tables is
+  re-checked against the requesting user — a missed `WHERE` in a repository
+  method now returns empty instead of another user's data (proven by
+  `TestRLS*` in `internal/repo/rls_probe_test.go`). Writes, state machines,
+  and validation stay in the service layer; `businesses` / `products` /
+  `trend_snapshots` have no policies because search, leaderboard and SSR run
+  without a user context. Jobs, migrations and the notifier run as the table
+  owner and bypass RLS by design.
 - **Rate limiting fails open.** If Redis is unreachable, per-IP limits degrade
   to per-instance limits rather than returning 503. This is deliberate —
   failing closed converts a cache blip into a site-wide outage — but it does
@@ -101,6 +106,13 @@ are listed here so a future migration or refactor can be checked against them.
   `chat_message_hides` and returns no message; only "delete for everyone" mutates the
   shared row and broadcasts. Treating the two alike either hides a message from
   everyone or re-inserts it into the actor's view.
+- **RLS policies mirror the service checks, by name.** `rls_can_manage` is
+  `CanManageBusiness` (owner OR accepted non-revoked co-owner grant, resolved
+  through `accepted_user_id`) and `rls_thread_member` is `checkAccess`
+  (participant row with `left_at IS NULL`). If either service check changes
+  shape, migration `0053` and `TestRLS*` must change with it — a policy
+  checked against the wrong column fails exactly as silently as the Go code
+  it backstops.
 
 ## Documentation drift
 
