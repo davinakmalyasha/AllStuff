@@ -31,7 +31,7 @@ export function OwnerShell({ children }: { children?: React.ReactNode }) {
   const navigate = useNavigate()
   const { selectedId, setSelected } = useBusiness()
 
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: ['my-businesses'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
     enabled: !!user,
@@ -60,6 +60,13 @@ export function OwnerShell({ children }: { children?: React.ReactNode }) {
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
+        ) : isError ? (
+          <button
+            onClick={() => void refetch()}
+            className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-2 text-xs text-ink2 hover:bg-surface2"
+          >
+            Businesses failed to load — retry
+          </button>
         ) : (
           <button
             onClick={() => navigate('/dashboard/register')}

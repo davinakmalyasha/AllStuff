@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ErrorNote } from '@/components/ui/Spinner'
 import { api, type BusinessDTO, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { usePageMeta } from '@/lib/meta'
 import { useAuthState } from '@/stores/auth'
@@ -81,7 +82,7 @@ export function LandingPage() {
     return top.length > 0 ? top.map((c) => ({ name: c.name, note: `${c.count} business${c.count === 1 ? '' : 'es'}`, slug: c.slug, icon: c.icon })) : FALLBACK_CATEGORIES
   }, [catData])
 
-  const { data: trendingData } = useQuery({
+  const { data: trendingData, isError: isTrendingError, refetch: refetchTrending } = useQuery({
     queryKey: ['trending'],
     queryFn: () => api<{ entries: TrendEntryDTO[] }>('/trending'),
     refetchInterval: 5 * 60_000,
@@ -220,8 +221,12 @@ export function LandingPage() {
               <h2 className="text-xl font-semibold tracking-tight">{t('landing.trending')}</h2>
             </div>
             <Card className="divide-y divide-border p-0">
-              {trending.length === 0 && <p className="px-5 py-6 text-center text-sm text-ink3">Signals are warming up — leaderboards fill as people engage.</p>}
-              {trending.map((row) => (
+              {isTrendingError ? (
+                <ErrorNote message="Trending is unavailable right now." onRetry={() => void refetchTrending()} />
+              ) : (
+                <>
+                  {trending.length === 0 && <p className="px-5 py-6 text-center text-sm text-ink3">Signals are warming up — leaderboards fill as people engage.</p>}
+                  {trending.map((row) => (
                 <button
                   key={row.rank}
                   onClick={() => navigate(`/b/${row.slug}`)}
@@ -237,6 +242,8 @@ export function LandingPage() {
                   <span className="font-mono text-sm text-ink">{row.score}</span>
                 </button>
               ))}
+                </>
+              )}
             </Card>
           </div>
 

@@ -26,23 +26,26 @@ function LiveEvents() {
 
 function TabTitle() {
   const { user } = useAuthState((s) => ({ user: s.user }))
-  const { data: notif } = useQuery({
+  const { data: notif, isError: notifError } = useQuery({
     queryKey: ['notifications', 'count'],
     queryFn: () => api<{ unread: number }>('/notifications?limit=1'),
     enabled: !!user,
     refetchInterval: 60_000,
   })
-  const { data: threads } = useQuery({
+  const { data: threads, isError: threadsError } = useQuery({
     queryKey: ['threads', 'all'],
     queryFn: () => api<{ threads: Array<{ unread: number }> }>('/threads'),
     enabled: !!user,
     refetchInterval: 60_000,
   })
   useEffect(() => {
+    // On fetch failure the counts are unknown, not zero: leave the previous
+    // title in place rather than clearing a badge the user has not seen.
+    if (notifError || threadsError) return
     const unread = (notif?.unread ?? 0) + (threads?.threads ?? []).reduce((a, t) => a + t.unread, 0)
     const base = document.title.replace(/^\(\d+\) /, '')
     document.title = unread > 0 ? `(${unread}) ${base}` : base
-  }, [notif, threads])
+  }, [notif, threads, notifError, threadsError])
   return null
 }
 

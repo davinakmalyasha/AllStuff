@@ -487,17 +487,26 @@ export function BusinessPage() {
 function FollowButton({ businessId, loggedIn }: { businessId: string; loggedIn: boolean }) {
   const qc = useQueryClient()
   const [following, setFollowing] = useState(false)
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: ['follow', businessId],
     queryFn: () => api<{ following: boolean }>(`/businesses/${businessId}/follow`),
     enabled: loggedIn,
   })
   // Single source of truth: the query result seeds local state (the old
-  // duplicate manual fetch doubled the request on every mount).
+  // duplicate manual fetch doubled the request on every mount). On fetch
+  // failure the button stays in its default "Follow" state rather than
+  // claiming anything; the toggle itself surfaces errors via toast below.
   useEffect(() => {
     if (data) setFollowing(data.following)
   }, [data])
   if (!loggedIn) return null
+  if (isError && !data) {
+    return (
+      <Button variant="secondary" onClick={() => void refetch()} title="Couldn't load follow state — retry">
+        Follow
+      </Button>
+    )
+  }
   return (
     <Button
       variant={following ? 'primary' : 'secondary'}

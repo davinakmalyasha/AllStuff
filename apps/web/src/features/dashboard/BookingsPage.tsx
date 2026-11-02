@@ -8,7 +8,7 @@ import { useActiveBusiness } from '@/app/shells/OwnerShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Confirm, Modal } from '@/components/ui/Modal'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
 
@@ -89,7 +89,7 @@ export function BookingsPage() {
     }
   }, [business])
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard-bookings', business?.id],
     queryFn: () => api<{ appointments: AppointmentDTO[] }>(`/businesses/${business!.id}/appointments`),
     enabled: !!business,
@@ -278,8 +278,16 @@ export function BookingsPage() {
         </div>
       </div>
 
-      {demand.length > 0 && (
-        <Card className="mb-4 p-4">
+      {demandQuery.isError ? (
+        <p className="mb-4 text-xs text-ink3">
+          Waitlist demand is unavailable right now.{' '}
+          <button className="underline hover:text-ink" onClick={() => void demandQuery.refetch()}>
+            Retry
+          </button>
+        </p>
+      ) : (
+        demand.length > 0 && (
+          <Card className="mb-4 p-4">
           <div className="mb-2 flex items-center justify-between">
             <p className="mono-label">Waiting for a time</p>
             <span className="text-xs text-ink3">counts only — customer names stay private</span>
@@ -299,6 +307,7 @@ export function BookingsPage() {
             ))}
           </ul>
         </Card>
+        )
       )}
 
       {view === 'day' && (
@@ -368,7 +377,15 @@ export function BookingsPage() {
               ))}
             </div>
           </Card>
-          {!dayQuery.isLoading && dayAppointments.length === 0 && (
+          {dayQuery.isError && !dayQuery.isLoading && (
+            <p className="mt-3 text-sm text-ink3">
+              Couldn&apos;t load this day.{' '}
+              <button className="underline hover:text-ink" onClick={() => void dayQuery.refetch()}>
+                Retry
+              </button>
+            </p>
+          )}
+          {!dayQuery.isError && !dayQuery.isLoading && dayAppointments.length === 0 && (
             <p className="mt-3 text-sm text-ink3">No bookings on this day.</p>
           )}
         </>
@@ -376,10 +393,14 @@ export function BookingsPage() {
 
       {view === 'list' && (
         <>
-          {upcoming.length === 0 && past.length === 0 && (
-            <Card>
-              <p className="text-sm text-ink3">No bookings yet.</p>
-            </Card>
+          {isError ? (
+            <ErrorNote message="Bookings are unavailable right now." onRetry={() => void refetch()} />
+          ) : (
+            upcoming.length === 0 && past.length === 0 && (
+              <Card>
+                <p className="text-sm text-ink3">No bookings yet.</p>
+              </Card>
+            )
           )}
 
           {upcoming.length > 0 && (

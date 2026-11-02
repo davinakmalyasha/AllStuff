@@ -65,7 +65,7 @@ export function DiscoverPage() {
 
   usePageMeta(submitted ? `Results for "${submitted}"` : 'Discover businesses')
 
-  const { data: catData } = useQuery({
+  const { data: catData, isError: isCatError, refetch: refetchCats } = useQuery({
     queryKey: ['categories'],
     queryFn: () => api<{ categories: CategoryDTO[] }>('/categories'),
   })
@@ -136,14 +136,15 @@ export function DiscoverPage() {
     queryKey: ['search', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords],
     queryFn: () => api<{ businesses: BusinessDTO[]; count: number | null; has_more: boolean }>(searchPath(searchFilters)),
   })
-  const { data: more, isFetching: moreLoading } = useQuery({
+  const { data: more, isFetching: moreLoading, isError: isMoreError, refetch: refetchMore } = useQuery({
     queryKey: ['search-more', submitted, cityParam, cats, priceLevels, minRating, openNow, verifiedOnly, fullyVerified, hasChat, sort, coords, page],
     queryFn: () => api<{ businesses: BusinessDTO[]; has_more: boolean }>(searchPath({ ...searchFilters, offset: page * 24 })),
     enabled: page > 1,
   })
   // The first page's has_more; later pages report their own. The last one to
-  // load wins, which is the one describing the furthest page fetched.
-  const hasMore = page > 1 ? (more?.has_more ?? true) : (data?.has_more ?? false)
+  // load wins, which is the one describing the furthest page fetched. A failed
+  // page reports nothing, so it must not keep "Load more" alive forever.
+  const hasMore = page > 1 ? (!isMoreError && (more?.has_more ?? true)) : (data?.has_more ?? false)
   useEffect(() => {
     if (more?.businesses.length) {
       // Dedupe by id: trending reshuffles between pages otherwise produce
@@ -331,12 +332,21 @@ export function DiscoverPage() {
             <div>
               <p className="mono-label mb-2">Category</p>
               <div className="max-h-48 space-y-1 overflow-y-auto pr-2">
-                {leafCats.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm text-ink2">
-                    <input type="checkbox" checked={cats.includes(c.id)} onChange={() => toggleCat(c.id)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
-                    {c.name}
-                  </label>
-                ))}
+                {isCatError ? (
+                  <p className="text-xs text-ink3">
+                    Categories failed to load.{' '}
+                    <button className="underline hover:text-ink" onClick={() => void refetchCats()}>
+                      Retry
+                    </button>
+                  </p>
+                ) : (
+                  leafCats.map((c) => (
+                    <label key={c.id} className="flex items-center gap-2 text-sm text-ink2">
+                      <input type="checkbox" checked={cats.includes(c.id)} onChange={() => toggleCat(c.id)} className="h-3.5 w-3.5 accent-black dark:accent-white" />
+                      {c.name}
+                    </label>
+                  ))
+                )}
               </div>
             </div>
             <div>
@@ -416,6 +426,11 @@ export function DiscoverPage() {
           {moreLoading ? (
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <SkeletonCard /><SkeletonCard /><SkeletonCard />
+            </div>
+          ) : isMoreError ? (
+            <div className="mt-6 text-center">
+              <p className="mb-2 text-xs text-ink3">Couldn&apos;t load more results.</p>
+              <Button variant="secondary" onClick={() => void refetchMore()}>Retry</Button>
             </div>
           ) : hasMore ? (
             // Driven by `has_more`, not by comparing the loaded length against

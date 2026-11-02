@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { ErrorNote } from '@/components/ui/Spinner'
 import { api, type BusinessDTO } from '@/lib/api'
 import { useAuthState } from '@/stores/auth'
 
@@ -30,12 +31,23 @@ const STATUS_TONE: Record<string, 'neutral' | 'attention' | 'positive' | 'danger
 
 export function DashboardIndex() {
   const { user } = useAuthState((s) => ({ user: s.user }))
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: ['my-businesses'],
     queryFn: () => api<{ businesses: BusinessDTO[] }>('/businesses'),
     enabled: !!user,
   })
   const businesses = data?.businesses ?? []
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-6">
+          <p className="mono-label mb-1">Overview</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        </div>
+        <ErrorNote message="Your businesses are unavailable right now." onRetry={() => void refetch()} />
+      </div>
+    )
+  }
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6 flex items-center justify-between">
