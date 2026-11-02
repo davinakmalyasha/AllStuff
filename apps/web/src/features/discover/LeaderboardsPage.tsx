@@ -7,7 +7,7 @@ import { TrendingUp } from 'lucide-react'
 import { api, type CategoryDTO, type TrendEntryDTO } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 
 /** Leaderboards page (Batch 1): global + per-category + city. */
@@ -15,7 +15,7 @@ export function LeaderboardsPage() {
   usePageMeta('Leaderboards')
   const [window, setWindow] = useState<'24h' | '7d' | '30d'>('7d')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['leaderboards', window],
     queryFn: () => api<{ entries: TrendEntryDTO[] }>(`/leaderboards?window=${window}&scope=global&limit=50`),
   })
@@ -26,12 +26,13 @@ export function LeaderboardsPage() {
   })
   const [catScope, setCatScope] = useState<string | null>(null)
 
-  const { data: catBoard } = useQuery({
+  const { data: catBoard, isError: isCatError, refetch: refetchCat } = useQuery({
     queryKey: ['leaderboard-cat', window, catScope],
     queryFn: () => api<{ entries: TrendEntryDTO[] }>(`/leaderboards?window=${window}&scope=category:${catScope}&limit=20`),
     enabled: !!catScope,
   })
 
+  const catFailed = !!catScope && isCatError
   const entries = catScope ? catBoard?.entries : data?.entries
 
   return (
@@ -69,6 +70,8 @@ export function LeaderboardsPage() {
 
       {isLoading ? (
         <PageSpinner />
+      ) : isError || catFailed ? (
+        <ErrorNote message="Leaderboards are unavailable right now." onRetry={() => void (catScope ? refetchCat() : refetch())} />
       ) : (
         <Card className="divide-y divide-border p-0">
           {(entries ?? []).map((e, i) => (

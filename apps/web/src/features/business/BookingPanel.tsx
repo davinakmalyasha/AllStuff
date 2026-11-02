@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays } from 'lucide-react'
 import {
   api,
@@ -27,6 +27,7 @@ import { useAuthState } from '@/stores/auth'
  */
 export function BookingPanel({ business, product }: { business: BusinessDTO; product: ProductDTO }) {
   const { user } = useAuthState((s) => ({ user: s.user }))
+  const qc = useQueryClient()
   const [booked, setBooked] = useState<AppointmentDTO | null>(null)
 
   const timeFmt = new Intl.DateTimeFormat('en-GB', {
@@ -46,6 +47,9 @@ export function BookingPanel({ business, product }: { business: BusinessDTO; pro
       }),
     onSuccess: (r) => {
       setBooked(r.appointment)
+      // My bookings would otherwise show stale (empty) until a manual
+      // refetch: the page reads ['my-bookings'], so invalidate it here.
+      qc.invalidateQueries({ queryKey: ['my-bookings'] })
       toast.success('Booked')
     },
     onError: (e) => {

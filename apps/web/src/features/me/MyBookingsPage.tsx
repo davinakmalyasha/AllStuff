@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Confirm, Modal } from '@/components/ui/Modal'
 import { SlotPicker } from '@/components/booking/SlotPicker'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { toast } from '@/components/ui/Toast'
 import { usePageMeta } from '@/lib/meta'
 
@@ -41,7 +41,7 @@ export function MyBookingsPage() {
   const [cancelTarget, setCancelTarget] = useState<AppointmentDTO | null>(null)
   const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentDTO | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['my-bookings'],
     queryFn: () => api<{ appointments: AppointmentDTO[] }>('/me/appointments'),
   })
@@ -111,6 +111,7 @@ export function MyBookingsPage() {
   }, [data])
 
   if (isLoading) return <PageSpinner />
+  if (isError) return <ErrorNote message="Your bookings are unavailable right now." onRetry={() => void refetch()} />
 
   const card = (a: AppointmentDTO, actionable: boolean) => {
     const canCancel =
@@ -201,6 +202,15 @@ export function MyBookingsPage() {
         </section>
       )}
 
+      {waitlist.isError && (
+        <p className="mb-8 text-xs text-ink3">
+          The waitlist is unavailable right now.{' '}
+          <button className="underline hover:text-ink" onClick={() => void waitlist.refetch()}>
+            Retry
+          </button>
+        </p>
+      )}
+
       {(waitlist.data?.waitlist.length ?? 0) > 0 && (
         <section aria-labelledby="waitlist-heading" className="mb-8">
           <h2 id="waitlist-heading" className="mono-label mb-2">
@@ -276,8 +286,14 @@ export function MyBookingsPage() {
         danger
         onClose={() => setCancelTarget(null)}
         onConfirm={() => {
-          if (cancelTarget) void cancel.mutateAsync(cancelTarget)
-          setCancelTarget(null)
+          // Close only on success: the dialog already vanished on failure
+          // before, so a cancelled-on-paper booking lost its retry affordance.
+          if (cancelTarget) {
+            void cancel
+              .mutateAsync(cancelTarget)
+              .then(() => setCancelTarget(null))
+              .catch(() => undefined)
+          }
         }}
       />
     </div>

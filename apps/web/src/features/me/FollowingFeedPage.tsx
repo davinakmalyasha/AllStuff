@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Megaphone } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/Card'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { usePageMeta } from '@/lib/meta'
 import { formatDateTime } from '@/lib/format'
 
@@ -22,12 +22,13 @@ interface FeedUpdateDTO {
 /** Following feed (B6): announcements from businesses you follow. */
 export function FollowingFeedPage() {
   usePageMeta('Following')
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['following-feed'],
     queryFn: () => api<{ updates: FeedUpdateDTO[] }>('/me/following-feed?limit=30'),
   })
 
   if (isLoading) return <PageSpinner />
+  if (isError) return <ErrorNote message="Your following feed is unavailable right now." onRetry={() => void refetch()} />
 
   return (
     <div className="mx-auto max-w-2xl">

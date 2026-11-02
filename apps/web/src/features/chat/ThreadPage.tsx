@@ -36,7 +36,7 @@ import {
 } from '@/lib/api'
 import { useDebouncedValue } from '@/lib/hooks'
 import { Button } from '@/components/ui/Button'
-import { PageSpinner } from '@/components/ui/Spinner'
+import { PageSpinner, ErrorNote } from '@/components/ui/Spinner'
 import { ws } from '@/lib/ws'
 import { safeExternalUrl } from '@/lib/url'
 import { useAuthState } from '@/stores/auth'
@@ -100,7 +100,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   const [loadingOlder, setLoadingOlder] = useState(false)
   const loadingOlderRef = useRef(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['thread', id],
     queryFn: () => api<{ thread: ThreadDTO; messages: ChatMessageDTO[]; has_more: boolean }>(`/threads/${id}`),
     enabled: !!id,
@@ -661,6 +661,7 @@ export function ThreadPage({ businessMode = false }: { businessMode?: boolean })
   }, [labeled, id, forwardQ])
 
   if (isLoading) return <PageSpinner />
+  if (isError) return <ErrorNote message="This conversation is unavailable right now." onRetry={() => void refetch()} />
 
   return (
     <div className="flex h-[calc(100vh-64px)] flex-col">
