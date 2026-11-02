@@ -51,6 +51,18 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // A session-level advisory lock guards the whole run: two replicas booting
 // together previously raced file application (duplicate-object errors, or
 // worse interleaved DDL).
+//
+// Scope warning, learned the hard way: advisory locks live in the database
+// they are taken in, NOT cluster-wide (verified: a lock held in database A
+// is invisible from database B). So this serializes replicas migrating the
+// SAME database, and nothing else. Concurrent migrates of DIFFERENT databases
+// on one cluster (the test harness building per-process templates, a fleet
+// script walking dev+staging) run fully in parallel — safe for per-database
+// objects, but migrations that write cluster-shared catalogs (0041's role
+// membership and default privileges) can abort each other with "tuple
+// concurrently updated". The harness serializes its own builds (testutil
+// takes allstuff:tmpl-build on the shared postgres database); multi-database
+// fleet migrates must serialize themselves or accept a retry.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {

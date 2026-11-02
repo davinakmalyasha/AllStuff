@@ -162,20 +162,39 @@ func template(t *testing.T) string {
 		defer admin.Close()
 
 		tmplName = fmt.Sprintf("allstuff_tmpl_%d", os.Getpid())
-		// Drop databases abandoned by earlier runs BEFORE creating this one.
-		//
-		// The template is keyed by pid and nothing ever dropped it, so every
-		// `go test` invocation left a full schema clone behind; interrupted runs
-		// left their per-test databases too. A few hundred of those turn crash
-		// recovery from seconds into twenty minutes, because the cluster fsyncs
-		// every file it finds on startup. Two hours is longer than any run, so a
-		// concurrently running suite never loses its own database.
-		dropStaleTestDatabases(ctx, admin, tmplName)
-		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+tmplName+" WITH (FORCE)"); err != nil {
+		// One connection for the whole build, and a cross-process build lock
+		// held on it. Advisory locks are scoped to the database they are
+		// taken in (verified by hand: a lock held in one database is
+		// invisible from another), so the migrate runner's own lock — taken
+		// inside the template database — cannot exclude concurrent builds of
+		// OTHER template databases. Before 0041 that was harmless: every
+		// migration only touched per-database objects. 0041 writes
+		// cluster-shared catalogs (role membership, default privileges),
+		// where two simultaneous builds update the same rows and Postgres
+		// aborts one with "tuple concurrently updated" (SQLSTATE XX000).
+		// The admin connection below is on the shared `postgres` database
+		// in every test process, so a lock taken here excludes every other
+		// builder. It also serializes the DROP/CREATE DATABASE steps, which
+		// previously raced each other across processes.
+		tconn, err := admin.Acquire(ctx)
+		if err != nil {
+			tmplErr = fmt.Errorf("acquire admin connection: %w", err)
+			return
+		}
+		defer tconn.Release()
+		if _, err := tconn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('allstuff:tmpl-build'))`); err != nil {
+			tmplErr = fmt.Errorf("acquire template build lock: %w", err)
+			return
+		}
+		defer func() {
+			_, _ = tconn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('allstuff:tmpl-build'))`)
+		}()
+		dropStaleTestDatabases(ctx, tconn, tmplName)
+		if _, err := tconn.Exec(ctx, "DROP DATABASE IF EXISTS "+tmplName+" WITH (FORCE)"); err != nil {
 			tmplErr = err
 			return
 		}
-		if _, err := admin.Exec(ctx, "CREATE DATABASE "+tmplName); err != nil {
+		if _, err := tconn.Exec(ctx, "CREATE DATABASE "+tmplName); err != nil {
 			tmplErr = fmt.Errorf("create template: %w", err)
 			return
 		}
@@ -205,7 +224,7 @@ func template(t *testing.T) string {
 // Best-effort by design: a cleanup failure must never fail the suite, and the
 // databases it targets are ones nobody is using. pg_stat_file needs superuser,
 // which the test DSN already is - the same account that issues CREATE DATABASE.
-func dropStaleTestDatabases(ctx context.Context, admin *pgxpool.Pool, keep string) {
+func dropStaleTestDatabases(ctx context.Context, admin *pgxpool.Conn, keep string) {
 	rows, err := admin.Query(ctx, `
 		SELECT d.datname
 		  FROM pg_database d
