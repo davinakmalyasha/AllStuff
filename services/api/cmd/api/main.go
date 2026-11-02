@@ -106,6 +106,18 @@ func main() {
 	}
 
 	repos := repo.New(pool)
+	// The request pool: same DSN, but every acquisition drops to the
+	// least-privilege `app` role and stamps the requesting user (repo/rls.go),
+	// so 0053's RLS policies re-check every row. Migrations, jobs, the
+	// notifier and dev-login stay on the owner pool, which RLS does not
+	// constrain — those paths read across users by design (fan-outs,
+	// reconcile, cleanup) and have no request user to stamp.
+	appPool, err := db.ConnectRLS(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("database connect (request pool)", "err", err)
+		os.Exit(1)
+	}
+	reposApp := repo.New(appPool)
 	sender := email.NewSender(email.ResendConfig{
 		APIKey:    cfg.ResendAPIKey,
 		From:      cfg.EmailFrom,
@@ -153,16 +165,16 @@ func main() {
 	}()
 
 	notifier := service.NewNotifier(repos, cfg, sender, hub, logger)
-	authSvc := service.NewAuth(repos, cfg, sender, logger)
+	authSvc := service.NewAuth(reposApp, cfg, sender, logger)
 	if *devLogin {
-		if err := runDevLogin(ctx, cfg, repos, authSvc, logger); err != nil {
+		if err := runDevLogin(ctx, cfg, reposApp, authSvc, logger); err != nil {
 			logger.Error("dev-login", "err", err)
 			os.Exit(1)
 		}
 		return
 	}
-	userSvc := service.NewUsers(repos)
-	categorySvc := service.NewCategories(repos)
+	userSvc := service.NewUsers(reposApp)
+	categorySvc := service.NewCategories(reposApp)
 
 	// Billing (Phase 7.1) is constructed BEFORE the services that gate on it,
 	// because Products.Create, the storefront gallery update and Invites.Create
@@ -175,21 +187,21 @@ func main() {
 	// service.EntitlementSource, so the gated services take the interface and
 	// Billing is constructed first purely as a construction-order requirement.
 	stripeClient := security.NewStripeClient(cfg.StripeSecretKey, cfg.StripePublishableKey)
-	billingSvc := service.NewBilling(repos, cfg, stripeClient, logger)
-	bookingSvc := service.NewBooking(repos, notifier)
-	waitlistSvc := service.NewWaitlist(repos)
+	billingSvc := service.NewBilling(reposApp, cfg, stripeClient, logger)
+	bookingSvc := service.NewBooking(reposApp, notifier)
+	waitlistSvc := service.NewWaitlist(reposApp)
 	if billingSvc.Enabled() {
 		logger.Info("billing enabled (stripe)", "publishable", stripeClient.PublishableKey() != "")
 	} else {
 		logger.Warn("billing disabled: STRIPE_SECRET_KEY is not set; free plan only")
 	}
 
-	businessSvc := service.NewBusinesses(repos, billingSvc)
-	productSvc := service.NewProducts(repos, notifier, billingSvc)
-	analyticsSvc := service.NewAnalytics(repos)
-	engagementSvc := service.NewEngagement(repos, notifier)
-	trendingSvc := service.NewTrending(repos, notifier)
-	chatSvc := service.NewChat(repos, notifier)
+	businessSvc := service.NewBusinesses(reposApp, billingSvc)
+	productSvc := service.NewProducts(reposApp, notifier, billingSvc)
+	analyticsSvc := service.NewAnalytics(reposApp)
+	engagementSvc := service.NewEngagement(reposApp, notifier)
+	trendingSvc := service.NewTrending(reposApp, notifier)
+	chatSvc := service.NewChat(reposApp, notifier)
 	// Thread membership gate for WS `subscribe` frames: without it any
 	// authenticated user could subscribe to arbitrary thread IDs and receive
 	// typing/presence signals for conversations they are not part of.
@@ -197,6 +209,10 @@ func main() {
 		out := make([]string, 0, len(threadIDs))
 		for _, id := range threadIDs {
 			cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			// The check runs off-request (hub goroutine), so the RLS identity
+			// is stamped explicitly: without it the pool sees no user and the
+			// policy denies every subscription, silently killing realtime.
+			cctx = repo.WithUserID(cctx, userID)
 			if err := chatSvc.CheckAccess(cctx, userID, id); err == nil {
 				out = append(out, id)
 			}
@@ -204,22 +220,22 @@ func main() {
 		}
 		return out
 	})
-	currencySvc := service.NewCurrency(repos)
-	oauthSvc := service.NewOAuth(repos, cfg)
-	communitySvc := service.NewCommunity(repos, notifier)
-	profilesSvc := service.NewProfiles(repos, notifier)
-	invitesSvc := service.NewInvites(repos, cfg, sender, billingSvc)
-	searchSvc := service.NewSearch(repos)
-	adminSvc := service.NewAdmin(repos, notifier)
-	mediaSvc := service.NewMedia(repos, cfg.MediaDir, cfg.MediaBase, cfg.MediaEncryptionKey, cfg.ClamAVAddr)
-	citiesSvc := service.NewCities(repos)
-	apiKeysSvc := service.NewAPIKeys(repos)
-	claimsSvc := service.NewClaims(repos, notifier)
+	currencySvc := service.NewCurrency(reposApp)
+	oauthSvc := service.NewOAuth(reposApp, cfg)
+	communitySvc := service.NewCommunity(reposApp, notifier)
+	profilesSvc := service.NewProfiles(reposApp, notifier)
+	invitesSvc := service.NewInvites(reposApp, cfg, sender, billingSvc)
+	searchSvc := service.NewSearch(reposApp)
+	adminSvc := service.NewAdmin(reposApp, notifier)
+	mediaSvc := service.NewMedia(reposApp, cfg.MediaDir, cfg.MediaBase, cfg.MediaEncryptionKey, cfg.ClamAVAddr)
+	citiesSvc := service.NewCities(reposApp)
+	apiKeysSvc := service.NewAPIKeys(reposApp)
+	claimsSvc := service.NewClaims(reposApp, notifier)
 
 	api := httpapi.NewServer(httpapi.Deps{
 		Config:      cfg,
 		Logger:      logger,
-		Repos:       repos,
+		Repos:       reposApp,
 		Auth:        authSvc,
 		Users:       userSvc,
 		Categories:  categorySvc,
@@ -279,4 +295,5 @@ func main() {
 	stop()
 	backgroundWG.Wait()
 	pool.Close()
+	appPool.Close()
 }

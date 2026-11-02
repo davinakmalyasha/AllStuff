@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"allstuff/api/internal/domain"
+	"allstuff/api/internal/repo"
 	"allstuff/api/internal/security"
 	"allstuff/api/internal/util"
 )
@@ -601,12 +602,17 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			// none of its ordinary access: no reads, no writes, no admin routes.
 			if moderatedSelfService(r.URL.Path) {
 				r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user))
+				r = r.WithContext(repo.WithUserID(r.Context(), user.ID))
 			}
 			next.ServeHTTP(w, r)
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user))
+		// Row-level security (0041+0053) reads identity from the pool hooks, not
+		// from the user value: stamp it here so every downstream query on the
+		// request pool runs as the least-privilege role with this user.
+		r = r.WithContext(repo.WithUserID(r.Context(), user.ID))
 		next.ServeHTTP(w, r)
 	})
 }
