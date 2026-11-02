@@ -37,7 +37,7 @@ export function CategoryPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cat-follow', cat?.id] }),
   })
   usePageMeta(cat ? `${cat.name} — Businesses` : 'Category', cat?.description ?? undefined, {
-    url: cat ? `${window.location.origin}/c/${cat.slug}` : undefined,
+    url: cat && typeof window !== 'undefined' ? `${window.location.origin}/c/${cat.slug}` : undefined,
   })
   useJsonLd(
     cat

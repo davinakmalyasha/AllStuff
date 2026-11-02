@@ -85,7 +85,7 @@ export function DiscoverPage() {
   const { data: suggest } = useQuery({
     queryKey: ['suggest', debouncedQuery],
     queryFn: () => api<{ businesses: Array<{ type: string; name: string; slug: string; category?: string; city?: string }>; categories: Array<{ type: string; name: string; slug: string; count: number }> }>(`/search/suggest?q=${encodeURIComponent(debouncedQuery)}`),
-    enabled: debouncedQuery.trim().length >= 2 && document.activeElement === inputRef.current,
+    enabled: debouncedQuery.trim().length >= 2 && typeof document !== 'undefined' && document.activeElement === inputRef.current,
   })
 
   const apply = () => {

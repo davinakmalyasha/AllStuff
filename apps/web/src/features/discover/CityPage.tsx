@@ -40,7 +40,7 @@ export function CityPage() {
   const top = city?.top ?? []
   const topRated = city?.top_rated ?? []
   usePageMeta(city ? `Businesses in ${city.name}` : 'Cities', undefined, {
-    url: city ? `${window.location.origin}/city/${city.slug}` : undefined,
+    url: city && typeof window !== 'undefined' ? `${window.location.origin}/city/${city.slug}` : undefined,
   })
   useJsonLd(
     city

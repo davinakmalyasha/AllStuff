@@ -15,15 +15,15 @@ async function dismissToasts(page) {
 }
 
 const shots = [
-  { path: 'docs/demo/landing.png', route: '/', width: 1440, height: 900, fullPage: false },
-  { path: 'docs/demo/storefront.png', route: '/b/rumah-kopi-senja', width: 1440, height: 900, fullPage: false },
-  { path: 'docs/demo/leaderboards.png', route: '/leaderboards', width: 1440, height: 900, fullPage: false },
+  { path: '../../docs/demo/landing.png', route: '/', width: 1440, height: 900, fullPage: false },
+  { path: '../../docs/demo/storefront.png', route: '/b/rumah-kopi-senja', width: 1440, height: 900, fullPage: false },
+  { path: '../../docs/demo/leaderboards.png', route: '/leaderboards', width: 1440, height: 900, fullPage: false },
 ];
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const browser = await chromium.launch();
 try {
-  await mkdir('docs/demo', { recursive: true });
+  await mkdir('../../docs/demo', { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   for (const s of shots) {
     await page.setViewportSize({ width: s.width, height: s.height });
@@ -44,8 +44,8 @@ try {
   await page.goto(BASE + '/dashboard', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
   await dismissToasts(page);
-  await page.screenshot({ path: 'docs/demo/dashboard.png', fullPage: false });
-  console.log('saved docs/demo/dashboard.png');
+  await page.screenshot({ path: '../../docs/demo/dashboard.png', fullPage: false });
+  console.log('saved ../../docs/demo/dashboard.png');
   // OG card source: the landing hero at exactly 1200x630, logged OUT, in a
   // fresh context so no session header or toast leaks into the card.
   const og = await browser.newContext({ viewport: { width: 1200, height: 630 } }).then((c) => c.newPage());

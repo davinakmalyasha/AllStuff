@@ -15,7 +15,7 @@ export function Logo({ className = '' }: { className?: string }) {
         </svg>
       </span>
       <span className="font-mono text-sm uppercase tracking-[0.14em]">
-        Biz<span className="text-ink3">Verse</span>
+        All<span className="text-ink3">Stuff</span>
       </span>
     </Link>
   )
