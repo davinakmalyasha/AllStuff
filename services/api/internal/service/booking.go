@@ -618,6 +618,27 @@ func (s *Booking) AddBlackout(ctx context.Context, ownerID, businessID string, s
 	if endsAt.Sub(startsAt) > 7*24*time.Hour {
 		return nil, domain.ErrValidation.WithField("ends_at", "A blackout can be at most 7 days long.")
 	}
+	// A blackout over live appointments silently strands booked customers:
+	// availability hides the window but the bookings stay confirmed and
+	// reminders still fire. Reject loudly so the owner cancels or moves the
+	// appointments first instead of discovering no-shows later.
+	//
+	// Residual race (documented, not hidden): this check and the insert below
+	// are not atomic, so a booking landing in the same milliseconds can slip
+	// through. Only the business owner can trigger it, against their own
+	// customers, and the result is visible in the booking list — closing it
+	// needs an appointment↔blackout exclusion constraint, which is a migration,
+	// not a service edit.
+	if existing, err := s.repos.Bookings.ListForBusiness(ctx, businessID, startsAt, endsAt); err != nil {
+		return nil, err
+	} else {
+		for _, a := range existing {
+			if a.Status == domain.AppointmentPending || a.Status == domain.AppointmentConfirmed {
+				return nil, domain.ErrValidation.WithField("starts_at",
+					"There are booked appointments in that window. Cancel or reschedule them before blocking it.")
+			}
+		}
+	}
 	b := &domain.Blackout{
 		ID: util.NewUUID(), BusinessID: businessID,
 		StartsAt: startsAt, EndsAt: endsAt, Reason: reason,
