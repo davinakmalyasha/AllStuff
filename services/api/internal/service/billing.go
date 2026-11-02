@@ -423,7 +423,7 @@ func (b *Billing) HandleWebhook(ctx context.Context, rawBody []byte, signature s
 func (b *Billing) dispatch(ctx context.Context, ev *security.StripeEvent) error {
 	switch ev.Type {
 	case "checkout.session.completed":
-		return nil // the subscription.created event carries the state we need
+		return b.onCheckoutCompleted(ctx, ev)
 	case "customer.subscription.created", "customer.subscription.updated":
 		return b.onSubscriptionChanged(ctx, ev)
 	case "customer.subscription.deleted":
@@ -434,6 +434,39 @@ func (b *Billing) dispatch(ctx context.Context, ev *security.StripeEvent) error 
 		b.logger.Debug("billing webhook: unhandled type", "type", ev.Type)
 		return nil
 	}
+}
+
+// onCheckoutCompleted applies the subscription behind a completed Checkout
+// session. The subscription.created event normally carries the same state,
+// but if that delivery is lost the customer has paid and owns nothing until
+// something re-reads Stripe — so the session's subscription id is resolved
+// authoritatively here. When Stripe is unreachable the error is returned and
+// Stripe retries; the subscription.created delivery remains the backstop.
+func (b *Billing) onCheckoutCompleted(ctx context.Context, ev *security.StripeEvent) error {
+	subID, metaBusinessID, err := ev.DecodeCheckoutSessionSubscriptionID()
+	if err != nil {
+		b.logger.Warn("billing: checkout session without a subscription; waiting for subscription event",
+			"event", ev.ID, "err", err)
+		return nil
+	}
+	stripeSub, err := b.stripe.RetrieveSubscription(ctx, subID)
+	if err != nil {
+		return err
+	}
+	businessID := metaBusinessID
+	if businessID == "" {
+		existing, ferr := b.repos.Billing.GetSubscriptionByStripeID(ctx, stripeSub.ID)
+		if ferr != nil {
+			return ferr
+		}
+		if existing == nil {
+			b.logger.Warn("billing checkout completed for a subscription with no business; ignoring",
+				"subscription_id", stripeSub.ID, "event", ev.ID)
+			return nil
+		}
+		businessID = existing.BusinessID
+	}
+	return b.applySubscription(ctx, stripeSub, businessID)
 }
 
 // onSubscriptionChanged applies authoritative subscription state.
@@ -457,6 +490,10 @@ func (b *Billing) onSubscriptionChanged(ctx context.Context, ev *security.Stripe
 		}
 		businessID = existing.BusinessID
 	}
+	return b.applySubscription(ctx, stripeSub, businessID)
+}
+
+func (b *Billing) applySubscription(ctx context.Context, stripeSub *security.StripeSubscription, businessID string) error {
 	plan, err := b.planForStripePrice(ctx, stripeSub)
 	if err != nil {
 		return err

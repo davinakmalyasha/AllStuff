@@ -185,6 +185,52 @@ func TestDecodeSubscriptionObject_ExtractsPriceAndBusiness(t *testing.T) {
 	}
 }
 
+// A checkout.session.completed must resolve to its subscription even when the
+// subscription.created delivery is lost: the customer has paid and owns
+// nothing until something re-reads Stripe. The session carries the link.
+func TestDecodeCheckoutSessionSubscriptionID(t *testing.T) {
+	body := wrapEvent("evt_3", "checkout.session.completed", `{
+		"id":"cs_1","subscription":"sub_9",
+		"metadata":{"business_id":"biz-9"}}`)
+
+	ev, err := ParseEvent(body, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subID, businessID, err := ev.DecodeCheckoutSessionSubscriptionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subID != "sub_9" {
+		t.Errorf("subID = %q, want sub_9", subID)
+	}
+	if businessID != "biz-9" {
+		t.Errorf("businessID = %q, want biz-9", businessID)
+	}
+
+	// An expanded subscription object (not just the id string) decodes too.
+	body = wrapEvent("evt_4", "checkout.session.completed", `{
+		"id":"cs_2","subscription":{"id":"sub_10"},
+		"metadata":{"business_id":"biz-10"}}`)
+	ev, err = ParseEvent(body, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subID, _, err := ev.DecodeCheckoutSessionSubscriptionID(); err != nil || subID != "sub_10" {
+		t.Errorf("expanded session: subID = %q, err = %v, want sub_10", subID, err)
+	}
+
+	// No subscription (e.g. a one-off payment session) is a skip, not a crash.
+	body = wrapEvent("evt_5", "checkout.session.completed", `{"id":"cs_3"}`)
+	ev, err = ParseEvent(body, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ev.DecodeCheckoutSessionSubscriptionID(); err == nil {
+		t.Error("session without subscription: err = nil, want an error")
+	}
+}
+
 func TestDecodeInvoiceObject_FallsBackToSubscriptionMetadata(t *testing.T) {
 	// Stripe puts business_id on the subscription, not always on the invoice.
 	body := wrapEvent("evt_2", "invoice.paid", `{

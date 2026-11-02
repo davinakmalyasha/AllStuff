@@ -433,6 +433,33 @@ func (e *StripeEvent) DecodeSubscriptionObject() (*StripeSubscription, string, e
 	}, s.Metadata["business_id"], nil
 }
 
+// DecodeCheckoutSessionSubscriptionID extracts the subscription id from a
+// checkout.session.completed event's data.object. The session also carries
+// metadata[business_id] (set at Checkout creation), returned second for
+// logging when the subscription lookup is unavailable.
+func (e *StripeEvent) DecodeCheckoutSessionSubscriptionID() (string, string, error) {
+	var s struct {
+		Subscription any               `json:"subscription"`
+		Metadata     map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal(e.dataObject(), &s); err != nil {
+		return "", "", fmt.Errorf("billing: cannot decode checkout session object: %w", err)
+	}
+	id := ""
+	switch v := s.Subscription.(type) {
+	case string:
+		id = v
+	case map[string]any:
+		if sid, ok := v["id"].(string); ok {
+			id = sid
+		}
+	}
+	if id == "" {
+		return "", "", errors.New("billing: checkout session has no subscription")
+	}
+	return id, s.Metadata["business_id"], nil
+}
+
 // DecodeInvoiceObject extracts invoice fields from an event's data.object.
 func (e *StripeEvent) DecodeInvoiceObject() (*InvoiceRecord, string, error) {
 	var inv struct {
