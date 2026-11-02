@@ -113,6 +113,7 @@ jump-to-message and pinned cross-references all broke for old messages.
 ## Media
 - `POST /media` (multipart: `kind`, `file`; kinds: logo, cover, gallery, product, avatar, chat_image, chat_file, chat_audio, chat_video, document_verification). Uploads stream to disk with per-kind size caps (images/docs 10 MB, files 20 MB, audio 25 MB, video 200 MB).
 - `GET /media/{id}/file` · `GET /media/{id}/thumb` — public for storefront kinds; **chat uploads require authentication and thread membership** and non-media files are served as downloads. Verification documents are never publicly served.
+- Media items carry `virus_scan_status` (`clean`, or omitted when no scanner ran — `CLAMAV_ADDR` empty, dev only; prod fails uploads closed while the scanner is unreachable). An upload 200 without the field means *unscanned*, not clean.
 
 ## Public API (read-only, API keys)
 

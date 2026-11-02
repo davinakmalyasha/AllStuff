@@ -4,14 +4,28 @@
 
 ### Security
 - Least-privilege database role + row-level security (migrations `0041` and
-  `0053`). The request path now runs as `allstuff_app` (owns nothing; DML
-  only) with per-request identity, and tenant/owner tables re-check the
-  reader on every row — a missed `WHERE` in a repository method returns
-  empty instead of another user's data. Jobs, migrations, the notifier and
-  tests stay on the owner pool and bypass RLS by design; `businesses` /
-  `products` / `trend_snapshots` are deliberately unpolicied (search,
-  leaderboard and SSR run without a user context). Proved by nine
-  `TestRLS*` probe tests plus a full E2E run against the RLS pool.
+  `0053`, helpers hardened in `0054`). The request path now runs as
+  `allstuff_app` (owns nothing; DML only) with per-request identity, and
+  tenant/owner tables re-check the reader on every row — a missed `WHERE`
+  in a repository method returns empty instead of another user's data. Jobs,
+  migrations, the notifier and tests stay on the owner pool and bypass RLS
+  by design; `businesses` / `products` / `trend_snapshots` are deliberately
+  unpolicied (search, leaderboard and SSR run without a user context).
+  Proved by `TestRLS*` probe tests plus full E2E runs against the RLS pool.
+- Web-push fan-out and link previews now carry the requesting user
+  (`context.WithoutCancel`): under RLS both ran with no identity and
+  silently delivered nothing.
+- Concurrent invite acceptance can no longer double-report success:
+  `AcceptInvite` claims via rows-affected and the loser gets
+  `ErrTokenInvalid`.
+- `StaffRepo.Update` allowlists columns (like its sibling repos); location
+  updates validate merged coordinates and hour shapes.
+- Media items expose `virus_scan_status`: an unscanned upload (dev, no
+  ClamAV) is now distinguishable from a clean one instead of reporting
+  success identically.
+- Moderation restore of a deleted reaction no longer reports false success;
+  restoring hidden non-reaction attachments re-checks the hideable-kind
+  gate.
 - Fixed an SSR crash: `/discover?q=` evaluated `document.activeElement`
   during server render (`ReferenceError: document is not defined` in server
   logs; pages still rendered). Render-path browser globals are now guarded
@@ -43,6 +57,17 @@
   error with a retry instead of "empty" when the fetch fails; a successful
   booking invalidates `['my-bookings']`; the cancel dialog only closes on
   success.
+
+### Internals
+- Test template builds are serialized across `go test` processes
+  (`testutil` takes `allstuff:tmpl-build` on the shared `postgres`
+  database). The migrate advisory lock is per-database, so it never
+  excluded concurrent builds of different template DBs — harmless until
+  `0041` wrote cluster-shared catalogs, at which point parallel
+  `service`+`repo`+`httpapi` suites aborted with `tuple concurrently
+  updated`. The runner documents the per-database scope.
+- `SECURITY.md` no longer lists the owner-connection as a limitation; the
+  `0041` reservation row is marked applied and `0042` superseded by `0053`.
 
 ### Docs
 - `REGISTRY.md`: the reserved-numbers table claimed `0034`/`0035` were future

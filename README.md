@@ -18,12 +18,14 @@ cannot rot.
 
 PostgreSQL, Redis, and one Go binary. Three direct Go dependencies — JWT, TOTP,
 Argon2id, the Redis client, Stripe, Web Push and the Prometheus exposition are all
-hand-rolled. No proprietary APIs, no per-seat pricing, no data resale.
+hand-rolled. No per-seat pricing, no data resale. (Stripe for owner subscriptions,
+Google OAuth, and Resend/SMTP for email are the proprietary edges; everything
+else is Postgres, Redis, and local disk.)
 
 ```
 apps/web/       Next.js 16 + React 19 + TypeScript + Tailwind (light/dark, en/id)
 services/api/   Go 1.27 — REST + WebSocket, 258 routes, 28 services
-infra/          docker compose, 45 versioned SQL migrations
+infra/          docker compose, 48 versioned SQL migrations
 docs/           PRD (frozen), API (authoritative), ARCHITECTURE, RUNBOOK, DEPLOYMENT
 ```
 
@@ -193,14 +195,16 @@ to know why the rule exists.
 
 Named here rather than discovered later:
 
-- **No database-level tenant isolation.** Every boundary is enforced in Go. There
-  is no least-privilege role and no row-level security; both are reserved as
-  migrations `0041` and `0042`. A single missed `WHERE` clause in a repository
-  method is a cross-tenant read, not a 500. This is the highest-priority
-  outstanding work.
-- **Single-location businesses only.** `lat`/`lng` are `NOT NULL`, so a mobile
-  or service-area business is currently unrepresentable. Migration `0036` is
-  reserved and is the smallest high-value fix in the schema.
+- **Row-level security is a read backstop, not the authorization layer.**
+  The request path connects as the least-privilege `allstuff_app` role
+  (migrations `0041`/`0053`) and every row on tenant tables is re-checked
+  against the requesting user. Jobs, migrations and the notifier run as the
+  table owner and bypass RLS by design. See `SECURITY.md`.
+- **Multi-location businesses work; mobile/service-area ones do not.**
+  Locations with per-place hours exist (`0043`, `0050`), but `lat`/`lng` are
+  still `NOT NULL`, so a business with no fixed address is unrepresentable.
+  Migration `0036` is reserved and is the smallest high-value fix left in
+  the schema.
 - **English-first UI.** i18next is wired end to end and `id` is complete for
   `common` / `nav` / `landing` / `auth`, but most feature surfaces are still
   hardcoded English. The switcher changes what it covers, not everything.
