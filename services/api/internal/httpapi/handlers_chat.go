@@ -154,10 +154,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	s.broadcastThread(r.Context(), threadID, Frame{Type: "message.new", Payload: msg})
 	// Web-push fan-out is best-effort and each endpoint can take seconds:
-	// never block the sender's HTTP response on it. Detached context — the
-	// request ctx dies with the response.
+	// never block the sender's HTTP response on it. The context is detached
+	// from cancellation (the request ctx dies with the response) but KEEPS
+	// its values: an empty context would carry no user, and the RLS pool
+	// would match no participants, silently delivering nothing.
 	util.GoNamed("chat-push-fanout", func() {
-		pctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		pctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
 		defer cancel()
 		s.pushToThread(pctx, threadID, msg)
 	})
