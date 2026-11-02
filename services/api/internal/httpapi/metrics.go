@@ -119,11 +119,11 @@ func (m *Metrics) Render(wsConns int, lastTrend string) string {
 	var b strings.Builder
 	// Metric names are an external contract (dashboards, alerts). They keep the
 	// pre-rename prefix on purpose; renaming them silently breaks every panel.
-	b.WriteString("# HELP bizverse_requests_total Total HTTP requests.\n")
-	b.WriteString("# TYPE bizverse_requests_total counter\n")
-	b.WriteString(fmt.Sprintf("bizverse_requests_total %d\n", m.requestsTotal.Load()))
-	b.WriteString("# HELP bizverse_http_requests_by_path Requests by method+path+status.\n")
-	b.WriteString("# TYPE bizverse_http_requests_by_path counter\n")
+	b.WriteString("# HELP allstuff_requests_total Total HTTP requests.\n")
+	b.WriteString("# TYPE allstuff_requests_total counter\n")
+	b.WriteString(fmt.Sprintf("allstuff_requests_total %d\n", m.requestsTotal.Load()))
+	b.WriteString("# HELP allstuff_http_requests_by_path Requests by method+path+status.\n")
+	b.WriteString("# TYPE allstuff_http_requests_by_path counter\n")
 	items := m.byPath.snapshot()
 	keys := make([]string, 0, len(items))
 	for k := range items {
@@ -139,28 +139,28 @@ func (m *Metrics) Render(wsConns int, lastTrend string) string {
 			continue
 		}
 		label := parts[0]
-		b.WriteString(fmt.Sprintf("bizverse_http_requests_by_path{route=%q,status=%s} %d\n",
+		b.WriteString(fmt.Sprintf("allstuff_http_requests_by_path{route=%q,status=%s} %d\n",
 			label, parts[1], items[k]))
 	}
 	if ov, ok := items["|overflow"]; ok {
-		b.WriteString(fmt.Sprintf("bizverse_http_requests_by_path{route=\"overflow\",status=\"\"} %d\n", ov))
+		b.WriteString(fmt.Sprintf("allstuff_http_requests_by_path{route=\"overflow\",status=\"\"} %d\n", ov))
 	}
-	b.WriteString("# HELP bizverse_errors_total 5xx responses.\n")
-	b.WriteString("# TYPE bizverse_errors_total counter\n")
-	b.WriteString(fmt.Sprintf("bizverse_errors_total %d\n", m.errorsTotal.Load()))
-	b.WriteString("# HELP bizverse_rate_limited_total Rate-limited requests.\n")
-	b.WriteString("# TYPE bizverse_rate_limited_total counter\n")
-	b.WriteString(fmt.Sprintf("bizverse_rate_limited_total %d\n", m.rateLimited.Load()))
-	b.WriteString("# HELP bizverse_ws_connections Live WebSocket connections.\n")
-	b.WriteString("# TYPE bizverse_ws_connections gauge\n")
-	b.WriteString(fmt.Sprintf("bizverse_ws_connections %d\n", wsConns))
-	b.WriteString("# HELP bizverse_goroutines Current goroutines.\n")
-	b.WriteString("# TYPE bizverse_goroutines gauge\n")
-	b.WriteString(fmt.Sprintf("bizverse_goroutines %d\n", runtime.NumGoroutine()))
+	b.WriteString("# HELP allstuff_errors_total 5xx responses.\n")
+	b.WriteString("# TYPE allstuff_errors_total counter\n")
+	b.WriteString(fmt.Sprintf("allstuff_errors_total %d\n", m.errorsTotal.Load()))
+	b.WriteString("# HELP allstuff_rate_limited_total Rate-limited requests.\n")
+	b.WriteString("# TYPE allstuff_rate_limited_total counter\n")
+	b.WriteString(fmt.Sprintf("allstuff_rate_limited_total %d\n", m.rateLimited.Load()))
+	b.WriteString("# HELP allstuff_ws_connections Live WebSocket connections.\n")
+	b.WriteString("# TYPE allstuff_ws_connections gauge\n")
+	b.WriteString(fmt.Sprintf("allstuff_ws_connections %d\n", wsConns))
+	b.WriteString("# HELP allstuff_goroutines Current goroutines.\n")
+	b.WriteString("# TYPE allstuff_goroutines gauge\n")
+	b.WriteString(fmt.Sprintf("allstuff_goroutines %d\n", runtime.NumGoroutine()))
 	if lastTrend != "" {
-		b.WriteString("# HELP bizverse_last_trend_run Last trending recompute.\n")
-		b.WriteString("# TYPE bizverse_last_trend_run gauge\n")
-		b.WriteString(fmt.Sprintf("bizverse_last_trend_run %s\n", lastTrend))
+		b.WriteString("# HELP allstuff_last_trend_run Last trending recompute.\n")
+		b.WriteString("# TYPE allstuff_last_trend_run gauge\n")
+		b.WriteString(fmt.Sprintf("allstuff_last_trend_run %s\n", lastTrend))
 	}
 	return b.String()
 }

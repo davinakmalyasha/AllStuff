@@ -60,14 +60,14 @@ ran.
 | `test_integrity`, `test_open_now`, `test_index_inventory`, `test_index_usage_seeded.sql` | 0 | all RAISE-based, `ON_ERROR_STOP=1` |
 | Live: boot API → `/health` 200 → csrf → dev-login → owner lists 2 businesses → search/trending/leaderboards return seed rows | 0 | full reviewer path exercised |
 | Dead-DB boot | fails fast at connect (exit 1) | so mid-run DB loss is the only window the health ping covers — tested by dead-pool unit test |
-| `npx playwright test` (full E2E) | not run | reason: 25–40 min serial prod build+start; covered instead by live API path above + `npm run build` + handler suites. See §7. |
+| `npx playwright test` (full E2E, `CI=1`, seeded scratch DB) | 46 passed, 0 failed (~5 min) | production `next start` + `go run ./cmd/api`, serial Chromium; two `[WebServer] ReferenceError: document is not defined` lines from `/discover?q=` SSR led to the `document.activeElement` render-guard fix |
 | CI (GitHub Actions) | not run here | no push per policy; workflow files untouched. See §7. |
 
 ## 5. Deferred (item, severity, why, cost)
 
 | Item | Sev | Why deferred | Cost to finish |
 |---|---|---|---|
-| Full Playwright E2E here | P1-gate | serial prod build + seeded run exceeds this session; handler + live-API evidence substituted | one `npx playwright test` on a machine with PG + 30 min |
+| Full Playwright E2E here | done | 46/46 passed on a seeded scratch DB; SSR crash found via server log and fixed | — |
 | Blackout↔booking TOCTOU (ms race) | P2 residual | only the owner can trigger, against own customers, visible in booking list; true fix is an appointment↔blackout exclusion migration | one migration + backfill + replay-proof |
 | `RestoreContent("reaction")` no-op success | P3 | end state (no reaction) equals hidden state; harmless | soft-delete reactions or return explicit "already gone" |
 | Global SKU existence oracle | P3 accepted | global UNIQUE is a design choice; leaked signal is one SKU string | scope SKUs per business (migration + backfill) |
@@ -86,7 +86,11 @@ ran.
 
 - Full browser E2E (see §4) and a fresh GitHub Actions run (no push per policy).
 - The background full `service/repo/jobs` suite log landed in the container `/tmp` and was not retrievable; the affected packages were re-run with visible output (§4) and all passed.
-- Screenshots in `docs/demo/` were not re-captured (`shots.mjs` fixed but not run — needs a seeded `:3000` + `:8080` pair; the capture flow is unchanged apart from ports).
+- Screenshots in `docs/demo/` re-captured against the seeded DB with the
+  fixed script (which also fixed its own output path: it wrote to
+  `apps/web/docs/demo/` instead of repo-root `docs/demo/`). The fresh landing
+  capture exposed a missed rename — the header wordmark still read
+  "BizVerse" — fixed in `Logo.tsx` (plus CSS comments) and re-captured.
 - Second adversarial round ran as a **self-audit** (fresh-subagent launch failed on tool usage limit), not a clean-room agent. Findings it produced: appointment state machine properly guarded (confirmed-only-from-pending, close-only-from-confirmed-and-started); `Businesses.Update` allowlist-blocks mass assignment (`status`/`owner_id` unsettable); `/ssr` mentions are accurate historical notes. No new P0/P1.
 
 ## 8. Audit rounds quoted

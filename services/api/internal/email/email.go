@@ -230,7 +230,7 @@ func WrapHTML(publicURL, title, bodyHTML string) string {
 	return `<!doctype html><html><body style="margin:0;background:#f5f5f5;padding:24px;font-family:Arial,sans-serif">
 	<div style="max-width:560px;margin:auto;background:#ffffff;border-radius:12px;overflow:hidden">
 	<div style="background:#0a0a0a;padding:20px 24px">
-	<span style="color:#fafafa;font-size:16px;font-weight:700;letter-spacing:2px">BIZVERSE</span>
+	<span style="color:#fafafa;font-size:16px;font-weight:700;letter-spacing:2px">ALLSTUFF</span>
 	</div>
 	<div style="padding:24px">
 	<h1 style="font-size:18px;margin:0 0 12px">` + html.EscapeString(title) + `</h1>
