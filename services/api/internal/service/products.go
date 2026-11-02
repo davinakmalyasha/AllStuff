@@ -106,16 +106,21 @@ func (s *Products) Create(ctx context.Context, ownerID, businessID string, in Pr
 		d := strings.TrimSpace(*in.Description)
 		desc = &d
 	}
+	if ptype == domain.ProductTypeService && in.DurationMinutes != nil &&
+		(*in.DurationMinutes <= 0 || *in.DurationMinutes > 1440) {
+		return nil, domain.ErrValidation.WithField("duration_minutes", "Duration must be 1–1440 minutes.")
+	}
 	p := &domain.Product{
-		ID:           util.NewUUID(),
-		BusinessID:   businessID,
-		Type:         ptype,
-		Name:         name,
-		Description:  desc,
-		Currency:     currency,
-		BasePrice:    in.BasePrice,
-		CallForPrice: in.CallForPrice != nil && *in.CallForPrice,
-		Tags:         []string{},
+		ID:              util.NewUUID(),
+		BusinessID:      businessID,
+		Type:            ptype,
+		Name:            name,
+		Description:     desc,
+		Currency:        currency,
+		BasePrice:       in.BasePrice,
+		CallForPrice:    in.CallForPrice != nil && *in.CallForPrice,
+		Tags:            []string{},
+		DurationMinutes: in.DurationMinutes,
 	}
 	if err := s.repos.Products.Create(ctx, p); err != nil {
 		return nil, err
@@ -189,6 +194,12 @@ func (s *Products) Update(ctx context.Context, ownerID, id string, in ProductInp
 	}
 	if in.SeoTitle != nil {
 		fields["seo_title"] = strings.TrimSpace(*in.SeoTitle)
+	}
+	if in.DurationMinutes != nil {
+		if *in.DurationMinutes <= 0 || *in.DurationMinutes > 1440 {
+			return nil, domain.ErrValidation.WithField("duration_minutes", "Duration must be 1–1440 minutes.")
+		}
+		fields["duration_minutes"] = *in.DurationMinutes
 	}
 	if in.SortOrder != nil {
 		fields["sort_order"] = *in.SortOrder
@@ -406,6 +417,9 @@ func (s *Products) Publish(ctx context.Context, ownerID, productID string, publi
 		if p.BasePrice == nil && len(p.Variants) == 0 && !p.CallForPrice {
 			return nil, domain.ErrValidation.WithField("base_price", "Set a price (or Call for price for services) before publishing.")
 		}
+		if p.Type == domain.ProductTypeService && (p.DurationMinutes == nil || *p.DurationMinutes <= 0) {
+			return nil, domain.ErrValidation.WithField("duration_minutes", "Set a service duration before publishing.")
+		}
 	}
 	if err := s.repos.Products.SetPublished(ctx, productID, published); err != nil {
 		return nil, err
@@ -425,6 +439,11 @@ func (s *Products) Delete(ctx context.Context, ownerID, productID string) error 
 func (s *Products) Duplicate(ctx context.Context, ownerID, productID string) (*domain.Product, error) {
 	p, err := s.ownedProduct(ctx, ownerID, productID)
 	if err != nil {
+		return nil, err
+	}
+	// A copy is a new catalogue row: duplicating at the plan cap must not
+	// silently exceed it. Create enforces this; Duplicate is the same door.
+	if err := s.checkCatalogCapacity(ctx, p.BusinessID, p.Type); err != nil {
 		return nil, err
 	}
 	newID := util.NewUUID()

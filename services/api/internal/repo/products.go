@@ -409,11 +409,11 @@ func (r *ProductRepo) Duplicate(ctx context.Context, tx pgx.Tx, productID, newID
 	_, err = tx.Exec(ctx, `
 		INSERT INTO products (id, business_id, type, name, description, currency, base_price,
 			call_for_price, cover_image_id, image_ids, tags, is_available, is_featured, featured_order,
-			sort_order, is_published, badge, seo_title)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false, $16, $17)`,
+			sort_order, is_published, badge, seo_title, duration_minutes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false, $16, $17, $18)`,
 		newID, pr.BusinessID, pr.Type, pr.Name+" (copy)", pr.Description, pr.Currency, pr.BasePrice,
 		pr.CallForPrice, pr.CoverImageID, pr.ImageIDs, pr.Tags, pr.IsAvailable, pr.IsFeatured,
-		pr.FeaturedOrder, 0, pr.Badge, pr.SeoTitle)
+		pr.FeaturedOrder, 0, pr.Badge, pr.SeoTitle, pr.DurationMinutes)
 	if err != nil {
 		return err
 	}
