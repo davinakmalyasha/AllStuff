@@ -279,6 +279,21 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Depth (PRD §5.8.6 / ARCHITECTURE §4): WS connections + last trend run.
+	// The DB is pinged first: the previous version never touched the database,
+	// so a dead Postgres still answered 200 and load balancers kept routing
+	// traffic to an API that 500'd every query. /ready stays the minimal
+	// ping-only probe; this is the deep check.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	// Pool() is nil only in the handler test harness (NewForTx): production
+	// always builds Repos from a pool, so a nil pool means "cannot probe",
+	// not "database is down".
+	if pool := s.deps.Repos.Pool(); pool != nil {
+		if err := pool.Ping(ctx); err != nil {
+			fail(w, domain.ErrInternal)
+			return
+		}
+	}
 	// Pointer scan: max() is NULL before the first snapshot exists, which must
 	// not turn a health check into an error.
 	var lastTrend *time.Time
@@ -313,9 +328,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.deps.Repos.Pool().Ping(ctx); err != nil {
-		fail(w, domain.ErrInternal)
-		return
+	// Same nil-pool guard as handleHealth: the handler test harness binds
+	// Repos to a transaction, so Pool() is nil there. A missing probe is not
+	// a live database.
+	if pool := s.deps.Repos.Pool(); pool != nil {
+		if err := pool.Ping(ctx); err != nil {
+			fail(w, domain.ErrInternal)
+			return
+		}
 	}
 	ok(w, map[string]any{"ready": true})
 }

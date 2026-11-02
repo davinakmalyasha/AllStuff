@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +12,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"allstuff/api/internal/repo"
 	"allstuff/api/internal/security"
 	"allstuff/api/internal/testutil"
 	"allstuff/api/internal/util"
@@ -328,5 +333,27 @@ func TestHealth(t *testing.T) {
 	}
 	if cookieValue(w, cookieCSRF) == "" {
 		t.Error("the CSRF bootstrap did not issue a cookie")
+	}
+}
+
+// /health used to answer 200 without touching the database, so a dead Postgres
+// still received traffic. It must 500 when the pool cannot be pinged.
+func TestHealthFailsWhenDatabaseUnreachable(t *testing.T) {
+	s, _ := newDBTestServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dead, err := pgxpool.New(ctx,
+		"postgres://postgres@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2")
+	if err != nil {
+		t.Skipf("cannot build a dead pool: %v", err)
+	}
+	defer dead.Close()
+	s.deps.Repos = repo.New(dead)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(t, http.MethodGet, "/api/v1/health", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("health with a dead database: status = %d, want 500: %s",
+			w.Code, w.Body.String())
 	}
 }
