@@ -237,17 +237,15 @@ func (s *Invites) Accept(ctx context.Context, userID, token string) error {
 	// it proves this person is the one the invite was sent to - but it is a check on
 	// WHO IS ACCEPTING, not the storage of who holds the grant afterwards. Someone
 	// who accepts and later changes their email keeps their access.
-	if err := s.repos.Businesses.AcceptInvite(ctx, inv.ID, user.ID); err != nil {
-		return err
-	}
-	// A concurrent acceptance makes this UPDATE match nothing. Report that as the
-	// already-used token it is, rather than returning success for a row that was
-	// not modified.
-	rows, err := s.repos.Businesses.AcceptedRows(ctx, inv.ID)
+	// The conditional UPDATE above is the single-use claim: exactly one
+	// concurrent acceptor matches a row. Rows-affected (not a re-SELECT)
+	// decides the winner, because by the time a loser re-reads, the row
+	// already shows accepted.
+	won, err := s.repos.Businesses.AcceptInvite(ctx, inv.ID, user.ID)
 	if err != nil {
 		return err
 	}
-	if rows == 0 {
+	if !won {
 		return domain.ErrTokenInvalid
 	}
 	return nil

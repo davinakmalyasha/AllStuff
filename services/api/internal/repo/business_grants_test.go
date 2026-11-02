@@ -35,8 +35,8 @@ func grant(t *testing.T, h *testutil.H, ownerID, bizID string, role string, u *d
 	}
 	for _, inv := range invites {
 		if inv.Email == u.Email && inv.Role == role && inv.AcceptedAt == nil {
-			if err := h.Repos.Businesses.AcceptInvite(context.Background(), inv.ID, u.ID); err != nil {
-				t.Fatalf("accept %s invite: %v", role, err)
+			if won, err := h.Repos.Businesses.AcceptInvite(context.Background(), inv.ID, u.ID); err != nil || !won {
+				t.Fatalf("accept %s invite: won=%v err=%v", role, won, err)
 			}
 			return
 		}
@@ -149,8 +149,8 @@ func TestAcceptingAnInviteBindsTheHolder(t *testing.T) {
 		t.Fatal("a pending invite already has accepted_user_id; it is bound before acceptance")
 	}
 
-	if err := h.Repos.Businesses.AcceptInvite(ctx, inv.ID, collab.ID); err != nil {
-		t.Fatalf("AcceptInvite: %v", err)
+	if won, err := h.Repos.Businesses.AcceptInvite(ctx, inv.ID, collab.ID); err != nil || !won {
+		t.Fatalf("AcceptInvite: won=%v err=%v", won, err)
 	}
 
 	invites, err = h.Repos.Businesses.ListInvites(ctx, biz.ID)
@@ -186,12 +186,19 @@ func TestAnInviteCannotBeReAcceptedBySomeoneElse(t *testing.T) {
 	invites, _ := h.Repos.Businesses.ListInvites(ctx, biz.ID)
 	inv := invites[0]
 
-	if err := h.Repos.Businesses.AcceptInvite(ctx, inv.ID, collab.ID); err != nil {
-		t.Fatalf("first AcceptInvite: %v", err)
+	if won, err := h.Repos.Businesses.AcceptInvite(ctx, inv.ID, collab.ID); err != nil || !won {
+		t.Fatalf("first AcceptInvite: won=%v err=%v", won, err)
 	}
 	// The second call matches no rows (accepted_at IS NO LONGER NULL) and must not
-	// rebind the grant.
-	_ = h.Repos.Businesses.AcceptInvite(ctx, inv.ID, other.ID)
+	// rebind the grant. won=false is the loser's signal: the service maps it to
+	// ErrTokenInvalid, so two concurrent accepts cannot both report success.
+	won, err := h.Repos.Businesses.AcceptInvite(ctx, inv.ID, other.ID)
+	if err != nil {
+		t.Fatalf("second AcceptInvite: %v", err)
+	}
+	if won {
+		t.Error("second AcceptInvite won=true; the concurrent loser must lose")
+	}
 
 	after, _ := h.Repos.Businesses.ListInvites(ctx, biz.ID)
 	if after[0].AcceptedUserID == nil || *after[0].AcceptedUserID != collab.ID {

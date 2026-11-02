@@ -245,11 +245,11 @@ func TestOwnerAndCoOwnerCanManage(t *testing.T) {
 	}
 	// userID is passed because AcceptInvite binds the grant to the account; see the
 	// repo method and migration 0049.
-	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, coOwner.Email), coOwner.ID); err != nil {
-		t.Fatalf("accept co_owner invite: %v", err)
+	if won, err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, coOwner.Email), coOwner.ID); err != nil || !won {
+		t.Fatalf("accept co_owner invite: won=%v err=%v", won, err)
 	}
-	if err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, viewer.Email), viewer.ID); err != nil {
-		t.Fatalf("accept viewer invite: %v", err)
+	if won, err := h.Repos.Businesses.AcceptInvite(ctx, mustInviteID(t, h, b.ID, viewer.Email), viewer.ID); err != nil || !won {
+		t.Fatalf("accept viewer invite: won=%v err=%v", won, err)
 	}
 
 	cases := []struct {

@@ -119,7 +119,14 @@ func (k *APIKeys) Valid(ctx context.Context, rawKey string) (*APIKey, error) {
 	if key.RevokedAt != nil {
 		return nil, nil
 	}
-	_, _ = k.repos.Exec(ctx,
+	// The touch runs as the proven owner: the SELECT above runs
+	// unauthenticated (the login lookup precedes identity), so under RLS the
+	// UPDATE's `user_id = rls_uid()` check would match nothing and silently
+	// never persist. The key hash just matched, which IS the authentication —
+	// stamping the proven owner into a derived context is legitimate, and it
+	// keeps this write on the request pool instead of punching an owner-pool
+	// hole for an audit column.
+	_, _ = k.repos.Exec(repo.WithUserID(ctx, key.UserID),
 		`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, key.ID)
 	return &key, nil
 }

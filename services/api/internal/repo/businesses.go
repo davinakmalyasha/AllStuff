@@ -716,23 +716,16 @@ func (r *BusinessRepo) GetInviteByToken(ctx context.Context, token string) (*Bus
 // stays on the row as a record of what was sent - overwriting it with the holder's
 // current address would be wrong, since that address is exactly the thing a holder
 // can change.
-func (r *BusinessRepo) AcceptInvite(ctx context.Context, inviteID, userID string) error {
-	_, err := r.pool.Exec(ctx, `
+func (r *BusinessRepo) AcceptInvite(ctx context.Context, inviteID, userID string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE business_invites
 		   SET accepted_at = now(), accepted_user_id = $2
 		 WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
 		   AND expires_at > now()`, inviteID, userID)
-	return err
-}
-
-// AcceptedRows reports how many rows an accept actually changed, so the caller can
-// distinguish "accepted" from "already accepted / expired / revoked".
-func (r *BusinessRepo) AcceptedRows(ctx context.Context, inviteID string) (int64, error) {
-	var n int64
-	err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM business_invites WHERE id = $1 AND accepted_at IS NOT NULL AND accepted_user_id IS NOT NULL`,
-		inviteID).Scan(&n)
-	return n, err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (r *BusinessRepo) IncResubmitCount(ctx context.Context, businessID string) error {

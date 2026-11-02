@@ -353,7 +353,11 @@ func (c *Chat) Send(ctx context.Context, userID, threadID string, in SendInput) 
 		bodyCopy := *created.Body
 		util.GoNamed("chat-link-preview", func() {
 			msgID, threadID, body := created.ID, threadID, bodyCopy
-			pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// Detached from cancellation but not from identity: WithoutCancel
+			// keeps the requesting user, so the RLS pool still sees a thread
+			// member. A bare Background context would match no rows and the
+			// preview UPDATE would silently affect zero rows forever.
+			pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 			preview, ok := fetchLinkPreview(pctx, body)
 			if !ok {
