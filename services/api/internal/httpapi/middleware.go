@@ -176,6 +176,10 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyUser, u))
+		// The RLS pool reads identity from its own context key, not the user
+		// value: without this stamp every v2 query would run as anonymous and
+		// an owner's private collections would 404 behind their own key.
+		r = r.WithContext(repo.WithUserID(r.Context(), u.ID))
 		next(w, r)
 	}
 }
@@ -353,6 +357,9 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			// previously shared the generic 120/min IP budget.
 			tier = "export"
 			limit, window = 5, time.Hour
+			if u, found := currentUser(r); found {
+				key = u.ID
+			}
 		case p == "/api/v1/auth/2fa/verify":
 			tier = "tfa"
 			limit, window = 3, 15*time.Minute // PRD §5.9.1: 3 attempts then lockout

@@ -18,7 +18,7 @@ import (
 // tenant boundary in this repository: a missed WHERE in a repo method must
 // surface as an empty result, never as another user's row. These tests prove
 // the policies from the reader's side, through the same hooked pool the HTTP
-// server uses (repo.ConfigureRLS + SET ROLE app + app.user_id per
+// server uses (repo.ConfigureRLS + SET ROLE allstuff_app + allstuff_app.user_id per
 // acquisition).
 //
 // The fixtures go through h.UsePool() FIRST, so they commit immediately and
@@ -67,7 +67,7 @@ func rlsCount(t *testing.T, pool *pgxpool.Pool, ctx context.Context, query strin
 	return n
 }
 
-// The plumbing proof: acquisitions run as the app role with the requesting
+// The plumbing proof: acquisitions run as the least-privilege role with the requesting
 // user stamped, and the identity does not leak into the next holder.
 func TestRLSHooksSetRoleAndUser(t *testing.T) {
 	h := testutil.New(t)
@@ -85,7 +85,7 @@ func TestRLSHooksSetRoleAndUser(t *testing.T) {
 		t.Errorf("session role = %q, want allstuff_app (least privilege)", role)
 	}
 	if !uid.Valid || uid.String != a.ID {
-		t.Errorf("app.user_id = %q, want %q", uid.String, a.ID)
+		t.Errorf("allstuff_app.user_id = %q, want %q", uid.String, a.ID)
 	}
 
 	// Anonymous contexts run as app with no user: public reads work, tenant

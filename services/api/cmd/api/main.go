@@ -107,7 +107,7 @@ func main() {
 
 	repos := repo.New(pool)
 	// The request pool: same DSN, but every acquisition drops to the
-	// least-privilege `app` role and stamps the requesting user (repo/rls.go),
+	// least-privilege `allstuff_app` role and stamps the requesting user (repo/rls.go),
 	// so 0053's RLS policies re-check every row. Migrations, jobs, the
 	// notifier and dev-login stay on the owner pool, which RLS does not
 	// constrain — those paths read across users by design (fan-outs,

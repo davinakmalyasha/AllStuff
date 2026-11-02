@@ -44,6 +44,15 @@
 --   plugin). A later migration applied by a different owner would need its
 --   own ALTER DEFAULT PRIVILEGES line; the replay test does not cover that,
 --   the lint does not check it, so this note is the check.
+-- - Concurrent migrates of DIFFERENT databases on one cluster are NOT
+--   serialized by the runner: its advisory lock is per-database, so it only
+--   excludes replicas migrating the same database. Two simultaneous builds
+--   of this file update the same shared-catalog rows (pg_default_acl,
+--   pg_auth_members) and Postgres aborts one with "tuple concurrently
+--   updated". Same-database replicas are safe; the test harness serializes
+--   its per-process template builds on the shared postgres database, and
+--   multi-database fleet migrates must serialize themselves or retry — the
+--   file is idempotent, so a retry converges.
 
 -- The runtime role. NOLOGIN on purpose (see above): SET ROLE from the owner
 -- pool is the only way in, and it never crosses a process boundary.

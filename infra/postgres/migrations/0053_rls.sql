@@ -35,7 +35,7 @@
 --   code-level authorization, which the service test suite pins.
 -- - Jobs, migrations, tests and the notifier run as the table owner and
 --   bypass RLS entirely (ENABLE, not FORCE). Only the HTTP request pool
---   (repo.ConfigureRLS → SET ROLE app + app.user_id per acquisition) is
+--   (repo.ConfigureRLS → SET ROLE allstuff_app + allstuff_app.user_id per acquisition) is
 --   constrained. There is no service-bypass GUC to steal.
 -- - billing_webhook_events has no user column: it is reachable only with NO
 --   user set (the Stripe-signed webhook) or as admin. Authenticated sessions

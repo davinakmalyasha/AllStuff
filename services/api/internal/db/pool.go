@@ -16,7 +16,7 @@ import (
 //     tests, dev-login. RLS does not constrain the table owner, so these
 //     keep working exactly as before, with zero code changes.
 //   - the request pool (ConnectRLS): every HTTP request. Each acquisition
-//     drops to the least-privilege `app` role and stamps the requesting
+//     drops to the least-privilege `allstuff_app` role and stamps the requesting
 //     user (repo.ConfigureRLS), so 0053's policies re-check every row.
 //
 // Two pools rather than one hook-less pool plus SET ROLE in handlers: the
