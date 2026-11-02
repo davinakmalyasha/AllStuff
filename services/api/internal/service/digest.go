@@ -18,7 +18,7 @@ type Digest struct {
 
 func NewDigest(repos *repo.Repos, sender email.Sender, publicURL string) *Digest {
 	if publicURL == "" {
-		publicURL = "http://localhost:5173"
+		publicURL = "http://localhost:3000"
 	}
 	return &Digest{repos: repos, email: sender, baseURL: publicURL}
 }

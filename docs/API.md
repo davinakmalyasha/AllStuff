@@ -1,6 +1,6 @@
 # AllStuff — API Reference
 
-Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` rotating) · CSRF: `X-CSRF-Token` header on mutations · Errors: `{ "error": { "code", "message", "fields? } }` · Pagination: `limit`/`offset` — general cap 50 on search/list endpoints; leaderboards accept up to 100 (documented exception).
+Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` rotating) · CSRF: `X-CSRF-Token` header on mutations · Errors: `{ "error": { "code", "message", "fields? } }` · Pagination: `limit`/`offset` — other list endpoints cap at 100, but `GET /search` (and `/search/suggest`) reset any `limit > 50` to the 24 default; leaderboards accept up to 100 (documented exception).
 
 ## Auth & accounts
 - `POST /auth/register` · `POST /auth/login` (2FA-gated: returns `challenge`) · `POST /auth/2fa/verify`
@@ -65,7 +65,7 @@ Base URL: `/api/v1` · Auth: httpOnly cookies (`bv_access` 15min, `bv_refresh` r
 - Reviews by user: `GET /me/reviews`
 
 ## Messaging
-- Threads: `GET|POST /threads` · `GET /threads/{id}` (see pagination below) · `POST /threads/{id}/messages` · `POST /threads/{id}/read|typing|close|leave` · `GET /threads/{id}/search|media|export`
+- Threads: `GET|POST /threads` · `GET /threads/{id}` (see pagination below) · `POST /threads/{id}/messages` · `POST /threads/{id}/read|typing|close|leave` · `PUT|DELETE /threads/{id}/mute` · `GET /threads/{id}/search|media|export`
 - Messages: `PATCH /messages/{id}` · `DELETE /messages/{id}?scope=me|everyone` · `PUT|DELETE /messages/{id}/reaction` · `POST /messages/{id}/forward` · `GET /messages/search?q=` (across all of a user's threads)
 - Pins: `PUT|DELETE /threads/{id}/pin/{messageId}` · `GET /threads/{id}/pinned` · Pinned conversations: `PUT|DELETE /threads/{id}/pinned-thread` · `GET /me/pinned-threads` (max 5)
 - Blocks: `GET /blocks` · `POST|DELETE /blocks/{userId}`

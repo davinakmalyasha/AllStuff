@@ -78,8 +78,10 @@ grep -n "verified_badge\|featured_placement" services/api/internal/service/billi
 Requires Go 1.27, Node 24, and Docker (or a local PostgreSQL 17).
 
 ```bash
-# 1. backing services
-docker compose -f infra/docker/docker-compose.yml up -d postgres mailpit
+# 1. backing services (redis shares the rate limiter, the TOTP replay guard
+# and WS fan-out across replicas; without it everything degrades to
+# per-instance. mailpit catches dev email.)
+docker compose -f infra/docker/docker-compose.yml up -d postgres redis mailpit
 
 # 2. database + migrations  (the Go runner is the only supported path)
 cd services/api
@@ -90,8 +92,10 @@ go run ./cmd/api -migrate
 # 3. API on :8080
 go run ./cmd/api
 
-# 4. web on :3000, proxying /api to :8080 (WebSocket: same-origin in prod via
-# the vercel.json WS rule; NEXT_PUBLIC_WS_BASE=ws://localhost:8080 for local dev)
+# 4. web on :3000. Local dev proxies /api to :8080 via next.config.ts
+# (API_ORIGIN, default http://localhost:8080) and dials the API directly for
+# WS (NEXT_PUBLIC_WS_BASE=ws://localhost:8080). In prod the vercel.json rules
+# proxy both same-origin.
 cd ../../apps/web && npm install && npm run dev
 ```
 
@@ -102,6 +106,8 @@ users: `demo@allstuff.test` (owner of both businesses) and
 logins — applying a seed file must never create credentials on its own:
 
 ```bash
+# From the repository root (the previous revision showed this from
+# services/api, where the relative path does not resolve):
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed.sql
 ```
 
@@ -126,8 +132,9 @@ enroll 2FA at `/me/security` before `/admin/*` will open).
 > built-in defaults. Export the variables, as above. An earlier version of this
 > README told you to `copy .env.example .env`, which did nothing.
 
-Two flags exist: `-migrate` (apply migrations and exit) and `-vapid` (print a
-Web Push keypair and exit). Everything else is environment.
+Three flags exist: `-migrate` (apply migrations and exit), `-vapid` (print a
+Web Push keypair and exit), and `-dev-login` (turn the seed users into working
+dev logins; refuses `APP_ENV=prod`). Everything else is environment.
 
 ## Test it
 

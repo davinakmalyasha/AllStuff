@@ -1,7 +1,7 @@
 // One-off portfolio screenshot run (not part of the E2E suite).
-// Usage (run from apps/web): vite dev on :5173 with
-// VITE_API_TARGET=http://localhost:8090, API on :8090 against the seeded
-// allstuff_demo database, then: node scripts/shots.mjs
+// Usage (run from apps/web): next dev on :3000 (npm run dev) with
+// API_ORIGIN=http://localhost:8080, API on :8080 against the seeded
+// allstuff database, then: node scripts/shots.mjs
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 
@@ -20,7 +20,7 @@ const shots = [
   { path: 'docs/demo/leaderboards.png', route: '/leaderboards', width: 1440, height: 900, fullPage: false },
 ];
 
-const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const browser = await chromium.launch();
 try {
   await mkdir('docs/demo', { recursive: true });

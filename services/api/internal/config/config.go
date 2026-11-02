@@ -77,7 +77,7 @@ func Load() Config {
 	cfg := Config{
 		Port:      env("PORT", "8080"),
 		AppEnv:    envAppEnv(os.Getenv("APP_ENV")),
-		PublicURL: env("PUBLIC_URL", "http://localhost:5173"),
+		PublicURL: env("PUBLIC_URL", "http://localhost:3000"),
 		// NOTE: sslmode default is disable for local only. Validate() refuses
 		// a non-TLS DSN when APP_ENV=prod, so the default can never reach prod.
 		DatabaseURL:         env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/allstuff?sslmode=disable"),
@@ -85,7 +85,7 @@ func Load() Config {
 		MigrationsDir:       env("MIGRATIONS_DIR", "../../infra/postgres/migrations"),
 		CookieSecure:        env("COOKIE_SECURE", "false") == "true",
 		LogLevel:            envLogLevel(os.Getenv("LOG_LEVEL")),
-		CORSOrigins:         splitCSV(env("CORS_ORIGINS", "http://localhost:5173")),
+		CORSOrigins:         splitCSV(env("CORS_ORIGINS", "http://localhost:3000")),
 		WSOrigins:           splitCSV(env("WS_ORIGINS", "")),
 		TrustXForwardedFor:  env("TRUST_X_FORWARDED_FOR", "false") == "true",
 		RateLimitGlobal:     envInt("RATELIMIT_GLOBAL", 120),

@@ -226,10 +226,12 @@ when you want an assertion about a plan.
 cd apps/web
 npm run typecheck
 npm run lint
-npm run test:unit
 npx playwright install chromium
 npx playwright test
 ```
+
+> There is no `npm run test:unit` — the browser suite is the frontend gate
+> (an earlier revision of this guide listed a unit script that never existed).
 
 ## Style
 

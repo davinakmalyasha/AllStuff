@@ -8,7 +8,7 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
 2. **Reports** (`/admin/moderation`) — decide open reports: dismiss / hide content / warn author / suspend (7d). Every decision is written to the immutable audit trail.
 3. **Appeals** (`/admin/appeals`) — suspended/banned users may appeal; restore or reject with a decision.
 4. **Anomalies** (`/admin/appeals` → anomalies tab) — engagement spikes flagged by anti-gaming; review and clear false positives.
-5. **KPIs** (`/admin/analytics`) — registrations, verification funnel, engagement, open reports.
+5. **KPIs** (`/admin/analytics` page, API `GET /api/v1/admin/kpis`) — registrations, verification funnel, engagement, open reports.
 
 ## Verification standards
 
@@ -37,7 +37,7 @@ Operational guide for the platform admin (PRD §5.8, §8.7).
   schtasks /create /tn "allstuff-backup" /tr "powershell -File D:\MyProject\AllStuff\scripts\backup.ps1 -DatabaseUrl ""postgres://...""" /sc daily /st 03:00
   ```
   Keep 14 daily dumps; test a restore into a scratch DB quarterly. For prod prefer managed PITR (RDS/Cloud SQL) plus these dumps.
-- **Metrics:** `GET /metrics` (Prometheus text): request counts by route/status, 5xx, rate-limited, WS connections, goroutines, last trend run. Open in dev; in prod (`APP_ENV=prod`) it requires an admin session.
+- **Metrics:** `GET /metrics` (Prometheus text): request counts by route/status, 5xx, rate-limited, WS connections, goroutines, last trend run. Open in dev; in prod (`APP_ENV=prod`) it requires an admin session. Liveness: `GET /api/v1/ready` (ping-only). Readiness: `GET /api/v1/health` (deep check: DB ping + WS connections + `last_trend_run`).
 - **Media:** stored on local disk (`MEDIA_DIR`) — attach a persistent volume in prod (S3/R2 adapter is roadmap). Orphan files/rows are cleaned daily by the ops job with a 24h grace; verification documents are AES-GCM encrypted at rest when `MEDIA_ENCRYPTION_KEY` (64 hex chars) is set.
 - **Rate limits:** auth 5/min/IP, search 60/min, engagement 30/min/user, media 20/h, chat sends 30/min/user, 2FA 3/15min, API keys 300/min/key, global `RATELIMIT_GLOBAL` (120)/min/IP. The full thirteen-tier table is in `ARCHITECTURE.md` §1.
   **`REDIS_URL` shares more than WebSocket fan-out.** It backs three things: the

@@ -141,8 +141,9 @@ ENTRYPOINT ["/bin/api"]
 The web app deploys to Vercel (`apps/web`, `npm run build`); the API never
 serves frontend files. `WEB_DIST_DIR` no longer exists.
 
-- Health check: `GET /api/v1/health` (it queries Postgres, so it is a real
-  readiness signal). `GET /api/v1/ready` is the cheaper liveness variant.
+- Health check: `GET /api/v1/health` is the deep check (pings Postgres plus
+  WS connections and the last trend run). `GET /api/v1/ready` is the cheaper
+  ping-only liveness probe. Point load-balancer readiness at `/health`.
 - Background jobs run in the same process. Scaling past one replica is safe —
   leader election guarantees exactly one scheduler — but **`REDIS_URL` becomes
   mandatory**, for the reasons in §1.
@@ -156,8 +157,9 @@ serves frontend files. `WEB_DIST_DIR` no longer exists.
   load-bearing:
   1. `/api/v1/ws` → the API over `wss://`. **Must be first.** Get this wrong and
      the rewrite chain silently breaks chat while everything else looks fine.
-  2. `/ssr/:path*` (transition compat), `/api/:path*`, `/og/:path*`,
-     `/robots.txt` → the API.
+  2. `/api/:path*`, `/og/:path*`, `/robots.txt` → the API. (The old
+     `/ssr/:path*` rewrite was removed with the Go `/ssr/*` handlers; if it
+     still appears in a cached `vercel.json`, delete it.)
 - **SEO:** no prerender job. Next renders the crawlable document per route
   (`generateMetadata` + JSON-LD, ISR 120–300s), so a newly published business
   is indexable within minutes — there is no artifact to rebuild. Production
