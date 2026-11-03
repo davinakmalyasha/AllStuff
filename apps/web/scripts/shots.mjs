@@ -16,6 +16,7 @@ async function dismissToasts(page) {
 
 const shots = [
   { path: '../../docs/demo/landing.png', route: '/', width: 1440, height: 900, fullPage: false },
+  { path: '../../docs/demo/discover.png', route: '/discover', width: 1440, height: 900, fullPage: false },
   { path: '../../docs/demo/storefront.png', route: '/b/rumah-kopi-senja', width: 1440, height: 900, fullPage: false },
   { path: '../../docs/demo/leaderboards.png', route: '/leaderboards', width: 1440, height: 900, fullPage: false },
 ];
@@ -27,7 +28,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   for (const s of shots) {
     await page.setViewportSize({ width: s.width, height: s.height });
-    await page.goto(BASE + s.route, { waitUntil: 'networkidle' });
+    await page.goto(BASE + s.route, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);
     await dismissToasts(page);
     await page.screenshot({ path: s.path, fullPage: s.fullPage });
@@ -35,13 +36,13 @@ try {
   }
   // Owner dashboard behind a real login.
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(BASE + '/login', { waitUntil: 'networkidle' });
+  await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
   await page.getByLabel(/email/i).fill('demo@allstuff.test');
   await page.getByLabel(/password/i).fill('DemoPass123!');
   await page.locator('form button[type=submit]').click();
   await page.waitForURL('**/me', { timeout: 15000 });
-  await page.goto(BASE + '/dashboard', { waitUntil: 'networkidle' });
+  await page.goto(BASE + '/dashboard', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
   await dismissToasts(page);
   await page.screenshot({ path: '../../docs/demo/dashboard.png', fullPage: false });
@@ -49,7 +50,7 @@ try {
   // OG card source: the landing hero at exactly 1200x630, logged OUT, in a
   // fresh context so no session header or toast leaks into the card.
   const og = await browser.newContext({ viewport: { width: 1200, height: 630 } }).then((c) => c.newPage());
-  await og.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await og.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
   await og.waitForTimeout(1500);
   await dismissToasts(og);
   await og.screenshot({ path: 'public/og-default.png', fullPage: false });

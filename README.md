@@ -4,13 +4,58 @@ A self-hostable business directory and storefront platform. Every business gets
 a storefront it can build without a developer; every user finds them through
 search, a map, and published rankings.
 
-| Landing (live verified-business count) | Storefront (trust badges, catalog, hours) |
-|---|---|
-| ![Landing](docs/demo/landing.png) | ![Storefront](docs/demo/storefront.png) |
+## Take the tour
 
-| Owner dashboard (real login, both seed businesses) | Trending leaderboards |
-|---|---|
-| ![Owner dashboard](docs/demo/dashboard.png) | ![Leaderboards](docs/demo/leaderboards.png) |
+Everything below runs against the two seeded Jakarta businesses, no signup
+needed. To click through as a human, sign in as the demo owner
+(`demo@allstuff.test` / `DemoPass123!`) or the platform admin
+(`admin@allstuff.test` / `DemoPass123!`, 2FA-enrolled — see [Run it](#run-it)).
+
+**Find a business.** Start at the landing page, then search with filters,
+suggestions, and sorting — or browse by category, city, or the map. Compare
+businesses side by side.
+
+| Landing (live verified-business count) |
+|---|
+| ![Landing](docs/demo/landing.png) |
+
+| Discover search (2 seeded results, live) |
+|---|
+| ![Discover](docs/demo/discover.png) |
+
+**Visit a storefront.** Catalog with prices, opening hours, location, reviews,
+helpful votes, Q&A, and trust badges — Verified means an admin checked the
+business; Fully Verified means they also read its registration documents.
+
+| Storefront (trust badges, catalog, hours) |
+|---|
+| ![Storefront](docs/demo/storefront.png) |
+
+**Book a visit, or just message them.** Services show real availability derived
+from hours, staff shifts, and blackouts; booking is free. Chat threads support
+attachments, replies, and push notifications.
+
+**See what is trending.** Engagement decays with time, so rankings reflect what
+is hot now, not what has always been big. A separate Rising board reserves
+visibility for new and small businesses.
+
+| Trending leaderboards |
+|---|
+| ![Leaderboards](docs/demo/leaderboards.png) |
+
+**Run a business.** The owner dashboard manages the storefront, catalog,
+bookings with day/week views and a waitlist, staff and locations, reviews and
+replies, announcements, and billing. Sign in as the demo owner — both seed
+businesses are already there.
+
+| Owner dashboard (real login, both seed businesses) |
+|---|
+| ![Owner dashboard](docs/demo/dashboard.png) |
+
+**Run the platform.** Admins verify businesses against submitted documents
+(every view is audit-logged), moderate reports and appeals, curate featured
+placements, and watch KPIs. Sign in as the admin (scan the printed QR into an
+authenticator app — the admin gate requires the enrolled 2FA factor).
 
 Captured against the seed by `apps/web/scripts/shots.mjs` (Playwright +
 `go run ./cmd/api -dev-login`); re-run it after visual changes so the tour
