@@ -172,6 +172,33 @@ func replayPool(t *testing.T, dsn, dbname string) *pgxpool.Pool {
 	return p
 }
 
+// migrateLocked runs db.Migrate holding the cluster-wide build lock on the
+// shared admin database. The runner's own advisory lock is per-database, so
+// concurrent migrates of different databases do not exclude each other —
+// and since 0041 every migrate writes cluster-shared catalog rows (role
+// membership, default privileges, schema ACLs), where two simultaneous runs
+// abort one side with "tuple concurrently updated". The test harness takes
+// the same lock around template builds (testutil); the replay loop must take
+// it too, or a template build elsewhere in the suite collides with a replay.
+// Lock granularity is one Migrate call, not the whole test: holding it across
+// the full replay would stall every other package's template build for the
+// test's entire duration.
+func migrateLocked(ctx context.Context, t *testing.T, admin *pgxpool.Pool, p *pgxpool.Pool, dir string) error {
+	t.Helper()
+	conn, err := admin.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('allstuff:tmpl-build'))`); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('allstuff:tmpl-build'))`)
+	}()
+	return Migrate(ctx, p, dir)
+}
+
 // dropIfExists issues a DROP DATABASE, tolerating the case where the database
 // does not exist. Uses FORCE so a lingering connection from a previous failed
 // run cannot block teardown.
@@ -227,7 +254,7 @@ func TestMigrateReplayIsSafe(t *testing.T) {
 	// Build the template once: this is the state a healthy, fully-migrated
 	// database is in.
 	tplPool := replayPool(t, dsn, tmpl)
-	if err := Migrate(ctx, tplPool, dir); err != nil {
+	if err := migrateLocked(ctx, t, admin, tplPool, dir); err != nil {
 		t.Fatalf("baseline migrate: %v", err)
 	}
 	want := schemaFingerprint(ctx, t, tplPool)
@@ -285,7 +312,7 @@ func TestMigrateReplayIsSafe(t *testing.T) {
 				t.Fatalf("clear marker: %v", err)
 			}
 
-			if err := Migrate(ctx, p, dir); err != nil {
+			if err := migrateLocked(ctx, t, admin, p, dir); err != nil {
 				t.Fatalf("replay of %s failed, so the migration is NOT idempotent.\n"+
 					"Re-running it after a crash between COMMIT and the version-marker write would "+
 					"wedge startup permanently:\n%v", version, err)
@@ -332,7 +359,7 @@ func TestMigrateFailsOnInvalidIndex(t *testing.T) {
 
 	p := replayPool(t, dsn, db)
 	defer p.Close()
-	if err := Migrate(ctx, p, dir); err != nil {
+	if err := migrateLocked(ctx, t, admin, p, dir); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 

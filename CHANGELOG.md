@@ -61,11 +61,12 @@
 ### Internals
 - Test template builds are serialized across `go test` processes
   (`testutil` takes `allstuff:tmpl-build` on the shared `postgres`
-  database). The migrate advisory lock is per-database, so it never
-  excluded concurrent builds of different template DBs — harmless until
-  `0041` wrote cluster-shared catalogs, at which point parallel
-  `service`+`repo`+`httpapi` suites aborted with `tuple concurrently
-  updated`. The runner documents the per-database scope.
+  database), and the replay loop takes the same lock per migrate call.
+  The migrate runner's advisory lock is per-database, so it never excluded
+  concurrent builds of different databases — harmless until `0041` wrote
+  cluster-shared catalogs, at which point parallel suites aborted with
+  `tuple concurrently updated` (proven by experiment, including a
+  lock-scope test showing a lock held in DB A invisible from DB B).
 - `SECURITY.md` no longer lists the owner-connection as a limitation; the
   `0041` reservation row is marked applied and `0042` superseded by `0053`.
 
