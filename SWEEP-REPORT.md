@@ -67,7 +67,7 @@ ran.
 | Live: boot API → `/health` 200 → csrf → dev-login → owner lists 2 businesses → search/trending/leaderboards return seed rows | 0 | full reviewer path exercised |
 | Dead-DB boot | fails fast at connect (exit 1) | so mid-run DB loss is the only window the health ping covers — tested by dead-pool unit test |
 | `npx playwright test` (full E2E, `CI=1`, seeded scratch DB) | 46 passed, 0 failed (~5 min), twice: pre-RLS baseline and on the final tree incl. 0041–0054 + all round-3 web fixes (second run on alt ports 3001/8091 to dodge a foreign squatter on :3000/:8080; config reverted after) | production `next start` + `go run ./cmd/api`, serial Chromium; two `[WebServer] ReferenceError: document is not defined` lines from `/discover?q=` SSR led to the `document.activeElement` render-guard fix |
-| CI (GitHub Actions) | not run here | no push per policy; workflow files untouched. See §7. |
+| CI (GitHub Actions, run 41678405287 on pushed `c133d61`) | success — Web, CodeQL, Go API, Security, E2E all green (~30 min) | after the template-build serialization fix + replay migrate-lock; the prior run failed on the `0041` shared-catalog race, which is exactly what these two changes close |
 
 ## 5. Deferred (item, severity, why, cost)
 
